@@ -152,13 +152,6 @@ function WelcomeScreen({ greeting, firstName, onSuggest }: {
   return (
     <div className="flex min-h-full flex-col items-center justify-center px-4 py-10">
       <div className="w-full max-w-lg">
-        {/* Brand mark */}
-        <div className="mb-5 flex justify-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand text-base font-black text-white shadow-lg shadow-brand/25">
-            KI
-          </div>
-        </div>
-
         <h2 className="text-center text-2xl font-extrabold text-gray-900">{greeting}, {firstName}</h2>
         <p className="mt-1.5 text-center text-sm text-gray-500">
           Ask anything across your Knowledge Innovations documents.
@@ -213,11 +206,56 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
 
 
 
+  // Restore last active session from localStorage on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('ki_last_session')
+      if (!raw) return
+      const { convId, messages: saved } = JSON.parse(raw) as {
+        convId: string
+        messages: StoredMessage[]
+      }
+      if (!convId || !Array.isArray(saved) || saved.length === 0) return
+      setSessionConvId(convId)
+      setMessages(saved.map(m => ({
+        role: m.role,
+        text: m.text,
+        ...(m.role === 'ai' && {
+          response: {
+            answer:           m.text,
+            citations:        [],
+            risks:            m.risks ?? [],
+            recommendations:  m.recommendations ?? [],
+            confidence_score: 0,
+          },
+        }),
+      })))
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Persist active session whenever it changes
+  useEffect(() => {
+    if (!sessionConvId || messages.length === 0) return
+    try {
+      const storable = messages
+        .filter(m => !m.streaming)
+        .map(m => ({
+          role:            m.role,
+          text:            m.text,
+          risks:           m.response?.risks,
+          recommendations: m.response?.recommendations,
+        }))
+      localStorage.setItem('ki_last_session', JSON.stringify({ convId: sessionConvId, messages: storable }))
+    } catch {}
+  }, [sessionConvId, messages])
+
   // Listen for sidebar "New Chat"
   useEffect(() => {
     const handler = () => {
       setMessages([])
-      setSessionConvId(null)   // reset session so next message creates a new sidebar entry
+      setSessionConvId(null)
+      try { localStorage.removeItem('ki_last_session') } catch {}
       setTimeout(() => textareaRef.current?.focus(), 50)
     }
     window.addEventListener('new-chat', handler)

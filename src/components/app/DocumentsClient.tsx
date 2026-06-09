@@ -40,9 +40,12 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
   const [previewDocId,   setPreviewDocId]  = useState<string | null>(null)
   // undefined = closed, null = add mode, Category = edit mode
   const [editingCategory, setEditingCategory] = useState<Category | null | undefined>(undefined)
-  // delete state
+  // document delete state
   const [deleteTarget,   setDeleteTarget]  = useState<{ id: string; title: string } | null>(null)
   const [deleting,       setDeleting]      = useState(false)
+  // category delete state
+  const [catDeleteTarget, setCatDeleteTarget] = useState<Category | null>(null)
+  const [catDeleting,     setCatDeleting]     = useState(false)
   const router = useRouter()
 
   const getCat = (value: string | null | undefined) =>
@@ -109,6 +112,20 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
     setEditingCategory(undefined)
   }
 
+  async function handleCategoryDirectDelete() {
+    if (!catDeleteTarget?.dbId) return
+    setCatDeleting(true)
+    try {
+      const res = await fetch(`/api/categories/${catDeleteTarget.dbId}`, { method: 'DELETE' })
+      if (res.ok) {
+        handleCategoryDeleted(catDeleteTarget.value)
+        if (filter === catDeleteTarget.value) setFilter('all')
+      }
+    } catch {}
+    setCatDeleting(false)
+    setCatDeleteTarget(null)
+  }
+
   return (
     <div className="space-y-6">
 
@@ -162,12 +179,22 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
             </button>
 
             {canUpload && (
-              <button
-                onClick={e => { e.stopPropagation(); setEditingCategory(cat) }}
-                title="Edit / delete category"
-                className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-lg bg-white/90 text-gray-400 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-gray-700 md:opacity-0 md:group-hover:opacity-100">
-                <Pencil className="h-3 w-3" />
-              </button>
+              <div className="absolute right-1.5 top-1.5 flex flex-col gap-1">
+                <button
+                  onClick={e => { e.stopPropagation(); setEditingCategory(cat) }}
+                  title="Edit category"
+                  className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/90 text-gray-400 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-gray-700 md:opacity-0 md:group-hover:opacity-100">
+                  <Pencil className="h-3 w-3" />
+                </button>
+                {cat.isCustom && cat.dbId && (
+                  <button
+                    onClick={e => { e.stopPropagation(); setCatDeleteTarget(cat) }}
+                    title="Delete category"
+                    className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/90 text-red-400 shadow-sm backdrop-blur-sm transition hover:bg-red-50 hover:text-red-600 md:opacity-0 md:group-hover:opacity-100">
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
             )}
           </div>
         ))}
@@ -407,6 +434,35 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
         docId={previewDocId}
         onClose={() => setPreviewDocId(null)}
       />
+
+      {/* ── Category delete confirmation ────────────────────── */}
+      {catDeleteTarget && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+          <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 border border-red-200">
+              <Trash2 className="h-5 w-5 text-red-500" />
+            </div>
+            <h3 className="mt-4 text-base font-bold text-gray-900">Delete &ldquo;{catDeleteTarget.label}&rdquo;?</h3>
+            <p className="mt-1.5 text-sm text-gray-500 leading-relaxed">
+              The category will be removed. Documents in this category won&apos;t be deleted — they&apos;ll become uncategorised.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setCatDeleteTarget(null)}
+                disabled={catDeleting}
+                className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50">
+                Cancel
+              </button>
+              <button
+                onClick={handleCategoryDirectDelete}
+                disabled={catDeleting}
+                className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:opacity-50">
+                {catDeleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Delete confirmation ─────────────────────────────── */}
       {deleteTarget && (
