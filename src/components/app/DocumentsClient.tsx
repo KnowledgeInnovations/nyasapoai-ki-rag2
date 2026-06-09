@@ -137,26 +137,26 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
       </div>
 
       {/* ── Category overview cards ─────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8">
         {categories.map(cat => (
           <div key={cat.value} className="relative group">
             <button
               onClick={() => setFilter(filter === cat.value ? 'all' : cat.value)}
               disabled={(counts[cat.value] ?? 0) === 0 && filter !== cat.value}
               className={cn(
-                'w-full flex flex-col items-start rounded-2xl border p-4 text-left transition hover:shadow-md disabled:cursor-default disabled:opacity-40',
+                'w-full flex flex-col items-start rounded-xl border p-2.5 text-left transition hover:shadow-md disabled:cursor-default disabled:opacity-40 sm:rounded-2xl sm:p-4',
                 filter === cat.value
                   ? `${cat.activeBorder} ${cat.activeBg} shadow-sm`
                   : 'border-gray-200 bg-white hover:border-gray-300'
               )}>
               <cat.icon className={cn(
-                'mb-2 h-5 w-5 transition',
+                'mb-1.5 h-4 w-4 transition sm:mb-2 sm:h-5 sm:w-5',
                 filter === cat.value ? cat.textColor : 'text-gray-400 group-hover:text-gray-500',
               )} />
-              <p className={cn('text-xl font-black leading-none', filter === cat.value ? cat.activeText : 'text-gray-900')}>
+              <p className={cn('text-lg font-black leading-none sm:text-xl', filter === cat.value ? cat.activeText : 'text-gray-900')}>
                 {counts[cat.value] ?? 0}
               </p>
-              <p className={cn('mt-1 text-xs font-semibold leading-tight', filter === cat.value ? cat.activeText : 'text-gray-500')}>
+              <p className={cn('mt-0.5 text-[10px] font-semibold leading-tight sm:mt-1 sm:text-xs', filter === cat.value ? cat.activeText : 'text-gray-500')}>
                 {cat.label}
               </p>
             </button>
@@ -246,93 +246,142 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
           )}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 bg-gray-50/80 text-left">
-                <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400">Document</th>
-                <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400">Category</th>
-                <th className="hidden px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400 sm:table-cell">Access</th>
-                <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400">Status</th>
-                <th className="hidden px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400 lg:table-cell">Added</th>
-                {canDelete && <th className="w-10 px-3 py-3" />}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {filtered.map(doc => {
-                const s   = statusConfig[doc.status]
-                const cat = getCat(doc.department)
-                return (
-                  <tr key={doc.id}
-                    onClick={() => setPreviewDocId(doc.id)}
-                    className={cn(
-                      'cursor-pointer transition-colors',
-                      previewDocId === doc.id ? 'bg-brand-light' : 'hover:bg-gray-50/80'
-                    )}>
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-2.5">
-                        <div className={cn(
-                          'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border',
-                          cat ? `${cat.bgColor} ${cat.borderColor}` : 'bg-gray-50 border-gray-200'
-                        )}>
-                          {cat
-                            ? <cat.icon className={cn('h-4 w-4', cat.textColor)} />
-                            : <FileText className="h-4 w-4 text-gray-400" />}
-                        </div>
-                        <div className="min-w-0">
-                          <p className={cn('truncate font-semibold max-w-[200px]', previewDocId === doc.id ? 'text-brand' : 'text-gray-900')}>{doc.title}</p>
-                          <p className="truncate text-xs text-gray-400 max-w-[200px]">{doc.source}</p>
-                        </div>
-                      </div>
-                    </td>
+        <>
+          {/* ── Mobile card list (< md) ──────────────────────────── */}
+          <div className="space-y-2.5 md:hidden">
+            {filtered.map(doc => {
+              const s   = statusConfig[doc.status]
+              const cat = getCat(doc.department)
+              return (
+                <div
+                  key={doc.id}
+                  onClick={() => setPreviewDocId(doc.id)}
+                  className={cn(
+                    'flex cursor-pointer items-start gap-3 rounded-2xl border bg-white p-3.5 shadow-sm transition active:scale-[0.99]',
+                    previewDocId === doc.id ? 'border-brand/30 bg-brand-light/30' : 'border-gray-200',
+                  )}>
+                  {/* Icon */}
+                  <div className={cn(
+                    'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border',
+                    cat ? `${cat.bgColor} ${cat.borderColor}` : 'bg-gray-50 border-gray-200',
+                  )}>
+                    {cat
+                      ? <cat.icon className={cn('h-5 w-5', cat.textColor)} />
+                      : <FileText className="h-5 w-5 text-gray-400" />}
+                  </div>
 
-                    <td className="px-5 py-3.5">
-                      {cat ? (
-                        <span className={cn(
-                          'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold',
-                          cat.bgColor, cat.borderColor, cat.textColor
-                        )}>
-                          <cat.icon className="h-3 w-3" />
-                          {cat.label}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-gray-400">—</span>
-                      )}
-                    </td>
-
-                    <td className="hidden px-5 py-3.5 sm:table-cell">
-                      <span className="capitalize text-xs text-gray-500">{doc.sensitivity}</span>
-                    </td>
-
-                    <td className="px-5 py-3.5">
-                      <span className={cn(
-                        'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold',
-                        s.cls
-                      )}>
-                        <s.icon className="h-3 w-3" />
-                        {s.label}
+                  {/* Content */}
+                  <div className="min-w-0 flex-1">
+                    <p className={cn('truncate text-sm font-semibold', previewDocId === doc.id ? 'text-brand' : 'text-gray-900')}>
+                      {doc.title}
+                    </p>
+                    <p className="mt-0.5 truncate text-xs text-gray-400">{doc.source}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      {/* Status chip */}
+                      <span className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold', s.cls)}>
+                        <s.icon className="h-2.5 w-2.5" />{s.label}
                       </span>
-                    </td>
+                      {/* Category chip */}
+                      {cat && (
+                        <span className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold', cat.bgColor, cat.borderColor, cat.textColor)}>
+                          <cat.icon className="h-2.5 w-2.5" />{cat.label}
+                        </span>
+                      )}
+                      {/* Date */}
+                      <span className="text-[10px] text-gray-400">{formatDate(doc.created_at)}</span>
+                    </div>
+                  </div>
 
-                    <td className="hidden px-5 py-3.5 text-xs text-gray-400 lg:table-cell">
-                      {formatDate(doc.created_at)}
-                    </td>
-                    {canDelete && (
-                      <td className="px-3 py-3.5" onClick={e => e.stopPropagation()}>
-                        <button
-                          onClick={() => setDeleteTarget({ id: doc.id, title: doc.title })}
-                          className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-300 transition hover:bg-red-50 hover:text-red-500"
-                          title="Delete document">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                  {/* Delete button */}
+                  {canDelete && (
+                    <button
+                      onClick={e => { e.stopPropagation(); setDeleteTarget({ id: doc.id, title: doc.title }) }}
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-300 transition hover:bg-red-50 hover:text-red-500">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* ── Desktop table (md+) ─────────────────────────────── */}
+          <div className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm md:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50/80 text-left">
+                  <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400">Document</th>
+                  <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400">Category</th>
+                  <th className="hidden px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400 sm:table-cell">Access</th>
+                  <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400">Status</th>
+                  <th className="hidden px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400 lg:table-cell">Added</th>
+                  {canDelete && <th className="w-10 px-3 py-3" />}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filtered.map(doc => {
+                  const s   = statusConfig[doc.status]
+                  const cat = getCat(doc.department)
+                  return (
+                    <tr key={doc.id}
+                      onClick={() => setPreviewDocId(doc.id)}
+                      className={cn(
+                        'cursor-pointer transition-colors',
+                        previewDocId === doc.id ? 'bg-brand-light' : 'hover:bg-gray-50/80',
+                      )}>
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center gap-2.5">
+                          <div className={cn(
+                            'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border',
+                            cat ? `${cat.bgColor} ${cat.borderColor}` : 'bg-gray-50 border-gray-200',
+                          )}>
+                            {cat
+                              ? <cat.icon className={cn('h-4 w-4', cat.textColor)} />
+                              : <FileText className="h-4 w-4 text-gray-400" />}
+                          </div>
+                          <div className="min-w-0">
+                            <p className={cn('truncate font-semibold max-w-[220px]', previewDocId === doc.id ? 'text-brand' : 'text-gray-900')}>{doc.title}</p>
+                            <p className="truncate text-xs text-gray-400 max-w-[220px]">{doc.source}</p>
+                          </div>
+                        </div>
                       </td>
-                    )}
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                      <td className="px-5 py-3.5">
+                        {cat ? (
+                          <span className={cn('inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold', cat.bgColor, cat.borderColor, cat.textColor)}>
+                            <cat.icon className="h-3 w-3" />{cat.label}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="hidden px-5 py-3.5 sm:table-cell">
+                        <span className="capitalize text-xs text-gray-500">{doc.sensitivity}</span>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <span className={cn('inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold', s.cls)}>
+                          <s.icon className="h-3 w-3" />{s.label}
+                        </span>
+                      </td>
+                      <td className="hidden px-5 py-3.5 text-xs text-gray-400 lg:table-cell">
+                        {formatDate(doc.created_at)}
+                      </td>
+                      {canDelete && (
+                        <td className="px-3 py-3.5" onClick={e => e.stopPropagation()}>
+                          <button
+                            onClick={() => setDeleteTarget({ id: doc.id, title: doc.title })}
+                            className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-300 transition hover:bg-red-50 hover:text-red-500"
+                            title="Delete document">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {/* ── Modals ─────────────────────────────────────────── */}

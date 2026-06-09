@@ -48,13 +48,13 @@ export default async function HRDashboard() {
 
   return (
     <DashboardShell title="HR Dashboard" description="Headcount, recruitment, performance, and staff development from your documents." lastUpdated={now}>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard icon={Users}         label="Documents Indexed"    value={String(docCount ?? 0)}   sub="Workspace knowledge"           live color="text-rose-600 bg-rose-50" />
         <StatCard icon={MessageSquare} label="AI Queries (30 days)" value={String(convsMonth ?? 0)} sub={`${convsTotal ?? 0} all-time`} live color="text-brand bg-brand-light" />
         <StatCard icon={UserPlus}      label="Staffing Status"      value="AI"                      sub="Analysed from documents"       live color="text-amber-600 bg-amber-50" />
         <StatCard icon={Calendar}      label="Leave & Attendance"   value="AI"                      sub="Analysed from documents"       live color="text-purple-600 bg-purple-50" />
       </div>
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <DashboardInsightsGroup insights={INSIGHTS} />
       </div>
     </DashboardShell>

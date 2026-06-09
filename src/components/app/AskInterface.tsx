@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import {
-  Send, MessageSquare, Sparkles,
+  Send, Sparkles,
   AlertTriangle, CheckCircle2, Paperclip,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -150,36 +150,32 @@ function WelcomeScreen({ greeting, firstName, onSuggest }: {
   greeting: string; firstName: string; onSuggest: (q: string) => void
 }) {
   return (
-    <div className="flex min-h-full flex-col items-center justify-center px-6 py-16">
-      <div className="w-full max-w-2xl">
+    <div className="flex min-h-full flex-col items-center justify-center px-4 py-10">
+      <div className="w-full max-w-lg">
         {/* Brand mark */}
-        <div className="mb-6 flex justify-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand text-lg font-black text-white shadow-lg shadow-brand/25">
+        <div className="mb-5 flex justify-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand text-base font-black text-white shadow-lg shadow-brand/25">
             KI
           </div>
         </div>
 
-        <h2 className="text-center text-3xl font-extrabold text-gray-900">{greeting}, {firstName}</h2>
-        <p className="mt-2 text-center text-base text-gray-500">
-          Ask anything across your Knowledge Innovations documents. I cite every answer.
+        <h2 className="text-center text-2xl font-extrabold text-gray-900">{greeting}, {firstName}</h2>
+        <p className="mt-1.5 text-center text-sm text-gray-500">
+          Ask anything across your Knowledge Innovations documents.
         </p>
 
-        <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {/* Always 2×2 grid — works on all screen sizes */}
+        <div className="mt-6 grid grid-cols-2 gap-2.5">
           {SUGGESTIONS.map(s => (
             <button key={s.text} onClick={() => onSuggest(s.text)}
-              className="group flex items-start gap-3 rounded-2xl border border-gray-200 bg-white p-4 text-left shadow-sm transition hover:border-brand/30 hover:bg-brand-light/40 hover:shadow-md">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-100 transition group-hover:bg-brand">
-                <MessageSquare className="h-4 w-4 text-gray-500 transition group-hover:text-white" />
-              </div>
-              <div className="min-w-0">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-brand">{s.category}</span>
-                <p className="mt-0.5 text-sm leading-snug text-gray-700">{s.text}</p>
-              </div>
+              className="group flex flex-col items-start rounded-2xl border border-gray-200 bg-white p-3.5 text-left shadow-sm transition hover:border-brand/30 hover:bg-brand-light/40 hover:shadow-md active:scale-[0.98]">
+              <span className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-brand">{s.category}</span>
+              <p className="text-xs leading-snug text-gray-700">{s.text}</p>
             </button>
           ))}
         </div>
 
-        <p className="mt-6 text-center text-xs text-gray-400">
+        <p className="mt-5 hidden text-center text-xs text-gray-400 sm:block">
           Press <kbd className="rounded border border-gray-200 bg-white px-1.5 py-0.5 font-mono text-[10px] shadow-sm">Enter</kbd> to send ·{' '}
           <kbd className="rounded border border-gray-200 bg-white px-1.5 py-0.5 font-mono text-[10px] shadow-sm">Shift+Enter</kbd> for new line
         </p>
@@ -401,8 +397,8 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto bg-[#f8f9fc]">
+      {/* Messages — min-h-0 fixes flex overflow on iOS Safari */}
+      <div className="min-h-0 flex-1 overflow-y-auto bg-[#f8f9fc]" style={{ WebkitOverflowScrolling: 'touch' }}>
         {messages.length === 0 ? (
           <WelcomeScreen greeting={greeting} firstName={firstName} onSuggest={submit} />
         ) : (

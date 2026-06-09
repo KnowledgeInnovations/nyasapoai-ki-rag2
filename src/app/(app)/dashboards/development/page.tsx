@@ -60,13 +60,13 @@ export default async function DevelopmentDashboard() {
 
   return (
     <DashboardShell title="Development Dashboard" description="Project progress, milestones, costs, and contractor performance from your documents." lastUpdated={now}>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard icon={HardHat}       label="Site Reports"        value={String(siteReportCount ?? 0)} sub="Indexed and searchable"        live color="text-orange-600 bg-orange-50" />
         <StatCard icon={Ruler}         label="Design and Plans"    value={String(designCount ?? 0)}     sub="Indexed and searchable"        live color="text-cyan-600 bg-cyan-50" />
         <StatCard icon={MessageSquare} label="AI Queries (7 days)" value={String(convsWeek ?? 0)}       sub={`${convsTotal ?? 0} all-time`} live color="text-brand bg-brand-light" />
         <StatCard icon={Hammer}        label="Project Status"      value="AI"                           sub="Analysed from documents"        live color="text-purple-600 bg-purple-50" />
       </div>
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <DashboardInsightsGroup insights={INSIGHTS} />
       </div>
       <DocList docs={allDevDocs} cat={siteReportCat} title="Site Reports and Design Plans" emptyText="No development documents yet" />

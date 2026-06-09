@@ -48,13 +48,13 @@ export default async function CommunicationsDashboard() {
 
   return (
     <DashboardShell title="Communications Dashboard" description="Internal announcements, staff engagement, and communication effectiveness from your documents." lastUpdated={now}>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard icon={Radio}         label="Documents Indexed"   value={String(docCount ?? 0)}   sub="Workspace knowledge"           live color="text-blue-600 bg-blue-50" />
         <StatCard icon={MessageSquare} label="AI Queries (7 days)" value={String(convsWeek ?? 0)}  sub={`${convsTotal ?? 0} all-time`} live color="text-brand bg-brand-light" />
         <StatCard icon={Mail}          label="Key Announcements"   value="AI"                      sub="Analysed from documents"       live color="text-indigo-600 bg-indigo-50" />
         <StatCard icon={Users}         label="Staff Engagement"    value="AI"                      sub="Analysed from documents"       live color="text-green-600 bg-green-50" />
       </div>
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <DashboardInsightsGroup insights={INSIGHTS} />
       </div>
     </DashboardShell>

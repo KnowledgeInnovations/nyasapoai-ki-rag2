@@ -52,13 +52,13 @@ export default async function ClientServiceDashboard() {
 
   return (
     <DashboardShell title="Client Service Dashboard" description="Client onboarding, payments, satisfaction, and open requests from your documents." lastUpdated={now}>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard icon={HeartHandshake} label="Legal and Client Docs" value={String(legalCount ?? 0)} sub="Permits, deeds, compliance"   live color="text-cyan-600 bg-cyan-50" />
         <StatCard icon={MessageSquare}  label="AI Queries (7 days)"   value={String(convsWeek ?? 0)}  sub={`${convsTotal ?? 0} all-time`} live color="text-brand bg-brand-light" />
         <StatCard icon={ClipboardList}  label="Client Issues"         value="AI"                      sub="Analysed from documents"       live color="text-amber-600 bg-amber-50" />
         <StatCard icon={Star}           label="Satisfaction"          value="AI"                      sub="Analysed from documents"       live color="text-purple-600 bg-purple-50" />
       </div>
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <DashboardInsightsGroup insights={INSIGHTS} />
       </div>
       <DocList docs={legalDocs} cat={cat} title="Legal and Client Documents" emptyText="No legal documents yet" />
