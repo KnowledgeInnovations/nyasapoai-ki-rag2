@@ -47,7 +47,7 @@ export default function AppTopNav({ user, onMenuOpen, sidebarCollapsed, onToggle
   const pageTitle   = Object.entries(pageTitles).find(([k]) => pathname.startsWith(k))?.[1] ?? 'Workspace'
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-gray-100 bg-white/95 px-4 shadow-sm backdrop-blur-sm">
+    <header className="relative z-[300] flex h-14 shrink-0 items-center justify-between border-b border-gray-100 bg-white px-4 shadow-sm">
 
       {/* Left: sidebar toggles + page title */}
       <div className="flex items-center gap-2">
@@ -89,9 +89,9 @@ export default function AppTopNav({ user, onMenuOpen, sidebarCollapsed, onToggle
           {menuOpen && (
             <>
               {/* Backdrop — closes menu on outside tap */}
-              <div className="fixed inset-0 z-[150]" onClick={() => setMenuOpen(false)} />
-              {/* Dropdown — fixed so it's never clipped by overflow:hidden parents */}
-              <div className="fixed right-3 top-[56px] z-[200] w-56 rounded-2xl border border-gray-200 bg-white py-1.5 shadow-2xl shadow-black/10">
+              <div className="fixed inset-0 z-[350]" onClick={() => setMenuOpen(false)} />
+              {/* Dropdown — fixed, above header z-index */}
+              <div className="fixed right-3 top-[58px] z-[400] w-56 rounded-2xl border border-gray-200 bg-white py-1.5 shadow-2xl shadow-black/10">
                 <div className="border-b border-gray-100 px-4 py-3">
                   <p className="text-xs font-bold text-gray-800">{displayName}</p>
                   <p className="truncate text-[11px] text-gray-400">{user.email}</p>
