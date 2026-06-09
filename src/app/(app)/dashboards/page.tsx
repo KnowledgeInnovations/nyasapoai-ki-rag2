@@ -7,7 +7,7 @@ import {
   HardHat, Banknote, Users, Radio, ArrowRight,
 } from 'lucide-react'
 
-export const metadata: Metadata = { title: 'Dashboards - Devtraco Plus' }
+export const metadata: Metadata = { title: 'Dashboards - Knowledge Innovations' }
 
 const ALLOWED_ROLES = ['admin', 'exco', 'senior_manager', 'senior', 'middle']
 

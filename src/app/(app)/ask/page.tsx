@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { getUser } from '@/lib/supabase/server'
 import AskInterface from '@/components/app/AskInterface'
 
-export const metadata: Metadata = { title: 'Ask AI — Devtraco Plus' }
+export const metadata: Metadata = { title: 'Ask AI — Knowledge Innovations' }
 
 export default async function AskPage() {
   const user = await getUser()

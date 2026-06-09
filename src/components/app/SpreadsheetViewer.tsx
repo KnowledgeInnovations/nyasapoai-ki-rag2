@@ -71,7 +71,7 @@ export default function SpreadsheetViewer({ url }: Props) {
               onClick={() => setActive(i)}
               className={`shrink-0 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
                 i === active
-                  ? 'bg-gray-900 text-white'
+                  ? 'bg-brand text-white'
                   : 'border border-gray-200 text-gray-500 hover:bg-gray-50'
               }`}
             >

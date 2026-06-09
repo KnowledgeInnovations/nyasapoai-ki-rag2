@@ -75,7 +75,7 @@ function LoginForm() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-extrabold text-gray-900">Welcome back</h2>
-        <p className="mt-1 text-sm text-gray-500">Sign in to your Devtraco Plus workspace</p>
+        <p className="mt-1 text-sm text-gray-500">Sign in to your Knowledge Innovations workspace</p>
       </div>
 
       {/* Mode tabs */}
@@ -106,7 +106,7 @@ function LoginForm() {
               autoFocus
               value={email}
               onChange={e => setEmail(e.target.value)}
-              placeholder="you@devtraco.com"
+              placeholder="you@knowledgeinnovations.com"
               className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder-gray-400 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
             />
           </div>
@@ -130,7 +130,7 @@ function LoginForm() {
           </div>
 
           <button type="submit" disabled={loading}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-navy py-3.5 text-sm font-bold text-white shadow-lg shadow-navy/20 transition hover:bg-navy-mid disabled:opacity-60">
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-3.5 text-sm font-bold text-white shadow-lg shadow-brand/20 transition hover:bg-brand-dark disabled:opacity-60">
             {loading
               ? <><Loader2 className="h-4 w-4 animate-spin" /> Signing in…</>
               : <>Sign in <ArrowRight className="h-4 w-4" /></>}
@@ -146,7 +146,7 @@ function LoginForm() {
               autoFocus
               value={email}
               onChange={e => setEmail(e.target.value)}
-              placeholder="you@devtraco.com"
+              placeholder="you@knowledgeinnovations.com"
               className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder-gray-400 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
             />
           </div>
@@ -154,7 +154,7 @@ function LoginForm() {
             We&apos;ll send a secure sign-in link to your inbox. No password needed.
           </p>
           <button type="submit" disabled={loading}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-navy py-3.5 text-sm font-bold text-white shadow-lg shadow-navy/20 transition hover:bg-navy-mid disabled:opacity-60">
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-3.5 text-sm font-bold text-white shadow-lg shadow-brand/20 transition hover:bg-brand-dark disabled:opacity-60">
             {loading
               ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending link…</>
               : <><Mail className="h-4 w-4" /> Send sign-in link</>}
@@ -169,53 +169,54 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen">
 
-      {/* ── Left panel — dark navy brand ───────────────────── */}
-      <div className="relative hidden overflow-hidden lg:flex lg:w-[44%] xl:w-[40%] flex-col bg-navy p-12">
+      {/* ── Left panel — light brand ─────────────────────────── */}
+      <div className="relative hidden overflow-hidden lg:flex lg:w-[44%] xl:w-[40%] flex-col bg-brand-light border-r border-brand/10 p-12">
         {/* Ambient glows */}
         <div className="pointer-events-none absolute inset-0">
-          <div className="absolute right-0 top-1/3 h-96 w-96 rounded-full bg-gold/7 blur-3xl" />
-          <div className="absolute bottom-1/4 left-0 h-72 w-72 rounded-full bg-brand/12 blur-3xl" />
+          <div className="absolute right-0 top-1/3 h-96 w-96 rounded-full bg-gold/10 blur-3xl" />
+          <div className="absolute bottom-1/4 left-0 h-72 w-72 rounded-full bg-brand/10 blur-3xl" />
         </div>
 
         <div className="relative z-10 flex flex-1 flex-col">
           {/* Logo */}
           <Link href="/" className="inline-flex items-center gap-3">
-            <div className="flex items-center justify-center rounded-xl bg-white px-2 py-1.5 shadow-xl overflow-hidden">
-              <img src="/devtraco-logo.png" alt="Devtraco Plus" className="h-7 w-auto object-contain" style={{ maxWidth: '110px' }} />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand text-sm font-extrabold text-white shadow-sm">
+              KI
             </div>
             <div>
-              <p className="text-[11px] text-white/40 leading-tight">Intelligence workspace</p>
+              <p className="text-sm font-extrabold text-gray-900 leading-tight">Knowledge Innovations</p>
+              <p className="text-[11px] text-gray-500 leading-tight">Intelligence workspace</p>
             </div>
           </Link>
 
           {/* Hero copy */}
           <div className="mt-auto">
-            <p className="mb-4 text-[11px] font-bold uppercase tracking-widest text-gold">
+            <p className="mb-4 text-[11px] font-bold uppercase tracking-widest text-brand">
               Powered by NyasapoAI
             </p>
-            <h1 className="text-4xl font-extrabold leading-[1.15] text-white">
+            <h1 className="text-4xl font-extrabold leading-[1.15] text-gray-900">
               Every answer.<br />
               Every source.<br />
-              <span className="bg-gradient-to-r from-gold to-yellow-300 bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-brand to-gold bg-clip-text text-transparent">
                 Instantly found.
               </span>
             </h1>
-            <p className="mt-5 text-[15px] leading-relaxed text-white/50">
+            <p className="mt-5 text-[15px] leading-relaxed text-gray-500">
               Ask questions across thousands of project files, contracts, and site reports — get cited answers in seconds.
             </p>
 
             <ul className="mt-8 space-y-3.5">
               {FEATURES.map(f => (
-                <li key={f} className="flex items-start gap-3 text-sm text-white/55">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-gold/60" />
+                <li key={f} className="flex items-start gap-3 text-sm text-gray-600">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-brand/60" />
                   {f}
                 </li>
               ))}
             </ul>
           </div>
 
-          <p className="mt-12 text-[11px] text-white/20">
-            © {new Date().getFullYear()} Devtraco Plus · Knowledge Innovations Ltd
+          <p className="mt-12 text-[11px] text-gray-400">
+            © {new Date().getFullYear()} Knowledge Innovations Ltd
           </p>
         </div>
       </div>
@@ -225,9 +226,10 @@ export default function LoginPage() {
 
         {/* Mobile-only logo */}
         <Link href="/" className="mb-8 inline-flex items-center gap-3 lg:hidden">
-          <div className="flex items-center justify-center rounded-xl bg-white border border-gray-200 px-3 py-2 shadow-md overflow-hidden">
-            <img src="/devtraco-logo.png" alt="Devtraco Plus" className="h-7 w-auto object-contain" style={{ maxWidth: '120px' }} />
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand text-sm font-extrabold text-white shadow-md">
+            KI
           </div>
+          <span className="text-sm font-extrabold text-gray-900">Knowledge Innovations</span>
         </Link>
 
         {/* Card */}

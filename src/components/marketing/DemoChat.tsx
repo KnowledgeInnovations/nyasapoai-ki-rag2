@@ -75,7 +75,7 @@ export default function DemoChat() {
               'rounded-full px-4 py-2 text-xs font-semibold transition-all',
               active === i
                 ? 'bg-gold text-navy shadow-lg shadow-gold/25'
-                : 'bg-white/8 text-white/50 hover:bg-white/15 hover:text-white'
+                : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-900'
             )}
           >
             {d.tab}
@@ -84,16 +84,16 @@ export default function DemoChat() {
       </div>
 
       {/* Chat window */}
-      <div className="rounded-2xl border border-white/10 bg-[#0d1120] overflow-hidden shadow-2xl shadow-black/40">
+      <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-2xl shadow-black/10">
         {/* Browser chrome */}
-        <div className="flex h-10 items-center gap-2 border-b border-white/8 bg-white/4 px-4">
+        <div className="flex h-10 items-center gap-2 border-b border-gray-200 bg-gray-50 px-4">
           <div className="h-2.5 w-2.5 rounded-full bg-red-500/40" />
-          <div className="h-2.5 w-2.5 rounded-full bg-yellow-500/40" />
+          <div className="h-2.5 w-2.5 rounded-full bg-amber-500/40" />
           <div className="h-2.5 w-2.5 rounded-full bg-green-500/40" />
-          <div className="ml-4 flex-1 rounded-md bg-white/8 px-3 py-1 text-[11px] text-white/25">
-            devtraco.nyasapoai.com/ask
+          <div className="ml-4 flex-1 rounded-md bg-gray-100 px-3 py-1 text-[11px] text-gray-400">
+            knowledgeinnovations.nyasapoai.com/ask
           </div>
-          <div className="flex items-center gap-1.5 text-[11px] text-white/20">
+          <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
             <MessageSquare className="h-3 w-3" />
             Ask AI
           </div>
@@ -102,23 +102,23 @@ export default function DemoChat() {
         <div className="p-6 space-y-5 min-h-[340px]">
           {/* User bubble */}
           <div className="flex justify-end">
-            <div className="max-w-sm rounded-2xl rounded-tr-sm bg-brand/70 px-4 py-3 text-sm text-white leading-relaxed">
+            <div className="max-w-sm rounded-2xl rounded-tr-sm bg-brand px-4 py-3 text-sm text-white leading-relaxed">
               {demo.question}
             </div>
           </div>
 
           {/* AI bubble */}
           <div className="flex gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold/15 border border-gold/25 mt-1">
-              <span className="text-[10px] font-black text-gold">AI</span>
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-light border border-brand/20 mt-1">
+              <span className="text-[10px] font-black text-brand">AI</span>
             </div>
             <div className="flex-1 space-y-3">
-              <div className="rounded-2xl rounded-tl-sm border border-white/8 bg-white/4 px-5 py-4">
-                <p className="text-sm text-white/75 mb-3 leading-relaxed">{demo.answer.intro}</p>
+              <div className="rounded-2xl rounded-tl-sm border border-gray-200 bg-gray-50 px-5 py-4">
+                <p className="text-sm text-gray-700 mb-3 leading-relaxed">{demo.answer.intro}</p>
                 <ul className="space-y-2">
                   {demo.answer.bullets.map((b, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-white/60 leading-relaxed">
-                      <ChevronRight className="h-4 w-4 shrink-0 text-gold/50 mt-0.5" />
+                    <li key={i} className="flex items-start gap-2 text-sm text-gray-600 leading-relaxed">
+                      <ChevronRight className="h-4 w-4 shrink-0 text-brand/50 mt-0.5" />
                       {b}
                     </li>
                   ))}
@@ -126,27 +126,27 @@ export default function DemoChat() {
               </div>
 
               {/* Source citation */}
-              <div className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-                <FileText className="h-3.5 w-3.5 shrink-0 text-gold/60" />
+              <div className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
+                <FileText className="h-3.5 w-3.5 shrink-0 text-brand/60" />
                 <div>
-                  <span className="text-xs font-semibold text-white/60">{demo.source}</span>
-                  <span className="ml-2 text-[11px] text-white/30">{demo.sourcePage}</span>
+                  <span className="text-xs font-semibold text-gray-600">{demo.source}</span>
+                  <span className="ml-2 text-[11px] text-gray-400">{demo.sourcePage}</span>
                 </div>
               </div>
 
               {/* Risk flag */}
               {demo.risk && (
-                <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/20 bg-amber-500/8 px-4 py-3">
-                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
-                  <p className="text-xs leading-relaxed text-amber-300/80">{demo.risk}</p>
+                <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500 mt-0.5" />
+                  <p className="text-xs leading-relaxed text-amber-700">{demo.risk}</p>
                 </div>
               )}
 
               {/* Recommendation */}
               {demo.recommendation && (
-                <div className="flex items-start gap-2.5 rounded-xl border border-emerald-500/20 bg-emerald-500/8 px-4 py-3">
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400 mt-0.5" />
-                  <p className="text-xs leading-relaxed text-emerald-300/80">{demo.recommendation}</p>
+                <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" />
+                  <p className="text-xs leading-relaxed text-emerald-700">{demo.recommendation}</p>
                 </div>
               )}
             </div>

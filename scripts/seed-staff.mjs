@@ -20,18 +20,18 @@ const supabase = createClient(
   { auth: { autoRefreshToken: false, persistSession: false } }
 )
 
-const EMAIL    = 'staff@devtraco.com'
-const PASSWORD = 'DevtracoStaff2026!'
-const NAME     = 'Ama Mensah'   // Devtraco staff member
+const EMAIL    = 'staff@knowledgeinnovations.com'
+const PASSWORD = 'KnowledgeInnovStaff2026!'
+const NAME     = 'Ama Mensah'   // Knowledge Innovations staff member
 
 async function main() {
   console.log('Creating staff account...\n')
 
   // ── 1. Get tenant ────────────────────────────────────────
   const { data: tenant } = await supabase
-    .from('tenants').select('id').eq('subdomain', 'devtraco').maybeSingle()
+    .from('tenants').select('id').eq('subdomain', 'knowledgeinnovations').maybeSingle()
 
-  if (!tenant) throw new Error('Devtraco tenant not found. Run seed.mjs first.')
+  if (!tenant) throw new Error('Knowledge Innovations tenant not found. Run seed.mjs first.')
   console.log('Found tenant:', tenant.id)
 
   // ── 2. User ──────────────────────────────────────────────

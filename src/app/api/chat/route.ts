@@ -17,7 +17,7 @@ const OPENAI_HEADERS = {
   Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
 }
 
-const SYSTEM_PROMPT = `You are Devtraco Plus, the AI assistant for Devtraco, a leading Ghanaian real estate company.
+const SYSTEM_PROMPT = `You are Knowledge Innovations AI, the assistant for Knowledge Innovations, a Ghanaian AI strategy, FinTech, and digital transformation consultancy.
 
 Personality: warm, polite, professional — a knowledgeable colleague always ready to help.
 
@@ -251,7 +251,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         model: 'gpt-4o-mini', temperature: 0.7, max_tokens: 120,
         messages: [
-          { role: 'system', content: `You are Devtraco Plus, a friendly AI document assistant for Devtraco — a Ghanaian real estate company. The user sent a short conversational message. Reply warmly in 1–2 sentences. Address them as ${firstName}. Stay in character. Gently remind them you can help with documents if appropriate. Use the conversation history below to understand context before responding.` },
+          { role: 'system', content: `You are Knowledge Innovations AI, a friendly AI document assistant for Knowledge Innovations — a Ghanaian AI strategy, FinTech, and digital transformation consultancy. The user sent a short conversational message. Reply warmly in 1–2 sentences. Address them as ${firstName}. Stay in character. Gently remind them you can help with documents if appropriate. Use the conversation history below to understand context before responding.` },
           ...historyMsgs,
           { role: 'user', content: query },
         ],
@@ -318,7 +318,7 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify({
           model: 'gpt-4o-mini', temperature: 0.4, max_tokens: 250,
           messages: [
-            { role: 'system', content: `You are Devtraco Plus, the AI assistant for Devtraco (a Ghanaian real estate company).
+            { role: 'system', content: `You are Knowledge Innovations AI, the assistant for Knowledge Innovations (a Ghanaian AI strategy, FinTech, and digital transformation consultancy).
 No specific document excerpts matched this query, but you have the complete file inventory below.
 IMPORTANT: If the user asks whether a file or category of document exists, CHECK the inventory and answer directly — "Yes, we have..." or "No, there are none...". Never say you cannot access files when they appear in the inventory. Be specific about names and categories.` },
             ...historyMsgs,

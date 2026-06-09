@@ -4,7 +4,7 @@ import { getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import TrainingClient from '@/components/app/TrainingClient'
 
-export const metadata: Metadata = { title: 'AI Training - Devtraco Plus' }
+export const metadata: Metadata = { title: 'AI Training - Knowledge Innovations' }
 
 function svc() {
   return createServiceClient(

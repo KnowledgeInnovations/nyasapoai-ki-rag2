@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
           messages: [
             {
               role: 'system',
-              content: `You are a business analyst for Devtraco, a Ghanaian real estate company. Answer in 2-3 sentences with specific facts, figures, and names from the documents. End with: SENTIMENT:positive OR SENTIMENT:negative OR SENTIMENT:caution OR SENTIMENT:neutral`,
+              content: `You are a business analyst for Knowledge Innovations, a Ghanaian AI strategy, FinTech, and digital transformation consultancy. Answer in 2-3 sentences with specific facts, figures, and names from the documents. End with: SENTIMENT:positive OR SENTIMENT:negative OR SENTIMENT:caution OR SENTIMENT:neutral`,
             },
             {
               role: 'user',

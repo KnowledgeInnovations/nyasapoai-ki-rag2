@@ -70,7 +70,7 @@ export default function Hero3D() {
         for (let c = 0; c < cols; c++) {
           if (Math.random() > 0.28) {
             const rnd = Math.random()
-            if      (rnd > 0.68) ctx.fillStyle = '#c8a951'
+            if      (rnd > 0.68) ctx.fillStyle = '#14caf4'
             else if (rnd > 0.40) ctx.fillStyle = '#cce0ff'
             else                 ctx.fillStyle = '#7aaee8'
             ctx.fillRect(c * cw + 2, r * ch + 2, cw - 4, ch - 4)

@@ -10,8 +10,8 @@ export async function proxy(request: NextRequest) {
   // Strip port for local dev (localhost:3000 → localhost)
   const host = hostname.replace(`:${url.port}`, '')
 
-  // Detect subdomain — e.g. "devtraco" from devtraco.nyasapoai.com
-  // In dev use: devtraco.localhost
+  // Detect subdomain — e.g. "knowledgeinnovations" from knowledgeinnovations.nyasapoai.com
+  // In dev use: knowledgeinnovations.localhost
   const subdomain = host.endsWith(`.${ROOT_DOMAIN}`)
     ? host.replace(`.${ROOT_DOMAIN}`, '')
     : host.endsWith('.localhost')
@@ -23,7 +23,7 @@ export async function proxy(request: NextRequest) {
   // Refresh Supabase auth session
   const { supabaseResponse, user } = await updateSession(request)
 
-  // App subdomains (e.g. devtraco.nyasapoai.com) go straight to the workspace —
+  // App subdomains (e.g. knowledgeinnovations.nyasapoai.com) go straight to the workspace —
   // tenant is resolved server-side from the signed-in user's membership.
   if (isAppSubdomain) {
     // Protect all app routes — redirect to login if not authenticated

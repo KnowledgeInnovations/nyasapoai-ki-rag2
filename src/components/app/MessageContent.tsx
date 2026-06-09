@@ -1,7 +1,6 @@
 'use client'
 
-import { useState } from 'react'
-import { X, FileText } from 'lucide-react'
+import { FileText } from 'lucide-react'
 import type { Citation } from '@/types'
 
 interface Props {
@@ -10,21 +9,9 @@ interface Props {
   onCiteClick: (citation: Citation) => void
 }
 
-const PROJECT_IMAGES: Record<string, string> = {
-  'arlo': 'https://propartners.com.gh/wp-content/uploads/2025/06/image-4-1024x652.png',
-}
-
-function detectImage(text: string): string | null {
-  const lower = text.toLowerCase()
-  for (const [key, url] of Object.entries(PROJECT_IMAGES)) {
-    if (lower.includes(key)) return url
-  }
-  return null
-}
-
 // Shorten a document title for display inside a pill
 function shortTitle(title: string): string {
-  // "Arlo Cantonments — Project Details" → "Arlo Cantonments"
+  // "Knowledge Innovations — Company Overview & History" → "Knowledge Innovations"
   return title.split(' — ')[0].split(' - ')[0].trim()
 }
 
@@ -120,63 +107,16 @@ function renderBlock(
 }
 
 export default function MessageContent({ text, citations, onCiteClick }: Props) {
-  const [lightbox, setLightbox] = useState(false)
-
   const clean = text
     .replace(/^\s*\[ANSWER\]\s*\n?/, '')
     .split('\n[RISKS]')[0]
     .split('\n[RECS]')[0]
     .trim()
 
-  const blocks   = clean.split(/\n{2,}/)
-  const imageUrl = detectImage(clean)
+  const blocks = clean.split(/\n{2,}/)
 
   return (
     <div className="space-y-0.5">
-
-      {/* Project image — clickable, opens lightbox */}
-      {imageUrl && (
-        <>
-          <button
-            onClick={() => setLightbox(true)}
-            className="mb-3 block w-full overflow-hidden rounded-xl border border-gray-200 shadow-sm cursor-zoom-in hover:shadow-md transition-shadow"
-            style={{ height: 180 }}
-            title="Click to enlarge"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={imageUrl}
-              alt="Project image"
-              className="h-full w-full object-cover object-center transition-transform duration-300 hover:scale-105"
-              loading="lazy"
-            />
-          </button>
-
-          {/* Lightbox */}
-          {lightbox && (
-            <div
-              className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 cursor-zoom-out p-4"
-              onClick={() => setLightbox(false)}
-            >
-              <button
-                className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition"
-                onClick={() => setLightbox(false)}
-              >
-                <X className="h-5 w-5" />
-              </button>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={imageUrl}
-                alt="Project image — enlarged"
-                className="max-h-[90vh] max-w-full rounded-2xl object-contain shadow-2xl"
-                onClick={e => e.stopPropagation()}
-              />
-            </div>
-          )}
-        </>
-      )}
-
-      {/* Formatted text */}
       {blocks.map((block, i) => renderBlock(block, citations, onCiteClick, i))}
     </div>
   )

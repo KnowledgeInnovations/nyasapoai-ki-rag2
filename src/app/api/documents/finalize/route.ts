@@ -79,9 +79,16 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { data: blob, error: dlErr } = await serviceClient.storage.from('documents').download(path)
-    if (dlErr || !blob) throw new Error(`Could not read uploaded file: ${dlErr?.message ?? 'unknown error'}`)
-    const buffer = Buffer.from(await blob.arrayBuffer())
+    // Retry the download up to 3 times — transient ECONNRESET on Supabase
+    // Storage is common on first request after a new connection is established.
+    let blob: Blob | null = null
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const { data, error: dlErr } = await serviceClient.storage.from('documents').download(path)
+      if (data) { blob = data; break }
+      if (attempt === 3) throw new Error(`Could not read uploaded file: ${dlErr?.message ?? 'unknown error'}`)
+      await new Promise(r => setTimeout(r, attempt * 1000))
+    }
+    const buffer = Buffer.from(await blob!.arrayBuffer())
 
     // Step 1: extract text
     let text: string

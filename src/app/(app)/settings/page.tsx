@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { getUser, getMembership } from '@/lib/supabase/server'
 import SettingsClient from '@/components/app/SettingsClient'
 
-export const metadata: Metadata = { title: 'Settings — Devtraco Plus' }
+export const metadata: Metadata = { title: 'Settings — Knowledge Innovations' }
 
 export default async function SettingsPage() {
   // Both served from cache — no extra network calls beyond what layout already did.

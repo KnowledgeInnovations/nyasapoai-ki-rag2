@@ -21,7 +21,7 @@ function getFileKind(source?: string): FileKind {
 
 function tabButtonClass(active: boolean) {
   return `rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
-    active ? 'bg-gray-900 text-white' : 'border border-gray-200 text-gray-500 hover:bg-gray-50'
+    active ? 'bg-brand text-white' : 'border border-gray-200 text-gray-500 hover:bg-gray-50'
   }`
 }
 

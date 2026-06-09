@@ -9,18 +9,18 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
 
-  --color-brand:       #003087;
-  --color-brand-dark:  #00205a;
-  --color-brand-light: #e8eef8;
+  --color-brand:       #2029bd;
+  --color-brand-dark:  #1821a3;
+  --color-brand-light: #e8fbff;
 
-  --color-gold:        #c8a951;
-  --color-gold-dark:   #9e7e33;
-  --color-gold-light:  #fdf8ec;
+  --color-gold:        #14caf4;
+  --color-gold-dark:   #0fa6c9;
+  --color-gold-light:  #e8fbff;
 
-  --color-navy:        #0a0e1a;
-  --color-navy-mid:    #0f1629;
-  --color-navy-light:  #1a2442;
-  --color-navy-card:   #111827;
+  --color-navy:        #131217;
+  --color-navy-mid:    #191b1e;
+  --color-navy-light:  #2d2d2d;
+  --color-navy-card:   #1c1b22;
 
   --font-sans: var(--font-inter);
 }

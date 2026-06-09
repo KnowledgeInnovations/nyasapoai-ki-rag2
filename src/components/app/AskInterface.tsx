@@ -48,13 +48,13 @@ function getInitials(name: string) {
 function ThinkingSkeleton() {
   return (
     <div className="flex gap-4">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-navy shadow-md">
-        <span className="text-[11px] font-black text-gold">DP</span>
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-light border border-brand/20 shadow-sm">
+        <span className="text-[11px] font-black text-brand">DP</span>
       </div>
       <div className="max-w-xl flex-1 rounded-2xl rounded-tl-sm border border-gray-200 bg-white px-5 py-4 shadow-sm">
         <div className="mb-4 flex items-center gap-2">
           <Sparkles className="h-3.5 w-3.5 animate-pulse text-brand" />
-          <span className="text-xs font-medium text-gray-400">Devtraco Plus is thinking…</span>
+          <span className="text-xs font-medium text-gray-400">Knowledge Innovations is thinking…</span>
         </div>
         <div className="space-y-3">
           {[100, 88, 94, 72].map((pct, i) => (
@@ -80,8 +80,8 @@ function MessageBubble({
   return (
     <div className={cn('flex gap-4', msg.role === 'user' && 'flex-row-reverse')}>
       <div className={cn(
-        'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold shadow-md',
-        msg.role === 'user' ? 'bg-brand text-white shadow-brand/30' : 'bg-navy text-gold shadow-navy/20',
+        'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold shadow-sm',
+        msg.role === 'user' ? 'bg-brand text-white shadow-brand/30' : 'bg-brand-light text-brand border border-brand/20',
       )}>
         {msg.role === 'user' ? initials : 'DP'}
       </div>
@@ -154,7 +154,7 @@ function WelcomeScreen({ greeting, firstName, onSuggest }: {
       <div className="w-full max-w-2xl">
         <h2 className="text-3xl font-extrabold text-gray-900">{greeting}, {firstName} 👋</h2>
         <p className="mt-2 text-base text-gray-500">
-          I&apos;m here to help you find answers across all your Devtraco documents. What would you like to know today?
+          I&apos;m here to help you find answers across all your Knowledge Innovations documents. What would you like to know today?
         </p>
         <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
           {SUGGESTIONS.map(s => (
@@ -427,7 +427,7 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
               ref={textareaRef} rows={1} value={input}
               onChange={e => { setInput(e.target.value); autoResize(e.target) }}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(input) } }}
-              placeholder="Ask me anything about your Devtraco documents…"
+              placeholder="Ask me anything about your Knowledge Innovations documents…"
               className="flex-1 resize-none bg-transparent text-sm text-gray-900 placeholder-gray-400 focus:outline-none"
               style={{ minHeight: '24px', maxHeight: '120px' }}
             />

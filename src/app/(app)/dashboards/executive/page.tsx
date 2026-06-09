@@ -7,7 +7,7 @@ import DashboardShell from '@/components/app/DashboardShell'
 import DashboardInsightsGroup from '@/components/app/DashboardInsightsGroup'
 import { StatCard } from '@/components/app/DashboardWidgets'
 
-export const metadata: Metadata = { title: 'Executive Dashboard - Devtraco Plus' }
+export const metadata: Metadata = { title: 'Executive Dashboard - Knowledge Innovations' }
 
 const ALLOWED = ['admin', 'exco', 'senior_manager', 'senior', 'middle']
 

@@ -21,11 +21,11 @@ const supabase = createClient(
   { auth: { autoRefreshToken: false, persistSession: false } }
 )
 
-const EMAIL    = 'admin@devtraco.com'
-const PASSWORD = 'DevtracoAI2026!'
+const EMAIL    = 'admin@knowledgeinnovations.com'
+const PASSWORD = 'KnowledgeInnovAI2026!'
 
 async function main() {
-  console.log('Seeding Devtraco account...\n')
+  console.log('Seeding Knowledge Innovations account...\n')
 
   // ── 1. User ──────────────────────────────────────────────
   let userId
@@ -40,7 +40,7 @@ async function main() {
       email: EMAIL,
       password: PASSWORD,
       email_confirm: true,
-      user_metadata: { name: 'Devtraco Admin' },
+      user_metadata: { name: 'Knowledge Innovations Admin' },
     })
     if (error) throw new Error('Auth: ' + error.message)
     userId = data.user.id
@@ -50,20 +50,20 @@ async function main() {
   // ── 2. Tenant ────────────────────────────────────────────
   let tenantId
   const { data: existingTenant } = await supabase
-    .from('tenants').select('id').eq('subdomain', 'devtraco').maybeSingle()
+    .from('tenants').select('id').eq('subdomain', 'knowledgeinnovations').maybeSingle()
 
   if (existingTenant) {
     tenantId = existingTenant.id
     console.log('Tenant already exists')
   } else {
     const { data, error } = await supabase.from('tenants').insert({
-      name: 'Devtraco Plus',
-      subdomain: 'devtraco',
+      name: 'Knowledge Innovations',
+      subdomain: 'knowledgeinnovations',
       plan: 'enterprise',
     }).select('id').single()
     if (error) throw new Error('Tenant: ' + error.message)
     tenantId = data.id
-    console.log('Created tenant: Devtraco Plus')
+    console.log('Created tenant: Knowledge Innovations')
   }
 
   // ── 3. Membership ────────────────────────────────────────

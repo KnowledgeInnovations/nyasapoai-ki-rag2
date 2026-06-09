@@ -4,7 +4,7 @@ import DocumentsClient from '@/components/app/DocumentsClient'
 import type { Document } from '@/types'
 import { mergeWithDbCategories, type DbCategory } from '@/lib/documentCategories'
 
-export const metadata: Metadata = { title: 'Documents - Devtraco Plus' }
+export const metadata: Metadata = { title: 'Documents - Knowledge Innovations' }
 
 export default async function DocumentsPage() {
   const membership = await getMembership()

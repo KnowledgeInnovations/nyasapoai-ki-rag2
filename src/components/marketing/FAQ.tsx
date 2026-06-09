@@ -40,27 +40,27 @@ export default function FAQ() {
         <div key={i} className={cn(
           'rounded-2xl border transition-all duration-200',
           open === i
-            ? 'border-gold/25 bg-white/5'
-            : 'border-white/10 bg-white/[0.02] hover:border-white/20'
+            ? 'border-brand/20 bg-brand-light'
+            : 'border-gray-200 bg-white hover:border-gray-300'
         )}>
           <button
             onClick={() => setOpen(open === i ? null : i)}
             className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left"
           >
-            <span className="text-sm font-semibold text-white/85 leading-snug">{item.q}</span>
+            <span className="text-sm font-semibold text-gray-900 leading-snug">{item.q}</span>
             <span className={cn(
               'shrink-0 flex h-6 w-6 items-center justify-center rounded-full transition-colors',
-              open === i ? 'bg-gold/20' : 'bg-white/10'
+              open === i ? 'bg-brand/10' : 'bg-gray-100'
             )}>
               {open === i
-                ? <Minus className="h-3.5 w-3.5 text-gold" />
-                : <Plus className="h-3.5 w-3.5 text-white/40" />
+                ? <Minus className="h-3.5 w-3.5 text-brand" />
+                : <Plus className="h-3.5 w-3.5 text-gray-400" />
               }
             </span>
           </button>
           {open === i && (
             <div className="px-6 pb-5">
-              <p className="text-sm leading-relaxed text-white/50">{item.a}</p>
+              <p className="text-sm leading-relaxed text-gray-500">{item.a}</p>
             </div>
           )}
         </div>

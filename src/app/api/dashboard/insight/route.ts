@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: 'system',
-          content: `You are a sharp business analyst for Devtraco, a Ghanaian real estate company.
+          content: `You are a sharp business analyst for Knowledge Innovations, a Ghanaian AI strategy, FinTech, and digital transformation consultancy.
 Analyse the document excerpts and answer the question directly and concisely (2–4 sentences max).
 Focus on real numbers, dates, names, and facts you can see.
 Be honest: flag problems clearly. Praise progress where real.

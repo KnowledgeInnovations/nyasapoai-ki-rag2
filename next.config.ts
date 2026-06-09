@@ -15,7 +15,6 @@ const nextConfig: NextConfig = {
   images: {
     formats: ['image/avif', 'image/webp'],
     remotePatterns: [
-      { protocol: 'https', hostname: 'propartners.com.gh' },
       { protocol: 'https', hostname: 'thebftonline.com' },
     ],
   },

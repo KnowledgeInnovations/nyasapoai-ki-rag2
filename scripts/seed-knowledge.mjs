@@ -1,6 +1,6 @@
 /**
  * seed-knowledge.mjs
- * Loads publicly available Devtraco Plus knowledge into the RAG database.
+ * Loads publicly available Knowledge Innovations knowledge into the RAG database.
  * Run once: node scripts/seed-knowledge.mjs
  */
 
@@ -28,566 +28,347 @@ const supabase = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE
 const DOCUMENTS = [
 
   {
-    title: 'Devtraco Plus — Company Overview & History',
+    title: 'Knowledge Innovations — Company Overview & History',
     department: 'general',
     sensitivity: 'public',
     content: `
-DEVTRACO PLUS — COMPANY OVERVIEW
+KNOWLEDGE INNOVATIONS — COMPANY OVERVIEW
 
-Company Name: Devtraco Plus Ghana Limited
-Parent Group: Devtraco Group
-Founded: Spun off from Devtraco Limited in 2012
-Head Office: No. 8B, Sir Arku Korsah Road, Airport Residential Area, Accra, Ghana
-Phone: +233 (0) 302 798 692 | +233 (0) 270 000 004
-Email: info@devtracoplus.com
+Company Name: Knowledge Innovations Ltd
+Tagline: "Harnessing AI to spark innovation, boost decisions, and transform businesses."
+Head Office: Tumu Avenue, Kanda, Accra, Ghana
+Digital Address: GA-003-5259
+Phone: +233 24 255 5135
+Email: info@knowledgeinnovations.com
+Website: www.knowledgeinnovations.com
 
-HISTORY
-Devtraco Plus was established in 2012 as a premium residential and hospitality development arm of the Devtraco Group, which itself has over three decades (30+ years) of experience in Ghana's real estate sector. The parent company, Devtraco Limited, was one of Ghana's pioneering institutional property developers. Devtraco Plus was created specifically to address the growing demand for premium, signature-quality residences in Accra's most prestigious neighbourhoods.
+ABOUT US
+Knowledge Innovations is a leader in the provision of innovative services and products to help solve challenging problems. Our team of seasoned and passionate experts delivers cutting-edge professional services, specialising in advanced AI strategies, FinTech, Digital Financial Services, 4th Industrial Revolution tools, Digital Transformation, and Technology Innovations.
 
-MISSION & VISION
-Mission: To provide a heavenly range of property developments in the heart of Accra which will offer people a chance to achieve their dream lifestyle and investment goals.
-Vision: To create a new generation of Signature Homes in Ghana — properties that set the benchmark for premium living in West Africa.
+MISSION
+To be a leader in the provision of innovative services and products that help organisations and individuals solve their most challenging problems through the smart application of technology.
 
-MARKET POSITION
-Devtraco Plus has carved out a unique niche for exclusive, premium quality housing units in prime areas of Accra, Ghana. The company distinguishes itself through:
-- Outstanding customer service as a core differentiator
-- Developments exclusively in Accra's highest-demand residential zones
-- An investment-first approach that delivers both lifestyle and financial returns
-- A track record of successfully completing and delivering premium developments
+CORE VALUE PROPOSITIONS
+- Expert AI Solutions — deep, hands-on AI and emerging-technology expertise
+- Solution Focused — every engagement is scoped around a measurable business outcome
+- Customer Oriented — close collaboration with clients from diagnosis through delivery
+- 99.99% Success — a delivery track record clients can rely on
 
-As of 2025, the company has:
-- 5 ongoing/upcoming projects
-- 7 completed projects
-- Portfolio spanning Cantonments, Airport Residential Area, Labone, Roman Ridge, Dzorwulu, and Tema
+INDUSTRIES SERVED
+Knowledge Innovations works across retail, construction, media, manufacturing, FMCG, housing, banking, and the public sector — with a particular focus on African markets and the opportunities and constraints unique to the continent.
 
-BUSINESS AREAS
-1. Residential Sales — Luxury apartments and townhouses
-2. Hotel Apartment Investments — Hands-off investment model with rental management
-3. Rental Properties — Managed rental options for residents
-4. Land Services — Assistance for landowners looking to develop
-5. Referral Programme — Customer referral incentives
-6. Property Management — End-to-end estate management services
+LEADERSHIP & CONSULTING TEAM
+- Kwami Ahiabenu — Director & Tech Innovations Consultant
+- Eugenia Blay — Digital Transformation & Innovation
+- Eugene Agben — Technology & Corporate Leadership
+- Dzifa Amenya — Consultant, Business Change and Project Management
+- Eric Osiakwan — Consultant, Investments and Tech
+- Gilbert Agyeman — Director of Finance
+- Antoine G. Semaan — Consultant, Management and Audit
+- Theodora Kwening — Social Media Associate
 
-LEADERSHIP
-- Joseph Aidoo — Real estate mogul leading Devtraco Group, with over 30 years in Ghana's property sector
-- Francis Okine Okoh — Chief Executive Officer, Devtraco Plus
-- Derek Jason Bossman — Key management figure, business development
-
-AWARDS & RECOGNITION
-Devtraco and Devtraco Plus have received multiple industry awards for innovative designs and contributions to addressing Ghana's housing deficit, cementing their status as industry leaders in Ghana's property development sector.
+SOCIAL MEDIA
+Facebook · X (Twitter): @kminnovations · LinkedIn · TikTok · YouTube
 `,
   },
 
   {
-    title: 'Devtraco Plus — Investment & Market Intelligence',
-    department: 'finance',
-    sensitivity: 'internal',
-    content: `
-DEVTRACO PLUS — INVESTMENT OVERVIEW & MARKET DATA
-
-GHANA PRIME REAL ESTATE MARKET (ACCRA, 2025)
-
-Rental Yields:
-- Prime apartments in Accra (Cantonments, Airport Residential, Labone): 7–10% per annum
-- Hotel apartment investments: Variable, managed returns
-
-Capital Appreciation:
-- Annual appreciation in prime areas (Cantonments, Airport Residential): 15–20% per annum
-- Long-term appreciation driven by constrained land supply in premium zones
-
-Tenant Demand Profile:
-- Primary tenant base: Diplomats, international NGOs, multinational executives
-- Lease terms: Landlords typically securing 12–24 months rent paid upfront in USD
-- Vacancy rates: Stable to declining in Cantonments and Airport Residential Area
-
-STRATEGIC LOCATION RATIONALE
-Devtraco Plus intentionally sites all developments within Accra's strongest performing districts, where:
-- Rental demand remains resilient regardless of broader economic conditions
-- Premium property continues to appreciate steadily
-- High-quality infrastructure (roads, utilities, security) is in place
-- Proximity to key business, diplomatic, and lifestyle hubs
-
-TARGET DISTRICTS:
-- Cantonments: Diplomatic enclave, premium residential, proximity to Kotoka International Airport
-- Airport Residential Area: Business hub, excellent connectivity, expatriate demand
-- Roman Ridge: Established premium residential zone, close to Cantonments
-- Labone: Upscale neighbourhood, growing demand from young professionals
-- Dzorwulu: Expanding premium zone, emerging high-value residential market
-- Tema: Industrial and residential growth corridor
-
-INVESTMENT MODELS OFFERED
-
-1. OUTRIGHT PURCHASE
-- Full ownership of residential unit
-- Option for self-occupation or rental through Devtraco Plus management
-- Standard conveyancing and title deed transfer
-
-2. HOTEL APARTMENT INVESTMENT (The Pelican model)
-- Buy a fully managed hotel apartment
-- Professional hospitality management handles all operations
-- Hands-off, passive income model
-- Returns linked to hotel occupancy performance
-
-3. ARLO CANTONMENTS MODEL
-- Flexible furnishing packages or full turnkey rental solutions
-- Smart technology: keypad access, mobile app for monitoring rental performance
-- Developer manages the rental programme on behalf of investors
-- Introductory pricing from GH¢989,000 (approx. $83,000 USD at current rates)
-
-PAYMENT STRUCTURES
-- Flexible payment plans available for all developments
-- Financial partnerships with leading Ghanaian banks
-- USD and GHS pricing options
-- Instalment plans available subject to project phase and availability
-
-CURRENCY CONSIDERATIONS
-- Properties priced in both USD and GHS
-- USD pricing provides inflation and cedi depreciation hedge
-- Strong USD income from expatriate tenants provides natural currency protection
-
-COMPETITIVE ADVANTAGE
-Devtraco Plus's three-decade track record, strong brand reputation, and completed project portfolio de-risks investment compared to newer developers. All projects are in prime, established locations with proven demand.
-`,
-  },
-
-  {
-    title: 'Arlo Cantonments — Project Details',
-    department: 'site-reports',
-    sensitivity: 'public',
-    content: `
-ARLO CANTONMENTS — FULL PROJECT DETAILS
-
-PROJECT NAME: Arlo Cantonments (branded as "ARLO")
-DEVELOPER: Devtraco Plus Ghana Limited
-STATUS: Pre-construction / Launching 2025
-CONSTRUCTION START: 2025 (later in the year)
-EXPECTED COMPLETION: Q4 2027
-LOCATION: Cantonments, Greater Accra, Ghana
-
-ADDRESS & ACCESSIBILITY
-- Address: Giffard Road, Cantonments, Accra
-- Near: Oxford Street Mall, Henrietta's Residences, Zollikon Heights
-- Proximity to: Kotoka International Airport (short drive), business districts, diplomatic missions
-- Easy access to cultural, culinary, and recreational hubs of Accra
-
-PROJECT DESCRIPTION
-ARLO is a curated collection of residences ranging from studios to three-bedroom penthouses. The development is designed for the modern investor and luxury lifestyle buyer, rising to 18 floors and set to redefine vertical luxury living in Cantonments.
-
-Design philosophy: Intentional living spaces with balanced form, function, and elevated experience. ARLO blends architectural sophistication with premium lifestyle amenities and exclusive services.
-
-UNIT TYPES
-- Studios
-- One-bedroom apartments
-- Two-bedroom apartments
-- Three-bedroom penthouses
-
-PRICING
-- Introductory price: Starting from GH¢989,000
-- USD equivalent: Starting from approximately $83,000
-- Flexible payment plans available
-
-AMENITIES & FACILITIES
-- Rooftop infinity pool
-- Private padel court
-- State-of-the-art gym and spa
-- Zen garden
-- Amphitheatre
-- Dedicated co-working spaces
-- Firepit lounges
-
-SMART TECHNOLOGY
-- Keypad/smart access system
-- Mobile application for remote monitoring of rental performance
-- Smart home integration
-
-INVESTMENT OFFERING
-- Flexible furnishing packages (part-furnished or fully furnished options)
-- Turnkey rental solutions — developer manages rental on owner's behalf
-- Passive income model with professional rental management
-- Introductory pricing for early buyers
-
-BRAND IDENTITY
-The name "ARLO" reflects a modern, lifestyle-led brand positioning. The development is described as "a true investment vehicle and a complete lifestyle destination" — CEO Francis Okine Okoh, Devtraco Plus.
-
-TARGET BUYERS
-1. High-net-worth Ghanaian investors
-2. Diaspora investors seeking Ghana property exposure
-3. International/foreign investors attracted by USD-linked yields
-4. Professionals and executives seeking premium Accra residences
-5. Hospitality investors seeking serviced apartment returns
-`,
-  },
-
-  {
-    title: 'The Address — Roman Ridge Project Details',
-    department: 'site-reports',
-    sensitivity: 'public',
-    content: `
-THE ADDRESS — FULL PROJECT DETAILS
-
-PROJECT NAME: The Address
-DEVELOPER: Devtraco Plus Ghana Limited
-STATUS: Active development / Available for purchase
-LOCATION: Roman Ridge, Greater Accra, Ghana
-
-PROJECT DESCRIPTION
-The Address is a landmark development positioned as "the pinnacle of modern living" in Roman Ridge, one of Accra's most prestigious residential areas. The project comprises three towers offering vacation apartments, residential apartments, and hotel apartments, each designed to elevate the standard of luxury living.
-
-The Address sets out to redefine modern living in Accra with an exceptional blend of residential luxury, hospitality services, and premium amenities.
-
-UNIT TYPES
-- Studio apartments
-- One-bedroom apartments
-- Two-bedroom apartments
-- Three-bedroom apartments
-- Penthouses
-
-PRICING
-- Starting from $89,000 USD
-- Multiple tiers based on floor level, view, and unit type
-
-AMENITIES & FACILITIES
-- Rooftop fitness centres
-- Swimming pools
-- In-house retail marts
-- Kids' play area
-- Multipurpose sports complex
-- Private cinema
-- Concierge service
-- 24-hour security
-
-DEVELOPMENT STRUCTURE
-Three towers:
-1. Vacation Apartments — Short-stay, furnished units for corporate and leisure guests
-2. Residential Apartments — Long-term premium residence
-3. Hotel Apartments — Managed investment units (hands-off returns)
-
-LOCATION ADVANTAGES
-Roman Ridge is an established premium residential neighbourhood of Accra, known for:
-- Strong expatriate and diplomat population
-- Proximity to Cantonments diplomatic enclave
-- Excellent infrastructure and road access
-- High-end retail, dining, and leisure options nearby
-- Low crime rate and secure environment
-
-INVESTMENT CASE
-The Address provides three distinct investment models within one development, allowing buyers to choose between self-occupation, long-term rental, or short-stay hotel apartment returns. The mixed-use structure spreads risk and maximises potential occupancy.
-`,
-  },
-
-  {
-    title: 'The Pelican Hotel Apartments — Project Details',
-    department: 'site-reports',
-    sensitivity: 'public',
-    content: `
-THE PELICAN HOTEL APARTMENTS — FULL PROJECT DETAILS
-
-PROJECT NAME: The Pelican Hotel Apartments
-DEVELOPER: Devtraco Plus Ghana Limited
-STATUS: Available for investment
-LOCATION: Cantonments, Greater Accra, Ghana
-
-PROJECT DESCRIPTION
-The Pelican is one of Devtraco Plus's iconic hotel apartment projects, located in the prime Cantonments area. It represents a pure hospitality investment model, allowing buyers to own hotel apartments that are professionally managed under a hospitality brand.
-
-INVESTMENT MODEL
-The Pelican operates on a fully hands-off investment basis:
-- Buyer purchases a hotel apartment unit
-- Professional hospitality management team operates the property
-- Investor receives returns tied to hotel occupancy performance
-- No management involvement required from the owner
-- Suitable for local, diaspora, and international investors
-
-PRICING
-- Starting from $274,125 USD
-- Pricing reflects the larger unit sizes and premium hospitality fittings
-
-CANTONMENTS LOCATION
-Cantonments is Accra's most prestigious neighbourhood, hosting:
-- Foreign embassies and diplomatic missions
-- High-end expatriate housing
-- Premium retail and dining (Oxford Street area)
-- Excellent road infrastructure
-- Close proximity to Kotoka International Airport
-
-TARGET INVESTORS
-- Investors seeking truly passive hotel returns
-- Diaspora Ghanaians wanting a managed Accra asset
-- High-net-worth individuals diversifying into hospitality
-- Corporate investors seeking USD-denominated returns
-`,
-  },
-
-  {
-    title: 'Forte Residences — Project Details',
-    department: 'site-reports',
-    sensitivity: 'public',
-    content: `
-FORTE RESIDENCES — FULL PROJECT DETAILS
-
-PROJECT NAME: Forte Residences
-DEVELOPER: Devtraco Plus Ghana Limited
-STATUS: Available
-LOCATIONS: Tema Community 20 (off Spintex Road) and Accra
-
-PROJECT DESCRIPTION
-Forte Residences is Devtraco Plus's flagship gated community townhouse development, offering luxury living for families seeking space, security, and premium amenities. The development positions itself as "Luxury living in a gated community."
-
-UNIT TYPES
-- 2-bedroom townhouses
-- 3-bedroom townhouses
-- 4-bedroom townhouses
-- 4.5-bedroom townhouses
-- Semi-detached and fully detached houses (15 units total in Tema community)
-- All units include a maid's quarters
-
-PRICING
-- Starting from $270,720 USD
-- Reflecting larger land area and premium fittings
-
-AMENITIES & FACILITIES
-- Swimming pool
-- Gym / fitness facility
-- Fitted kitchen with premium finishes
-- Fitted bathrooms
-- 24/7 security personnel
-- Estate management services
-- Gated community access control
-
-LOCATION — TEMA COMMUNITY 20
-- Off Spintex Road, Tema
-- Well-established residential area
-- Close to industrial and commercial zones
-- Good road infrastructure and connectivity to Accra
-- Schools, hospitals, and retail nearby
-
-TYPICAL BUYER PROFILE
-- Families seeking space and security
-- Professionals requiring more bedrooms than a typical apartment
-- Long-term residents committed to ownership
-- Buyers seeking lower price per square metre compared to Cantonments/Airport Residential
-`,
-  },
-
-  {
-    title: 'NoVA, Niiyo, Henrietta\'s, Acasia & Other Completed Projects',
-    department: 'site-reports',
-    sensitivity: 'public',
-    content: `
-DEVTRACO PLUS — COMPLETED & OTHER PROJECTS
-
-NOVA (Roman Ridge)
-Type: Mixed-use apartments
-Unit types: Studios, 1, 2, and 3-bedroom apartments
-Starting price: $141,347 USD
-Description: Urban lifestyle development in Roman Ridge. NoVA represents Devtraco Plus's vision for modern urban living — compact, design-forward units in an established neighbourhood popular with young professionals and the expatriate community.
-
-THE NIIYO (Dzorwulu)
-Type: Apartments
-Location: Dzorwulu, Accra
-Starting price: $275,000 USD
-Description: A residential oasis in the expanding premium zone of Dzorwulu. Dzorwulu is a rapidly developing neighbourhood increasingly popular with Accra's professional and business community.
-
-HENRIETTA'S RESIDENCES (Cantonments)
-Type: Apartments
-Location: Cantonments, Accra
-Unit types: 1, 2, and 3-bedroom apartments
-Starting price: $245,000 USD
-Description: A well-established Devtraco Plus project in the heart of Cantonments. Henrietta's Residences appeals to the diplomatic and expatriate community that forms the core of Cantonments' residential base.
-
-ACASIA TOWNHOMES
-Type: Luxury townhomes
-Starting price: $850,000 USD
-Description: Acasia represents the pinnacle of Devtraco Plus's townhome offering — an iconic symbol of luxury, quality and convenience for discerning homeowners in the heart of Accra. These are among the most premium offerings in Devtraco Plus's portfolio.
-
-ACASIA APARTMENTS
-Type: Apartments
-Starting price: $145,000 USD
-Description: The apartment complement to Acasia Townhomes, offering premium apartment living within the same luxury positioning.
-
-THE EDGE
-Type: Mixed-use apartments
-Starting price: $99,000 USD
-Description: A mixed-use development promoting urban living. The Edge provides an accessible entry point into Devtraco Plus premium living.
-
-PALMER'S PLACE
-Type: Luxury townhomes
-Units: 7 exclusive units
-Starting price: $760,000 USD
-Description: An exclusive collection of just 7 luxury townhomes, representing ultra-premium family living.
-
-AVANT GARDE
-Type: Apartments
-Starting price: $170,000 USD
-Description: Contemporary styled apartments in Accra's premium residential zones.
-
-COMPLETED PROJECT TRACK RECORD
-Devtraco Plus has successfully completed and delivered 7 developments, covering:
-- Cantonments
-- Airport Residential Area
-- Labone
-- Roman Ridge
-- Dzorwulu
-- Tema
-All projects delivered to premium specifications with full title deeds transferred to buyers.
-`,
-  },
-
-  {
-    title: 'Devtraco Plus — Services, Process & Customer Journey',
+    title: 'Knowledge Innovations — Services & Solutions Portfolio',
     department: 'general',
     sensitivity: 'public',
     content: `
-DEVTRACO PLUS — SERVICES & CUSTOMER JOURNEY
+KNOWLEDGE INNOVATIONS — SERVICES & SOLUTIONS PORTFOLIO
 
-SERVICES OVERVIEW
+Knowledge Innovations organises its work into four core solution areas:
 
-1. RESIDENTIAL SALES
-Process for buying a Devtraco Plus property:
-- Step 1: Express interest online or visit the sales office at 8B Sir Arku Korsah Road, Airport Residential Area, Accra
-- Step 2: Consultation with a sales executive to understand your needs and budget
-- Step 3: Property viewing / virtual tour of selected development
-- Step 4: Reservation — payment of a reservation fee to hold the unit
-- Step 5: Payment plan selection — outright payment or instalment plan
-- Step 6: Sale and Purchase Agreement signing
-- Step 7: Construction updates throughout the build period
-- Step 8: Snagging inspection before handover
-- Step 9: Title deed transfer and key handover
+1. ARTIFICIAL INTELLIGENCE
+- AI Strategy Consulting
+- AI Integration and Automation
+- Data Analytics and Insight Generation
+- AI Training
 
-2. RENTAL PROPERTIES
-Devtraco Plus manages a portfolio of rental properties for clients who prefer to rent rather than buy. Available units span their completed developments in Cantonments, Airport Residential, Roman Ridge, Labone, and Dzorwulu.
+2. FINTECH AND DIGITAL FINANCIAL SERVICES
+- Fintech Innovations Integration
+- Risk Management and Regulatory Compliance
+- Digital Payments
+- Cryptocurrency
+- Training
+- Cybersecurity
+- Regulatory Technology (RegTech)
 
-3. HOTEL APARTMENT INVESTMENT SERVICE
-For investors in The Pelican and similar hotel apartment projects:
-- Acquisition advisory and unit selection
-- Legal and conveyancing support
-- Furnishing and fit-out management
-- Hospitality management by professional hotel operators
-- Regular financial reporting to investors
-- Transparent rental income distribution
+3. DIGITAL TRANSFORMATION
+- Digital Transformation Consulting
+- Knowledge Management
+- Digitalisation Strategy Development
+- Efficient Automation and Workflow Optimisation Services
+- High-Level Training
 
-4. LAND SERVICES
-For landowners looking to develop or monetise their land:
-- Land valuation advisory
-- Joint development agreement structuring
-- Connection to Devtraco Plus development pipeline
-- Legal support for land transactions
+4. TECHNOLOGY INNOVATIONS
+- Software Development and Customisation
+- Mobile Application Development
+- AI & Machine Learning Solutions
+- Enterprise Application Modernisation
+- Cloud Consulting & Integration
 
-5. REFERRAL PROGRAMME
-Devtraco Plus operates a referral incentive programme:
-- Customers and agents who refer buyers receive commissions
-- Commission rates vary by project and unit type
-- Contact info@devtracoplus.com for referral partnership enquiries
+ENGAGEMENT MODEL
+Clients typically engage Knowledge Innovations through a "Talk to an Expert" consultation. From there, the team scopes a tailored engagement spanning one or more of the four solution areas above. Engagements range from short diagnostic assessments (e.g. an AI readiness audit) to multi-month transformation programmes with embedded consultants.
 
-6. PROPERTY MANAGEMENT
-Post-purchase management services:
-- Property maintenance coordination
-- Tenant management for investors
-- Utility management
-- Security management
-- Rental income collection and disbursement
+PRICING & PROPOSALS
+Pricing is engagement-specific and depends on scope, duration, and the seniority of consultants required. Formal proposals are issued following the initial consultation and discovery phase.
+`,
+  },
+
+  {
+    title: 'AI Strategy & Consulting Practice — Engagement Playbook',
+    department: 'contracts',
+    sensitivity: 'public',
+    content: `
+AI STRATEGY & CONSULTING PRACTICE — ENGAGEMENT PLAYBOOK
+
+PRACTICE AREA: Artificial Intelligence
+LEAD CONSULTANT(S): Kwami Ahiabenu (Director & Tech Innovations Consultant), supported by the wider AI bench
+
+SERVICES OFFERED
+1. AI Strategy Consulting — helping leadership teams define where and how AI creates value, and building a roadmap to get there
+2. AI Integration and Automation — embedding AI/ML into existing workflows, systems and customer journeys
+3. Data Analytics and Insight Generation — turning raw organisational data into decision-ready insight
+4. AI Training — building internal AI literacy and capability through structured training programmes
+
+TYPICAL ENGAGEMENT FLOW
+- Discovery workshop to map current data, tools, and decision processes
+- AI readiness assessment — covering data governance, model monitoring, ownership of AI outputs, and team capability
+- Roadmap and business case development
+- Pilot implementation with measurable success criteria
+- Scale-up support and embedded training for internal teams
+
+DELIVERABLES CLIENTS RECEIVE
+- AI readiness assessment reports
+- AI strategy roadmaps and business cases
+- Pilot project retrospectives and ROI analyses
+- Training materials and capability-building plans
+
+COMMON FINDINGS FROM AI READINESS ASSESSMENTS
+- Data governance gaps — inconsistent data ownership, quality, and access controls
+- Limited model monitoring — few clients have processes to track model drift or performance over time
+- Unclear ownership of AI outputs — ambiguity over who is accountable for AI-assisted decisions
+- Skills gaps — need for structured AI training across both technical and business teams
+
+TARGET CLIENTS
+Banks and financial institutions, manufacturers, retailers, media houses, public sector agencies, and any organisation in Ghana or the wider African market looking to move from "exploring AI" to running AI in production.
+`,
+  },
+
+  {
+    title: 'FinTech & Digital Financial Services Practice — Engagement Playbook',
+    department: 'contracts',
+    sensitivity: 'public',
+    content: `
+FINTECH & DIGITAL FINANCIAL SERVICES PRACTICE — ENGAGEMENT PLAYBOOK
+
+PRACTICE AREA: FinTech and Digital Financial Services
+LEAD CONSULTANT(S): Eric Osiakwan (Consultant, Investments and Tech), Gilbert Agyeman (Director of Finance)
+
+SERVICES OFFERED
+1. Fintech Innovations Integration — connecting banks, fintechs and merchants to new payment rails and digital financial products
+2. Risk Management and Regulatory Compliance — building frameworks that satisfy regulators while enabling innovation
+3. Digital Payments — design and rollout of mobile money, card, and digital wallet solutions
+4. Cryptocurrency — advisory on digital asset strategy, custody, and regulatory positioning
+5. Cybersecurity — securing financial systems and customer data against fraud and breach
+6. Regulatory Technology (RegTech) — tooling that automates compliance monitoring and reporting
+7. Training — building internal capability in digital financial services and compliance
+
+TYPICAL ENGAGEMENT FLOW
+- Regulatory and risk landscape review
+- Gap analysis against current compliance posture
+- Solution design (payments, RegTech, cybersecurity, or a combination)
+- Pilot rollout with a defined client or merchant segment
+- Compliance sign-off support and staff training
+
+DELIVERABLES CLIENTS RECEIVE
+- Compliance review reports and remediation plans
+- Digital payments solution designs and vendor evaluations
+- Cybersecurity audit reports with prioritised risk findings
+- RegTech tooling recommendations and implementation roadmaps
+
+TARGET CLIENTS
+Commercial banks, microfinance institutions, mobile money operators, fintech startups, and any organisation handling digital financial transactions in Ghana and across Africa.
+`,
+  },
+
+  {
+    title: 'Digital Transformation & Technology Innovations Practice',
+    department: 'contracts',
+    sensitivity: 'public',
+    content: `
+DIGITAL TRANSFORMATION & TECHNOLOGY INNOVATIONS PRACTICE
+
+PRACTICE AREAS: Digital Transformation, Technology Innovations
+LEAD CONSULTANT(S): Eugenia Blay (Digital Transformation & Innovation), Eugene Agben (Technology & Corporate Leadership), Dzifa Amenya (Business Change & Project Management)
+
+DIGITAL TRANSFORMATION SERVICES
+- Digital Transformation Consulting
+- Knowledge Management
+- Digitalisation Strategy Development
+- Efficient Automation and Workflow Optimisation Services
+- High-Level Training
+
+TECHNOLOGY INNOVATIONS SERVICES
+- Software Development and Customisation
+- Mobile Application Development
+- AI & Machine Learning Solutions
+- Enterprise Application Modernisation
+- Cloud Consulting & Integration
+
+TYPICAL ENGAGEMENT FLOW
+- Current-state assessment of processes, systems, and organisational change readiness
+- Digitalisation strategy and roadmap development
+- Solution build (custom software, mobile apps, automation, cloud migration)
+- Change management and workforce training
+- Post-launch optimisation and support
+
+DELIVERABLES CLIENTS RECEIVE
+- Digital transformation roadmaps
+- Process automation and workflow optimisation reports
+- Custom software and mobile application builds
+- Cloud migration and modernisation plans
+- Change management and training programmes
+
+TARGET CLIENTS
+Manufacturers, FMCG companies, housing and construction firms, media houses, retailers, and public sector agencies seeking to modernise legacy systems and processes.
+`,
+  },
+
+  {
+    title: 'AI Innovation Cohorts & Training Programmes',
+    department: 'general',
+    sensitivity: 'public',
+    content: `
+AI INNOVATION COHORTS & TRAINING PROGRAMMES
+
+OVERVIEW
+Knowledge Innovations runs structured cohort-based training and innovation programmes that build AI, fintech, and digital transformation capability across Ghana and the wider region. The company has run multiple cohorts to date (Cohort 1 through Cohort 6, with a 7th cohort under way), each bringing together participants from different sectors for hands-on, expert-led learning.
+
+PROGRAMME STRUCTURE
+- Cohort-based learning — participants progress together through a structured curriculum
+- Expert-led sessions — delivered by Knowledge Innovations consultants and guest practitioners
+- Sector mix — cohorts typically include participants from banking, retail, manufacturing, media, housing and the public sector
+- Practical focus — programmes emphasise applied projects over theory, often tied to real organisational challenges
+
+TOPICS COVERED ACROSS COHORTS
+- AI strategy and adoption fundamentals
+- FinTech and digital financial services innovation
+- Digital transformation and change management
+- Cybersecurity and regulatory compliance basics
+- Cloud, automation and emerging technology tools
+
+EVENTS & COMMUNITY
+Beyond cohorts, Knowledge Innovations runs events, publishes a blog, and maintains a directory connecting clients with vetted technology partners and practitioners across its network.
+
+WHO SHOULD JOIN
+Professionals and organisations across retail, construction, media, manufacturing, FMCG, housing, banking and the public sector who want to build internal AI and digital capability rather than rely solely on external consultants.
+`,
+  },
+
+  {
+    title: 'Knowledge Innovations — Client Engagement Process & FAQ',
+    department: 'general',
+    sensitivity: 'public',
+    content: `
+KNOWLEDGE INNOVATIONS — CLIENT ENGAGEMENT PROCESS & FAQ
+
+HOW TO ENGAGE KNOWLEDGE INNOVATIONS
+
+Step 1: Initial enquiry — reach out via the website's "Talk to an Expert" contact form, email, or phone
+Step 2: Discovery consultation — a Knowledge Innovations consultant discusses your challenge, goals, and constraints
+Step 3: Scoping & proposal — the team designs a tailored engagement across one or more of the four solution areas (AI, FinTech, Digital Transformation, Technology Innovations) and issues a formal proposal
+Step 4: Kick-off & discovery workshops — deeper assessment of current systems, data, and processes
+Step 5: Delivery — phased delivery of the agreed roadmap, pilots, builds, or training
+Step 6: Review & handover — results review, knowledge transfer, and recommendations for next steps
+Step 7: Ongoing support — many engagements continue into support, optimisation, or follow-on phases
 
 CONTACT INFORMATION
-Head Office: No. 8B, Sir Arku Korsah Road, Airport Residential Area, Accra, Ghana
-Phone: +233 (0) 302 798 692
-Mobile: +233 (0) 270 000 004
-Email: info@devtracoplus.com
-Website: www.devtracoplus.com
+Head Office: Tumu Avenue, Kanda, Accra, Ghana
+Digital Address: GA-003-5259
+Phone: +233 24 255 5135
+Email: info@knowledgeinnovations.com
+Website: www.knowledgeinnovations.com
 
 Social Media:
-- Facebook: Devtraco Plus
-- LinkedIn: Devtraco Plus
-- Twitter: Devtraco Plus
-- Instagram: Devtraco Plus
+- Facebook: Knowledge Innovations
+- X (Twitter): @kminnovations
+- LinkedIn: Knowledge Innovations
+- TikTok: @knowledge.innovat
+- YouTube: Knowledge Innovations
 
 FREQUENTLY ASKED QUESTIONS
 
-Q: Can foreigners buy Devtraco Plus properties?
-A: Yes. Devtraco Plus sells to both Ghanaian nationals and international/foreign buyers. Properties are available to diaspora Ghanaians and international investors.
+Q: What industries does Knowledge Innovations work with?
+A: Retail, construction, media, manufacturing, FMCG, housing, banking, and the public sector — with a strong focus on African markets.
 
-Q: Are title deeds provided?
-A: Yes. All completed Devtraco Plus developments come with full title deed transfer to buyers.
+Q: Do you only work with large enterprises?
+A: No. Engagements are scoped to the client's size and needs — from focused diagnostic assessments for smaller organisations to multi-phase transformation programmes for large enterprises and public institutions.
 
-Q: What payment plans are available?
-A: Payment plans vary by project and phase. Options typically include outright purchase (with potential discount) and instalment plans spread over the construction period. Contact the sales team for current availability.
+Q: Can you help us get started with AI if we have no prior experience?
+A: Yes. The AI Strategy Consulting and AI Training services are specifically designed to take organisations from "exploring AI" to running AI in production, including building internal capability through training and cohorts.
 
-Q: Can I rent out my purchased unit?
-A: Yes. Devtraco Plus offers rental management services, and for hotel apartment projects, a full managed returns programme is available.
+Q: Do you provide ongoing support after a project is delivered?
+A: Yes. Most engagements include a review and handover phase, and many clients continue into ongoing support, optimisation, or follow-on phases.
 
-Q: What currencies are accepted?
-A: Properties are priced in both USD and GHS. Payment arrangements can be discussed with the sales team.
+Q: How is pricing determined?
+A: Pricing is engagement-specific, depending on scope, duration, and the consultants required. A formal proposal is issued after the discovery consultation.
 
-Q: What is the construction timeline for current projects?
-A: Arlo Cantonments: Construction starts 2025, completion Q4 2027. Other projects have individual timelines — contact sales for specific details.
+Q: How can my team build internal AI and digital skills?
+A: Through the AI Training, High-Level Training, and cohort-based innovation programmes (Cohorts 1–7 to date), which combine expert-led sessions with hands-on, applied projects.
 `,
   },
 
   {
-    title: 'Ghana Real Estate Market — Context & Intelligence',
+    title: 'Ghana Technology & AI Market Intelligence',
     department: 'board-reports',
     sensitivity: 'internal',
     content: `
-GHANA REAL ESTATE MARKET — MARKET INTELLIGENCE BRIEFING
+GHANA TECHNOLOGY & AI MARKET INTELLIGENCE — BRIEFING
 
 MARKET OVERVIEW
-Ghana's residential real estate market, particularly in Accra's premium zones, remains one of West Africa's most attractive for investors. The combination of political stability, a growing middle and upper class, strong diaspora investment, and high expatriate demand creates consistent fundamentals for premium residential property.
+Ghana's technology and digital financial services sector is among the most dynamic in West Africa, driven by high mobile penetration, a fast-growing fintech ecosystem, an expanding pool of digitally fluent young professionals, and government-backed digitalisation initiatives across the public sector.
 
-ACCRA PREMIUM ZONES — KEY STATISTICS (2024/2025)
+KEY TRENDS (2025/2026)
+- Rapid growth in mobile money and digital payments adoption across both urban and rural markets
+- Increasing regulatory focus from the Bank of Ghana on fintech licensing, data protection, and cybersecurity
+- Growing enterprise appetite for AI pilots — particularly in banking, retail, and manufacturing — but limited in-house AI capability to scale them
+- Expansion of cloud adoption and enterprise application modernisation, as legacy systems become a competitiveness bottleneck
+- Rising demand for cybersecurity expertise as digital channels and digital financial services expand
 
-Rental Yields:
-- Cantonments: 8–10% per annum (USD)
-- Airport Residential Area: 7–9% per annum (USD)
-- Labone: 7–8% per annum (USD)
-- Roman Ridge: 7–8% per annum (USD)
-- Dzorwulu: 6–8% per annum (USD)
-
-Capital Appreciation:
-- Cantonments: 15–20% per annum
-- Airport Residential: 15–18% per annum
-- Emerging zones (Dzorwulu, Spintex): 10–15% per annum
-
-DEMAND DRIVERS
-1. Diplomatic and expatriate demand — Accra hosts a significant number of embassies, UN agencies, international NGOs, and multinational corporations, all generating consistent demand for premium housing
-2. Ghana's growing high-net-worth population — Rising business class demanding premium lifestyle options
-3. Diaspora investment — Ghanaians in the UK, USA, Canada, and Europe regularly investing in Accra property
-4. Limited prime land supply — Scarcity in Cantonments and Airport Residential driving values
-5. Dollarisation of premium rents — Most premium leases denominated in USD, protecting investors from cedi depreciation
+DEMAND DRIVERS FOR CONSULTING & TRAINING SERVICES
+1. Skills gap — far more organisations want to "do AI" than have staff who know how to scope, govern, and run AI responsibly
+2. Regulatory complexity — fintech and digital financial services players need ongoing support to keep pace with evolving compliance requirements
+3. Legacy modernisation pressure — manufacturers, FMCG players, and public sector bodies are under pressure to digitalise core processes
+4. Diaspora and donor-funded digitalisation programmes — a steady pipeline of funded transformation initiatives across the public and development sectors
+5. Regional expansion — African organisations increasingly look to Ghana-based consultancies with continental experience for cross-border digital strategy
 
 COMPETITIVE LANDSCAPE
-Key competitors in the premium segment:
-- Devtraco Courts (Devtraco Limited, Tema focus)
-- Trasacco Group (ultra-premium, higher price points)
-- Djed Real Estate
-- Various boutique developers
+Knowledge Innovations operates in a market that includes global "big four"-style consultancies (higher price points, less local context), boutique African tech consultancies, and in-house digital teams within large enterprises and banks.
 
-Devtraco Plus competitive advantages:
-- 30+ year track record
-- Established brand trust
-- Consistent delivery record (7 completed projects)
-- Premium locations in top-tier zones
-- Full-service offering (sales, rental management, hospitality)
+Knowledge Innovations' competitive advantages:
+- A bench of senior consultants spanning AI, fintech, digital transformation, finance, and audit
+- Deep local and regional context — particularly across African markets
+- A track record across retail, construction, media, manufacturing, FMCG, housing, banking, and the public sector
+- A unique combination of consulting delivery AND structured cohort-based training (building lasting client capability, not just one-off projects)
+- A delivery track record summarised internally as "99.99% Success"
 
 RISKS & MITIGANTS
 
-Risk: Currency depreciation (GHS/USD)
-Mitigant: USD pricing and USD-denominated rental income; inflation-linked appreciation
+Risk: Clients underestimate the change-management effort needed for AI/digital adoption
+Mitigant: Engagements bundle technical delivery with training, knowledge management, and change-management consulting
 
-Risk: Construction delays
-Mitigant: Devtraco Plus's track record of delivery; strong contractor relationships
+Risk: Regulatory shifts in fintech and data protection
+Mitigant: Dedicated Risk Management & Regulatory Compliance and RegTech service lines tracking regulatory developments closely
 
-Risk: Oversupply in premium segments
-Mitigant: Constrained land in prime zones; continued expatriate demand growth
+Risk: Talent scarcity in AI and cybersecurity specialisms
+Mitigant: Cohort-based training programmes build a pipeline of trained talent for clients and the wider ecosystem
 
-Risk: Regulatory changes
-Mitigant: Ghana has stable property rights framework; Devtraco Plus has strong legal and regulatory relationships
-
-OUTLOOK (2025–2027)
-The Ghana premium real estate market is expected to remain strong driven by:
-- Continued GDP growth
-- Increased foreign investment inflows
-- Infrastructure improvements (road upgrades, Kotoka Airport expansion)
-- Growing demand from Nigerian high-net-worth buyers for Accra exposure
-- Strong pipeline of diplomatic and corporate relocations to Accra
+OUTLOOK (2026–2028)
+Demand for AI strategy, fintech compliance, and digital transformation services is expected to keep growing as Ghanaian and regional organisations move from experimentation to production deployment, and as regulators raise the bar on compliance and cybersecurity.
 `,
   },
 
@@ -620,17 +401,17 @@ async function embedText(text) {
 
 // ── Main ─────────────────────────────────────────────────────
 async function main() {
-  console.log('🌍  Seeding Devtraco Plus knowledge base...\n')
+  console.log('🌍  Seeding Knowledge Innovations knowledge base...\n')
 
   // Get tenant
   const { data: tenant } = await supabase
-    .from('tenants').select('id').eq('subdomain', 'devtraco').maybeSingle()
-  if (!tenant) throw new Error('Devtraco tenant not found. Run seed.mjs first.')
+    .from('tenants').select('id').eq('subdomain', 'knowledgeinnovations').maybeSingle()
+  if (!tenant) throw new Error('Knowledge Innovations tenant not found. Run seed.mjs first.')
   const tenantId = tenant.id
 
   // Get admin user
   const { data: { users } } = await supabase.auth.admin.listUsers()
-  const admin = users?.find(u => u.email === 'admin@devtraco.com')
+  const admin = users?.find(u => u.email === 'admin@knowledgeinnovations.com')
   if (!admin) throw new Error('Admin user not found. Run seed.mjs first.')
   const adminId = admin.id
 
@@ -659,7 +440,7 @@ async function main() {
         tenant_id:   tenantId,
         uploaded_by: adminId,
         title:       doc.title,
-        source:      'devtracoplus.com (public knowledge)',
+        source:      'knowledgeinnovations.com (public knowledge)',
         department:  doc.department,
         sensitivity: doc.sensitivity,
         status:      'processing',
@@ -686,7 +467,7 @@ async function main() {
           chunk_text:  chunks[i],
           chunk_index: i,
           embedding,
-          metadata: { source: 'devtracoplus.com', chunk_index: i, total_chunks: chunks.length },
+          metadata: { source: 'knowledgeinnovations.com', chunk_index: i, total_chunks: chunks.length },
         })
         process.stdout.write('.')
         totalChunks++
@@ -703,11 +484,12 @@ async function main() {
   console.log(`\n✅  Knowledge base seeded successfully!`)
   console.log(`   ${DOCUMENTS.length} documents · ${totalChunks} chunks total`)
   console.log(`\n   The AI can now answer questions about:`)
-  console.log(`   • Devtraco Plus company history, mission, and leadership`)
-  console.log(`   • All current and completed projects (Arlo, The Address, Pelican, Forte, etc.)`)
-  console.log(`   • Investment models, rental yields, and market intelligence`)
-  console.log(`   • Ghana premium real estate market overview`)
-  console.log(`   • Services, processes, and contact information`)
+  console.log(`   • Knowledge Innovations company history, mission, and leadership`)
+  console.log(`   • Services across AI, FinTech, Digital Transformation, and Technology Innovations`)
+  console.log(`   • AI Strategy, FinTech, and Digital Transformation engagement playbooks`)
+  console.log(`   • AI innovation cohorts and training programmes`)
+  console.log(`   • Ghana technology & AI market intelligence`)
+  console.log(`   • Client engagement process, FAQs, and contact information`)
   console.log(`\n   Login at http://localhost:3000/auth/login and start asking!\n`)
 }
 
