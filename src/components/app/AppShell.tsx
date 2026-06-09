@@ -37,7 +37,7 @@ export default function AppShell({ user, role, children }: Props) {
   }, [])
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50">
+    <div className="flex h-screen overflow-hidden bg-[#f4f6fb]">
       {/* Mobile overlay backdrop */}
       {mobileOpen && (
         <div
@@ -61,7 +61,7 @@ export default function AppShell({ user, role, children }: Props) {
           sidebarCollapsed={collapsed}
           onToggleSidebar={() => setCollapsed(c => !c)}
         />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">{children}</main>
       </div>
     </div>
   )

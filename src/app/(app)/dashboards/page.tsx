@@ -80,17 +80,19 @@ export default async function DashboardsHubPage() {
   return (
     <div className="space-y-6">
 
-      <div>
-        <h1 className="text-xl font-bold text-gray-900">Dashboards</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Select a dashboard to view live analytics and performance metrics for your workspace.
-        </p>
-      </div>
-
-      <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3.5 py-1.5 text-xs shadow-sm">
-        <span className="h-2 w-2 rounded-full bg-green-500" />
-        <span className="font-semibold text-gray-700 capitalize">{displayRole}</span>
-        <span className="text-gray-400">&middot; {DASHBOARDS.length} dashboards available</span>
+      {/* Page header */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">Dashboards</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Live analytics and performance metrics across every function.
+          </p>
+        </div>
+        <div className="inline-flex shrink-0 items-center gap-2 rounded-full border border-green-200 bg-green-50 px-3.5 py-1.5 text-xs">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
+          <span className="font-semibold capitalize text-green-700">{displayRole}</span>
+          <span className="text-green-500">&middot; {DASHBOARDS.length} active</span>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -98,14 +100,17 @@ export default async function DashboardsHubPage() {
           <Link
             key={d.href}
             href={d.href}
-            className="group flex flex-col rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:border-gray-300 hover:shadow-md"
+            className="group relative flex flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-gray-300 hover:shadow-lg"
           >
-            <div className={`mb-4 inline-flex w-fit rounded-xl border p-2.5 transition group-hover:scale-105 ${d.color}`}>
+            {/* Animated top bar on hover */}
+            <div className="absolute inset-x-0 top-0 h-0.5 origin-left scale-x-0 bg-gradient-to-r from-brand to-gold transition-transform duration-300 group-hover:scale-x-100" />
+
+            <div className={`mb-4 inline-flex w-fit rounded-xl border p-2.5 transition-transform duration-200 group-hover:scale-110 ${d.color}`}>
               <d.icon className="h-5 w-5" />
             </div>
             <p className="font-bold text-gray-900">{d.label}</p>
             <p className="mt-1.5 flex-1 text-xs leading-relaxed text-gray-500">{d.description}</p>
-            <div className="mt-4 flex items-center gap-1 text-xs font-semibold text-brand opacity-0 transition group-hover:opacity-100">
+            <div className="mt-4 flex items-center gap-1.5 text-xs font-semibold text-brand opacity-0 transition-opacity duration-200 group-hover:opacity-100">
               Open dashboard <ArrowRight className="h-3.5 w-3.5" />
             </div>
           </Link>

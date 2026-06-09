@@ -162,11 +162,11 @@ export default function AppSidebar({ role, collapsed, mobileOpen, onClose, onTog
 
   const inner = (
     <div className={cn(
-      'flex h-full flex-col bg-white border-r border-gray-200 transition-all duration-300',
+      'flex h-full flex-col bg-white border-r border-gray-100 shadow-sm transition-all duration-300',
       collapsed ? 'w-14' : 'w-60'
     )}>
       {/* ── Header ─────────────────────────────────────────── */}
-      <div className="flex h-16 shrink-0 items-center border-b border-gray-200 px-3">
+      <div className="flex h-14 shrink-0 items-center border-b border-gray-100 px-3">
         {collapsed ? (
           <div className="mx-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand text-[11px] font-extrabold text-white shadow-sm">
             KI
@@ -202,12 +202,12 @@ export default function AppSidebar({ role, collapsed, mobileOpen, onClose, onTog
                   'group flex items-center rounded-xl transition-all duration-150',
                   collapsed ? 'h-10 w-10 mx-auto justify-center' : 'gap-3 px-3 py-2.5',
                   active
-                    ? 'bg-brand-light text-brand shadow-sm'
-                    : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
+                    ? 'bg-brand/8 text-brand font-semibold ring-1 ring-brand/10'
+                    : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
                 )}>
                 <item.icon className={cn(
                   'h-4 w-4 shrink-0 transition-colors',
-                  active ? 'text-brand' : 'text-gray-400 group-hover:text-gray-600'
+                  active ? 'text-brand' : 'text-gray-400 group-hover:text-gray-500'
                 )} />
                 {!collapsed && <span className="text-sm font-medium">{item.label}</span>}
               </Link>

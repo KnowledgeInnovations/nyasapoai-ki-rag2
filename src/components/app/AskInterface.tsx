@@ -48,17 +48,17 @@ function getInitials(name: string) {
 function ThinkingSkeleton() {
   return (
     <div className="flex gap-4">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-light border border-brand/20 shadow-sm">
-        <span className="text-[11px] font-black text-brand">DP</span>
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-[11px] font-black text-white shadow-sm shadow-brand/30">
+        KI
       </div>
       <div className="max-w-xl flex-1 rounded-2xl rounded-tl-sm border border-gray-200 bg-white px-5 py-4 shadow-sm">
         <div className="mb-4 flex items-center gap-2">
           <Sparkles className="h-3.5 w-3.5 animate-pulse text-brand" />
-          <span className="text-xs font-medium text-gray-400">Knowledge Innovations is thinking…</span>
+          <span className="text-xs font-semibold text-gray-400">Knowledge Innovations AI is thinking…</span>
         </div>
         <div className="space-y-3">
           {[100, 88, 94, 72].map((pct, i) => (
-            <div key={i} className="shimmer-line h-3 rounded-full"
+            <div key={i} className="shimmer-line h-2.5 rounded-full bg-gray-100"
               style={{ width: `${pct}%`, animationDelay: `${i * 0.12}s` }} />
           ))}
         </div>
@@ -81,9 +81,9 @@ function MessageBubble({
     <div className={cn('flex gap-4', msg.role === 'user' && 'flex-row-reverse')}>
       <div className={cn(
         'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold shadow-sm',
-        msg.role === 'user' ? 'bg-brand text-white shadow-brand/30' : 'bg-brand-light text-brand border border-brand/20',
+        msg.role === 'user' ? 'bg-brand text-white shadow-brand/30' : 'bg-brand text-white shadow-brand/30',
       )}>
-        {msg.role === 'user' ? initials : 'DP'}
+        {msg.role === 'user' ? initials : 'KI'}
       </div>
 
       <div className="max-w-xl space-y-3">
@@ -150,29 +150,38 @@ function WelcomeScreen({ greeting, firstName, onSuggest }: {
   greeting: string; firstName: string; onSuggest: (q: string) => void
 }) {
   return (
-    <div className="flex min-h-full flex-col items-center justify-center px-6 py-12">
+    <div className="flex min-h-full flex-col items-center justify-center px-6 py-16">
       <div className="w-full max-w-2xl">
-        <h2 className="text-3xl font-extrabold text-gray-900">{greeting}, {firstName} 👋</h2>
-        <p className="mt-2 text-base text-gray-500">
-          I&apos;m here to help you find answers across all your Knowledge Innovations documents. What would you like to know today?
+        {/* Brand mark */}
+        <div className="mb-6 flex justify-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand text-lg font-black text-white shadow-lg shadow-brand/25">
+            KI
+          </div>
+        </div>
+
+        <h2 className="text-center text-3xl font-extrabold text-gray-900">{greeting}, {firstName}</h2>
+        <p className="mt-2 text-center text-base text-gray-500">
+          Ask anything across your Knowledge Innovations documents. I cite every answer.
         </p>
+
         <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
           {SUGGESTIONS.map(s => (
             <button key={s.text} onClick={() => onSuggest(s.text)}
-              className="group flex items-start gap-3 rounded-2xl border border-gray-200 bg-white p-4 text-left shadow-sm transition hover:border-brand/30 hover:shadow-md">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-light transition group-hover:bg-brand">
-                <MessageSquare className="h-4 w-4 text-brand transition group-hover:text-white" />
+              className="group flex items-start gap-3 rounded-2xl border border-gray-200 bg-white p-4 text-left shadow-sm transition hover:border-brand/30 hover:bg-brand-light/40 hover:shadow-md">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-100 transition group-hover:bg-brand">
+                <MessageSquare className="h-4 w-4 text-gray-500 transition group-hover:text-white" />
               </div>
               <div className="min-w-0">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-brand/70">{s.category}</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-brand">{s.category}</span>
                 <p className="mt-0.5 text-sm leading-snug text-gray-700">{s.text}</p>
               </div>
             </button>
           ))}
         </div>
+
         <p className="mt-6 text-center text-xs text-gray-400">
           Press <kbd className="rounded border border-gray-200 bg-white px-1.5 py-0.5 font-mono text-[10px] shadow-sm">Enter</kbd> to send ·{' '}
-          <kbd className="rounded border border-gray-200 bg-white px-1.5 py-0.5 font-mono text-[10px] shadow-sm">Shift+Enter</kbd> for a new line
+          <kbd className="rounded border border-gray-200 bg-white px-1.5 py-0.5 font-mono text-[10px] shadow-sm">Shift+Enter</kbd> for new line
         </p>
       </div>
     </div>
@@ -390,10 +399,10 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+    <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto bg-gray-50">
+      <div className="flex-1 overflow-y-auto bg-[#f8f9fc]">
         {messages.length === 0 ? (
           <WelcomeScreen greeting={greeting} firstName={firstName} onSuggest={submit} />
         ) : (
@@ -412,13 +421,13 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
       <SourceViewer citation={activeSource} onClose={() => setActiveSource(null)} />
 
       {/* Input bar */}
-      <div className="shrink-0 border-t border-gray-200 bg-white p-4">
+      <div className="shrink-0 border-t border-gray-100 bg-white/95 p-4 backdrop-blur-sm">
         <form onSubmit={e => { e.preventDefault(); submit(input) }} className="mx-auto max-w-3xl">
-          <div className="flex items-end gap-2 rounded-2xl border border-gray-200 bg-gray-50 px-3 py-3 shadow-sm transition focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/10">
+          <div className="flex items-end gap-2 rounded-2xl border border-gray-200 bg-gray-50/80 px-3 py-3 shadow-sm transition-all focus-within:border-brand/40 focus-within:bg-white focus-within:ring-2 focus-within:ring-brand/10">
             <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} />
             <button type="button" onClick={() => fileInputRef.current?.click()}
               disabled={uploading} title="Attach a document"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-200 hover:text-brand disabled:opacity-40">
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-brand disabled:opacity-40">
               {uploading
                 ? <Sparkles className="h-4 w-4 animate-pulse text-brand" />
                 : <Paperclip className="h-4 w-4" />}
@@ -427,12 +436,12 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
               ref={textareaRef} rows={1} value={input}
               onChange={e => { setInput(e.target.value); autoResize(e.target) }}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(input) } }}
-              placeholder="Ask me anything about your Knowledge Innovations documents…"
+              placeholder="Ask anything about your Knowledge Innovations documents…"
               className="flex-1 resize-none bg-transparent text-sm text-gray-900 placeholder-gray-400 focus:outline-none"
               style={{ minHeight: '24px', maxHeight: '120px' }}
             />
             <button type="submit" disabled={!input.trim() || loading || uploading}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-30">
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white shadow-md shadow-brand/25 transition hover:bg-brand-dark disabled:opacity-30 disabled:shadow-none">
               <Send className="h-4 w-4" />
             </button>
           </div>

@@ -125,8 +125,9 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
 
         {canUpload ? (
           <button onClick={() => setShowUpload(true)}
-            className="flex shrink-0 items-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
-            Upload documents
+            className="flex shrink-0 items-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand/20 transition hover:bg-brand-dark">
+            <Plus className="h-4 w-4" />
+            Upload
           </button>
         ) : (
           <div className="flex shrink-0 items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-400">
@@ -248,13 +249,13 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
         <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-100 bg-gray-50 text-left">
-                <th className="px-5 py-3.5 text-xs font-semibold text-gray-500">Document</th>
-                <th className="px-5 py-3.5 text-xs font-semibold text-gray-500">Category</th>
-                <th className="hidden px-5 py-3.5 text-xs font-semibold text-gray-500 sm:table-cell">Access</th>
-                <th className="px-5 py-3.5 text-xs font-semibold text-gray-500">Status</th>
-                <th className="hidden px-5 py-3.5 text-xs font-semibold text-gray-500 lg:table-cell">Added</th>
-                {canDelete && <th className="w-10 px-3 py-3.5" />}
+              <tr className="border-b border-gray-100 bg-gray-50/80 text-left">
+                <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400">Document</th>
+                <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400">Category</th>
+                <th className="hidden px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400 sm:table-cell">Access</th>
+                <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400">Status</th>
+                <th className="hidden px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400 lg:table-cell">Added</th>
+                {canDelete && <th className="w-10 px-3 py-3" />}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">

@@ -136,9 +136,9 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount }: {
         {untrainedCount > 0 && (
           <button
             onClick={trainAll}
-            className="flex shrink-0 items-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+            className="flex shrink-0 items-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand/20 transition hover:bg-brand-dark">
             <Zap className="h-4 w-4" />
-            Train All Untrained ({untrainedCount})
+            Train All ({untrainedCount})
           </button>
         )}
       </div>
@@ -146,17 +146,30 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount }: {
       {/* Stats */}
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-          <p className="text-3xl font-black text-gray-900">{docs.length}</p>
-          <p className="mt-1 text-sm font-medium text-gray-600">Total Documents</p>
+          <div className="flex items-center gap-2 text-gray-400 mb-3">
+            <Brain className="h-4 w-4" />
+            <span className="text-[11px] font-bold uppercase tracking-wider">Documents</span>
+          </div>
+          <p className="text-3xl font-black tracking-tight text-gray-900">{docs.length}</p>
+          <p className="mt-0.5 text-sm text-gray-500">Total in workspace</p>
         </div>
         <div className="rounded-2xl border border-green-200 bg-green-50 p-5 shadow-sm">
-          <p className="text-3xl font-black text-green-700">{trainedCount}</p>
-          <p className="mt-1 text-sm font-medium text-green-600">Trained</p>
-          <p className="mt-0.5 text-xs text-green-500">{totalChunks.toLocaleString()} knowledge chunks</p>
+          <div className="flex items-center gap-2 text-green-500 mb-3">
+            <CheckCircle2 className="h-4 w-4" />
+            <span className="text-[11px] font-bold uppercase tracking-wider">Trained</span>
+          </div>
+          <p className="text-3xl font-black tracking-tight text-green-700">{trainedCount}</p>
+          <p className="mt-0.5 text-xs text-green-600">{totalChunks.toLocaleString()} knowledge chunks</p>
         </div>
         <div className={cn('rounded-2xl border p-5 shadow-sm', untrainedCount > 0 ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-white')}>
-          <p className={cn('text-3xl font-black', untrainedCount > 0 ? 'text-amber-700' : 'text-gray-400')}>{untrainedCount}</p>
-          <p className={cn('mt-1 text-sm font-medium', untrainedCount > 0 ? 'text-amber-600' : 'text-gray-500')}>Needs Training</p>
+          <div className={cn('flex items-center gap-2 mb-3', untrainedCount > 0 ? 'text-amber-500' : 'text-gray-300')}>
+            <AlertCircle className="h-4 w-4" />
+            <span className="text-[11px] font-bold uppercase tracking-wider">Needs Training</span>
+          </div>
+          <p className={cn('text-3xl font-black tracking-tight', untrainedCount > 0 ? 'text-amber-700' : 'text-gray-300')}>{untrainedCount}</p>
+          <p className={cn('mt-0.5 text-sm', untrainedCount > 0 ? 'text-amber-600' : 'text-gray-400')}>
+            {untrainedCount > 0 ? 'Documents awaiting training' : 'All documents trained'}
+          </p>
         </div>
       </div>
 
@@ -169,8 +182,8 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount }: {
         </div>
       ) : (
         <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-          <div className="border-b border-gray-100 bg-gray-50 px-5 py-3">
-            <div className="grid grid-cols-[1fr_120px_100px_140px_160px] gap-4 text-xs font-semibold text-gray-500">
+          <div className="border-b border-gray-100 bg-gray-50/80 px-5 py-3">
+            <div className="grid grid-cols-[1fr_120px_100px_140px_160px] gap-4 text-[11px] font-bold uppercase tracking-wide text-gray-400">
               <span>Document</span>
               <span>Category</span>
               <span>Format</span>

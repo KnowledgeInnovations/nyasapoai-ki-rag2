@@ -47,7 +47,7 @@ export default function AppTopNav({ user, onMenuOpen, sidebarCollapsed, onToggle
   const pageTitle   = Object.entries(pageTitles).find(([k]) => pathname.startsWith(k))?.[1] ?? 'Workspace'
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4">
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-gray-100 bg-white/95 px-4 shadow-sm backdrop-blur-sm">
 
       {/* Left: sidebar toggles + page title */}
       <div className="flex items-center gap-2">
@@ -68,7 +68,7 @@ export default function AppTopNav({ user, onMenuOpen, sidebarCollapsed, onToggle
         </button>
 
         <div className="h-4 w-px bg-gray-200 hidden md:block" />
-        <h1 className="text-base font-bold text-gray-900">{pageTitle}</h1>
+        <h1 className="text-sm font-bold text-gray-800">{pageTitle}</h1>
       </div>
 
       {/* Right: bell + user */}

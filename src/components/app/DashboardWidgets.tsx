@@ -13,22 +13,22 @@ export function StatCard({ icon: Icon, label, value, sub, live, color }: {
   color: string
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+    <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:shadow-md">
       <div className="flex items-start justify-between">
-        <div className={cn('inline-flex rounded-xl p-2', color)}>
+        <div className={cn('inline-flex rounded-xl border p-2.5', color)}>
           <Icon className="h-5 w-5" />
         </div>
         {live
-          ? <span className="flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-green-700">
-              <span className="h-1.5 w-1.5 rounded-full bg-green-500" />Live
+          ? <span className="flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-[10px] font-bold text-green-700">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />Live
             </span>
-          : <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-semibold text-gray-400">
+          : <span className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[10px] font-semibold text-gray-400">
               Integration
             </span>
         }
       </div>
-      <p className="mt-4 text-3xl font-black text-gray-900">{value}</p>
-      <p className="mt-0.5 text-sm font-medium text-gray-700">{label}</p>
+      <p className="mt-4 text-3xl font-black tracking-tight text-gray-900">{value}</p>
+      <p className="mt-0.5 text-sm font-semibold text-gray-700">{label}</p>
       {sub && <p className="mt-0.5 text-xs text-gray-400">{sub}</p>}
     </div>
   )
@@ -128,7 +128,7 @@ export function QueryList({ convs }: { convs: ConvRow[] | null }) {
 // ── PlaceholderCard ────────────────────────────────────────────
 export function PlaceholderCard({ label }: { label: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-gray-200 bg-white p-5 text-center">
+    <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50/50 p-5 text-center">
       <p className="text-sm font-semibold text-gray-400">{label}</p>
       <p className="mt-1 text-xs text-gray-300">Connect data source to enable</p>
     </div>
