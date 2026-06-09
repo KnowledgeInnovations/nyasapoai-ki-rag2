@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Bell, ChevronDown, LogOut, Settings, Menu, PanelLeftClose, PanelLeft } from 'lucide-react'
+import { ChevronDown, LogOut, Settings, Menu, PanelLeftClose, PanelLeft } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, usePathname } from 'next/navigation'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
@@ -71,41 +71,38 @@ export default function AppTopNav({ user, onMenuOpen, sidebarCollapsed, onToggle
         <h1 className="text-sm font-bold text-gray-800">{pageTitle}</h1>
       </div>
 
-      {/* Right: bell + user */}
-      <div className="flex items-center gap-1.5">
-        <button aria-label="Notifications"
-          className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition">
-          <Bell className="h-4.5 w-4.5" />
-        </button>
-
+      {/* Right: user menu */}
+      <div className="flex items-center">
         <div className="relative">
           <button onClick={() => setMenuOpen(!menuOpen)}
-            className="flex items-center gap-2 rounded-xl px-2 py-1.5 hover:bg-gray-100 transition">
+            className="flex items-center gap-2 rounded-xl px-2 py-1.5 transition hover:bg-gray-100">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand text-[11px] font-bold text-white shadow-sm">
               {initials}
             </div>
-            <div className="hidden sm:block text-left">
-              <p className="text-sm font-semibold text-gray-800 max-w-[110px] truncate leading-tight">{displayName}</p>
-              <p className="text-[11px] text-gray-400 max-w-[110px] truncate leading-tight">{user.email}</p>
+            <div className="hidden text-left sm:block">
+              <p className="max-w-[110px] truncate text-sm font-semibold leading-tight text-gray-800">{displayName}</p>
+              <p className="max-w-[110px] truncate text-[11px] leading-tight text-gray-400">{user.email}</p>
             </div>
             <ChevronDown className={cn('h-3.5 w-3.5 text-gray-400 transition-transform', menuOpen && 'rotate-180')} />
           </button>
 
           {menuOpen && (
             <>
-              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-full mt-1.5 z-20 w-52 rounded-2xl border border-gray-200 bg-white py-1.5 shadow-2xl shadow-black/10">
-                <div className="px-4 py-2.5 border-b border-gray-100">
+              {/* Backdrop — closes menu on outside tap */}
+              <div className="fixed inset-0 z-[150]" onClick={() => setMenuOpen(false)} />
+              {/* Dropdown — fixed so it's never clipped by overflow:hidden parents */}
+              <div className="fixed right-3 top-[56px] z-[200] w-56 rounded-2xl border border-gray-200 bg-white py-1.5 shadow-2xl shadow-black/10">
+                <div className="border-b border-gray-100 px-4 py-3">
                   <p className="text-xs font-bold text-gray-800">{displayName}</p>
-                  <p className="text-[11px] text-gray-400 truncate">{user.email}</p>
+                  <p className="truncate text-[11px] text-gray-400">{user.email}</p>
                 </div>
                 <button onClick={() => { router.push('/settings'); setMenuOpen(false) }}
-                  className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition">
+                  className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 transition hover:bg-gray-50">
                   <Settings className="h-4 w-4 text-gray-400" /> Settings
                 </button>
                 <div className="my-1 border-t border-gray-100" />
                 <button onClick={signOut}
-                  className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition">
+                  className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 transition hover:bg-red-50">
                   <LogOut className="h-4 w-4" /> Sign out
                 </button>
               </div>

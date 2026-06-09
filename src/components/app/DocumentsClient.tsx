@@ -164,7 +164,8 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
             {canUpload && (
               <button
                 onClick={e => { e.stopPropagation(); setEditingCategory(cat) }}
-                className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-lg bg-white/80 text-gray-400 opacity-0 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-gray-700 group-hover:opacity-100">
+                title="Edit / delete category"
+                className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-lg bg-white/90 text-gray-400 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-gray-700 md:opacity-0 md:group-hover:opacity-100">
                 <Pencil className="h-3 w-3" />
               </button>
             )}

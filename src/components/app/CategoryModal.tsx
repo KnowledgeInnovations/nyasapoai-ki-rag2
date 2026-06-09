@@ -26,6 +26,7 @@ export default function CategoryModal({ category, onSave, onDelete, onClose }: P
   const [colorName,   setColorName]   = useState(category?.colorName ?? 'blue')
   const [saving,      setSaving]      = useState(false)
   const [deleting,    setDeleting]    = useState(false)
+  const [confirmDel,  setConfirmDel]  = useState(false)
   const [error,       setError]       = useState('')
 
   const slug     = isEdit ? category.value : toSlug(label)
@@ -172,30 +173,48 @@ export default function CategoryModal({ category, onSave, onDelete, onClose }: P
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between border-t border-gray-100 px-6 py-4">
-          <div>
-            {showDelete && (
-              <button onClick={handleDelete} disabled={deleting}
-                className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium text-red-500 transition hover:bg-red-50 disabled:opacity-40">
-                {deleting
-                  ? <Loader2 className="h-4 w-4 animate-spin" />
-                  : <Trash2 className="h-4 w-4" />}
-                {isDefaultOverride ? 'Reset to default' : 'Delete'}
+        {showDelete && confirmDel ? (
+          /* Confirm delete row */
+          <div className="border-t border-red-100 bg-red-50 px-6 py-4">
+            <p className="mb-3 text-sm font-semibold text-red-700">
+              {isDefaultOverride ? 'Reset this category to its default settings?' : 'Delete this category? Documents won\'t be removed.'}
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmDel(false)}
+                className="flex-1 rounded-xl border border-gray-200 bg-white py-2 text-sm font-semibold text-gray-600 transition hover:bg-gray-50">
+                Cancel
               </button>
-            )}
+              <button onClick={handleDelete} disabled={deleting}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-500 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:opacity-50">
+                {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                {isDefaultOverride ? 'Reset' : 'Delete'}
+              </button>
+            </div>
           </div>
-          <div className="flex gap-3">
-            <button onClick={onClose}
-              className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50">
-              Cancel
-            </button>
-            <button onClick={handleSave} disabled={!canSave || saving}
-              className="flex items-center gap-2 rounded-xl bg-brand px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-40">
-              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-              Save
-            </button>
+        ) : (
+          <div className="flex items-center justify-between border-t border-gray-100 px-6 py-4">
+            <div>
+              {showDelete && (
+                <button onClick={() => setConfirmDel(true)}
+                  className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium text-red-500 transition hover:bg-red-50">
+                  <Trash2 className="h-4 w-4" />
+                  {isDefaultOverride ? 'Reset to default' : 'Delete category'}
+                </button>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <button onClick={onClose}
+                className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50">
+                Cancel
+              </button>
+              <button onClick={handleSave} disabled={!canSave || saving}
+                className="flex items-center gap-2 rounded-xl bg-brand px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-40">
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                Save
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )
