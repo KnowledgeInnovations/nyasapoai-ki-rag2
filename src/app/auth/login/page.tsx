@@ -9,6 +9,10 @@ import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, ArrowRight, CheckCircle2, Loader2, Mail } from 'lucide-react'
 
 
+const HOME_URL = process.env.NODE_ENV === 'production'
+  ? `https://${process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'nyasapoai.com'}`
+  : '/'
+
 const FEATURES = [
   'Ask anything across all your project files and contracts',
   'Every answer cites the exact source document',
@@ -179,7 +183,7 @@ export default function LoginPage() {
 
         <div className="relative z-10 flex flex-1 flex-col">
           {/* Logo */}
-          <Link href="/" className="inline-flex items-center gap-3">
+          <a href={HOME_URL} className="inline-flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand text-sm font-extrabold text-white shadow-sm">
               KI
             </div>
@@ -187,7 +191,7 @@ export default function LoginPage() {
               <p className="text-sm font-extrabold text-gray-900 leading-tight">Knowledge Innovations</p>
               <p className="text-[11px] text-gray-500 leading-tight">Intelligence workspace</p>
             </div>
-          </Link>
+          </a>
 
           {/* Hero copy */}
           <div className="mt-auto">
@@ -225,12 +229,12 @@ export default function LoginPage() {
       <div className="flex flex-1 flex-col items-center justify-center bg-[#f8f9fb] px-6 py-12">
 
         {/* Mobile-only logo */}
-        <Link href="/" className="mb-8 inline-flex items-center gap-3 lg:hidden">
+        <a href={HOME_URL} className="mb-8 inline-flex items-center gap-3 lg:hidden">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand text-sm font-extrabold text-white shadow-md">
             KI
           </div>
           <span className="text-sm font-extrabold text-gray-900">Knowledge Innovations</span>
-        </Link>
+        </a>
 
         {/* Card */}
         <div className="w-full max-w-md">
@@ -248,9 +252,9 @@ export default function LoginPage() {
             Powered by{' '}
             <span className="font-semibold text-gray-500">NyasapoAI</span>
             {' · '}
-            <Link href="/" className="text-brand hover:underline transition">
+            <a href={HOME_URL} className="text-brand hover:underline transition">
               Back to home
-            </Link>
+            </a>
           </p>
         </div>
       </div>
