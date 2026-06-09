@@ -23,20 +23,27 @@ export async function proxy(request: NextRequest) {
   // Refresh Supabase auth session
   const { supabaseResponse, user } = await updateSession(request)
 
-  // App subdomains (e.g. knowledgeinnovations.nyasapoai.com) go straight to the workspace —
+  // App subdomains (e.g. knowledge.nyasapoai.com) go straight to the workspace —
   // tenant is resolved server-side from the signed-in user's membership.
   if (isAppSubdomain) {
-    // Protect all app routes — redirect to login if not authenticated
-    if (!user && !url.pathname.startsWith('/auth')) {
+    const isMarketingRoute =
+      url.pathname === '/' ||
+      url.pathname.startsWith('/#') ||
+      url.pathname === '/security' ||
+      url.pathname === '/contact'
+
+    // Protect app routes — redirect to login if not authenticated.
+    // Marketing routes (landing page, security, contact) are public.
+    if (!user && !url.pathname.startsWith('/auth') && !isMarketingRoute) {
       url.pathname = '/auth/login'
       url.searchParams.set('tenant', subdomain)
       return NextResponse.redirect(url)
     }
 
-    // Land signed-in visitors on the dashboard instead of the marketing homepage
+    // Land signed-in visitors on the ask page instead of the marketing homepage
     if (user && url.pathname === '/') {
-      url.pathname = '/dashboards'
-      return NextResponse.rewrite(url)
+      url.pathname = '/ask'
+      return NextResponse.redirect(url)
     }
   }
 

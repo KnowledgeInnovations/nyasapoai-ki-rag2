@@ -3,15 +3,12 @@
 export const dynamic = 'force-dynamic'
 
 import { useState, Suspense } from 'react'
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, ArrowRight, CheckCircle2, Loader2, Mail } from 'lucide-react'
 
 
-const HOME_URL = process.env.NODE_ENV === 'production'
-  ? `https://${process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'nyasapoai.com'}`
-  : '/'
+const HOME_URL = '/'
 
 const FEATURES = [
   'Ask anything across all your project files and contracts',
