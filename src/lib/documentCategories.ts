@@ -166,9 +166,11 @@ function toCategoryInit(cat: Category): CategoryInit {
 export function mergeWithDbCategories(dbRows: DbCategory[]): CategoryInit[] {
   const defaultValues = new Set(CATEGORIES.map(c => c.value))
 
-  const merged: CategoryInit[] = CATEGORIES.map(cat => {
+  const merged: (CategoryInit | null)[] = CATEGORIES.map(cat => {
     const override = dbRows.find(r => r.value === cat.value)
     if (override) {
+      // '__hidden__' sentinel means the admin deleted this default category for this tenant
+      if (override.label === '__hidden__') return null
       return toCategoryInit(
         buildCategory(cat.value, override.label, override.description,
           override.icon_name, override.color_name, override.id, false)
@@ -178,10 +180,10 @@ export function mergeWithDbCategories(dbRows: DbCategory[]): CategoryInit[] {
   })
 
   const customs: CategoryInit[] = dbRows
-    .filter(r => !defaultValues.has(r.value))
+    .filter(r => !defaultValues.has(r.value) && r.label !== '__hidden__')
     .map(r => toCategoryInit(
       buildCategory(r.value, r.label, r.description, r.icon_name, r.color_name, r.id, true)
     ))
 
-  return [...merged, ...customs]
+  return [...merged.filter((c): c is CategoryInit => c !== null), ...customs]
 }

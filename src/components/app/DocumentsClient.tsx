@@ -113,12 +113,31 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
   }
 
   async function handleCategoryDirectDelete() {
-    if (!catDeleteTarget?.dbId) return
+    if (!catDeleteTarget) return
     setCatDeleting(true)
     try {
-      const res = await fetch(`/api/categories/${catDeleteTarget.dbId}`, { method: 'DELETE' })
-      if (res.ok) {
-        handleCategoryDeleted(catDeleteTarget.value)
+      let ok = false
+      if (catDeleteTarget.dbId) {
+        // Custom category or already-overridden default — delete the DB row
+        const res = await fetch(`/api/categories/${catDeleteTarget.dbId}`, { method: 'DELETE' })
+        ok = res.ok
+      } else {
+        // Pure built-in default — upsert a __hidden__ sentinel so it's excluded on next load
+        const res = await fetch('/api/categories', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            value:     catDeleteTarget.value,
+            label:     '__hidden__',
+            iconName:  catDeleteTarget.iconName,
+            colorName: catDeleteTarget.colorName,
+          }),
+        })
+        ok = res.ok
+      }
+      if (ok) {
+        // Always remove from the visible list (don't revert defaults — user wanted them gone)
+        setCategories(prev => prev.filter(c => c.value !== catDeleteTarget.value))
         if (filter === catDeleteTarget.value) setFilter('all')
       }
     } catch {}
@@ -186,14 +205,12 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
                   className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/90 text-gray-400 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-gray-700 md:opacity-0 md:group-hover:opacity-100">
                   <Pencil className="h-3 w-3" />
                 </button>
-                {cat.isCustom && cat.dbId && (
-                  <button
-                    onClick={e => { e.stopPropagation(); setCatDeleteTarget(cat) }}
-                    title="Delete category"
-                    className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/90 text-red-400 shadow-sm backdrop-blur-sm transition hover:bg-red-50 hover:text-red-600 md:opacity-0 md:group-hover:opacity-100">
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                )}
+                <button
+                  onClick={e => { e.stopPropagation(); setCatDeleteTarget(cat) }}
+                  title="Delete category"
+                  className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/90 text-red-400 shadow-sm backdrop-blur-sm transition hover:bg-red-50 hover:text-red-600 md:opacity-0 md:group-hover:opacity-100">
+                  <Trash2 className="h-3 w-3" />
+                </button>
               </div>
             )}
           </div>
