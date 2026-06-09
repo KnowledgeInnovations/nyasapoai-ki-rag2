@@ -433,8 +433,8 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
               onChange={e => { setInput(e.target.value); autoResize(e.target) }}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(input) } }}
               placeholder="Ask anything about your Knowledge Innovations documents…"
-              className="flex-1 resize-none bg-transparent text-sm text-gray-900 placeholder-gray-400 focus:outline-none"
-              style={{ minHeight: '24px', maxHeight: '120px' }}
+              className="flex-1 resize-none bg-transparent text-base text-gray-900 placeholder-gray-400 focus:outline-none sm:text-sm"
+              style={{ minHeight: '24px', maxHeight: '120px', fontSize: '16px' }}
             />
             <button type="submit" disabled={!input.trim() || loading || uploading}
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white shadow-md shadow-brand/25 transition hover:bg-brand-dark disabled:opacity-30 disabled:shadow-none">

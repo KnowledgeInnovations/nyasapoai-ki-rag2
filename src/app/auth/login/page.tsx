@@ -108,7 +108,7 @@ function LoginForm() {
               value={email}
               onChange={e => setEmail(e.target.value)}
               placeholder="you@knowledgeinnovations.com"
-              className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder-gray-400 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+              className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-base text-gray-900 placeholder-gray-400 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10 sm:text-sm"
             />
           </div>
 
@@ -121,7 +121,7 @@ function LoginForm() {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••••"
-                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 pr-11 text-sm text-gray-900 placeholder-gray-400 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 pr-11 text-base text-gray-900 placeholder-gray-400 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10 sm:text-sm"
               />
               <button type="button" onClick={() => setShowPwd(!showPwd)}
                 className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition">
@@ -148,7 +148,7 @@ function LoginForm() {
               value={email}
               onChange={e => setEmail(e.target.value)}
               placeholder="you@knowledgeinnovations.com"
-              className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder-gray-400 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+              className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-base text-gray-900 placeholder-gray-400 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10 sm:text-sm"
             />
           </div>
           <p className="text-xs text-gray-500">
