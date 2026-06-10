@@ -11,6 +11,7 @@ export interface Member {
   name:      string
   role:      Role
   createdAt: string
+  status:    'active' | 'pending'
 }
 
 interface Props {
@@ -153,7 +154,14 @@ export default function UsersClient({ members, currentUserId }: Props) {
           {list.map(member => (
             <div key={member.id} className="flex items-center gap-4 px-6 py-4">
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-gray-900">{member.name || member.email}</p>
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-semibold text-gray-900">{member.name || member.email}</p>
+                  {member.status === 'pending' && (
+                    <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                      Invite pending
+                    </span>
+                  )}
+                </div>
                 <p className="truncate text-xs text-gray-500">{member.email}</p>
               </div>
               <select
