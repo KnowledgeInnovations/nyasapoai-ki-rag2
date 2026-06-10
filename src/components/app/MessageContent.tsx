@@ -70,6 +70,19 @@ function isNumericCell(cell: string): boolean {
   return /^[+-]?(GH[S₵]|US\$|\$|₵|GHS)?\s*[\d,]+(\.\d+)?\s*(%|bn|m|k|million|billion|cedis)?$/i.test(stripped)
 }
 
+// The model sometimes runs an entire numbered list onto a single line/
+// paragraph (e.g. "1. Education saw... 2. Health funding... 3. Infra...").
+// If a "block" is really just one line that starts a numbered list, split
+// it back into individual items wherever " 2. ", " 3. " etc. appear.
+function splitInlineNumbered(line: string): string[] {
+  return line.split(/\s+(?=\d{1,2}[.)]\s)/).map(s => s.trim()).filter(Boolean)
+}
+
+// Same idea for bullet lists run together with "•" markers
+function splitInlineBullets(line: string): string[] {
+  return line.split(/\s+(?=•\s)/).map(s => s.trim()).filter(Boolean)
+}
+
 // Block renderer: paragraphs, bullet lists, numbered lists, headings, tables
 function renderBlock(
   raw: string,
@@ -80,7 +93,15 @@ function renderBlock(
   const trimmed = raw.trim()
   if (!trimmed) return null
 
-  const lines = trimmed.split('\n').map(l => l.trim()).filter(Boolean)
+  let lines = trimmed.split('\n').map(l => l.trim()).filter(Boolean)
+
+  if (lines.length === 1) {
+    if (/^\d{1,2}[.)]\s/.test(lines[0])) {
+      lines = splitInlineNumbered(lines[0])
+    } else if (/^•\s/.test(lines[0])) {
+      lines = splitInlineBullets(lines[0])
+    }
+  }
 
   // Markdown table: header row, separator row (---|---), then data rows
   const isTable = lines.length >= 2
