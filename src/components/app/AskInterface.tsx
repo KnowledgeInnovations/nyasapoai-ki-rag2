@@ -314,6 +314,7 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
   const [activeSource,  setActiveSource]  = useState<Citation | null>(null)
 
   const bottomRef    = useRef<HTMLDivElement>(null)
+  const scrollRef    = useRef<HTMLDivElement>(null)
   const textareaRef  = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -434,8 +435,15 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
     return () => window.removeEventListener('open-conversation', handler)
   }, [])
 
+  // Auto-scroll to the newest message — but only if the user is already
+  // near the bottom, so they can freely scroll up to read earlier messages
+  // while the AI is still streaming a response.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const el = scrollRef.current
+    if (!el) return
+    const NEAR_BOTTOM_PX = 120
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX
+    if (isNearBottom) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
 
   function autoResize(el: HTMLTextAreaElement) {
@@ -577,7 +585,7 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
     <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
 
       {/* Messages — min-h-0 fixes flex overflow on iOS Safari */}
-      <div className="min-h-0 flex-1 overflow-y-auto bg-[#f8f9fc]" style={{ WebkitOverflowScrolling: 'touch' }}>
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto bg-[#f8f9fc]" style={{ WebkitOverflowScrolling: 'touch' }}>
         {messages.length === 0 ? (
           <WelcomeScreen greeting={greeting} firstName={firstName} onSuggest={submit} />
         ) : (
