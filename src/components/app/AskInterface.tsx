@@ -37,14 +37,6 @@ interface HistoryItem {
   created_at: string
 }
 
-/* ── Helpers ──────────────────────────────────────────────── */
-function getInitials(name: string) {
-  const parts = name.trim().split(/\s+/)
-  return parts.length >= 2
-    ? (parts[0][0] + parts[1][0]).toUpperCase()
-    : name.slice(0, 2).toUpperCase()
-}
-
 /* ── Shimmer skeleton ────────────────────────────────────── */
 function ThinkingSkeleton() {
   return (
@@ -179,24 +171,16 @@ function SourcesList({ text, citations, onCiteClick }: {
 
 /* ── Message bubble ──────────────────────────────────────── */
 function MessageBubble({
-  msg, initials, onCiteClick,
+  msg, onCiteClick,
 }: {
   msg: Message
-  initials: string
   onCiteClick: (c: Citation) => void
 }) {
   const citations = msg.response?.citations ?? []
 
   return (
-    <div className={cn('group flex gap-4', msg.role === 'user' && 'flex-row-reverse')}>
-      <div className={cn(
-        'hidden h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold shadow-sm sm:flex',
-        msg.role === 'user' ? 'bg-brand text-white shadow-brand/30' : 'bg-brand text-white shadow-brand/30',
-      )}>
-        {msg.role === 'user' ? initials : 'KI'}
-      </div>
-
-      <div className="min-w-0 flex-1 space-y-3 sm:max-w-xl">
+    <div className={cn('group flex', msg.role === 'user' && 'justify-end')}>
+      <div className="min-w-0 flex-1 space-y-3 sm:max-w-3xl">
         {/* Bubble */}
         <div className={cn(
           'relative rounded-2xl px-5 py-4',
@@ -318,7 +302,6 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
   const textareaRef  = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const initials  = getInitials(userName)
   const firstName = userName.split(/\s+/)[0]
 
   // Computed client-side only to avoid SSR/client hydration mismatch
@@ -591,7 +574,7 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
         ) : (
           <div className="mx-auto max-w-3xl space-y-6 px-3 py-6 sm:px-6 sm:py-8">
             {messages.map((msg, i) => (
-              <MessageBubble key={i} msg={msg} initials={initials} onCiteClick={setActiveSource} />
+              <MessageBubble key={i} msg={msg} onCiteClick={setActiveSource} />
             ))}
             {/* Show skeleton only before first token arrives (last msg is still from user) */}
             {loading && messages[messages.length - 1]?.role === 'user' && <ThinkingSkeleton />}
