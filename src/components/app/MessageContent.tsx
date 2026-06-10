@@ -49,7 +49,19 @@ function renderInline(
   }).filter(Boolean) as React.ReactNode[]
 }
 
-// Block renderer: paragraphs, bullet lists, numbered lists, headings
+// Splits a markdown table row "| a | b |" into ["a", "b"]
+function splitTableRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map(c => c.trim())
+}
+
+const TABLE_SEPARATOR_RX = /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$/
+
+// Block renderer: paragraphs, bullet lists, numbered lists, headings, tables
 function renderBlock(
   raw: string,
   citations: Citation[],
@@ -60,6 +72,41 @@ function renderBlock(
   if (!trimmed) return null
 
   const lines = trimmed.split('\n').map(l => l.trim()).filter(Boolean)
+
+  // Markdown table: header row, separator row (---|---), then data rows
+  const isTable = lines.length >= 2
+    && lines[0].includes('|')
+    && TABLE_SEPARATOR_RX.test(lines[1])
+  if (isTable) {
+    const header = splitTableRow(lines[0])
+    const rows = lines.slice(2).map(splitTableRow)
+    return (
+      <div key={idx} className="my-3 overflow-x-auto rounded-xl border border-gray-200">
+        <table className="w-full min-w-[420px] border-collapse text-sm">
+          <thead>
+            <tr className="bg-gray-50">
+              {header.map((cell, ci) => (
+                <th key={ci} className="border-b border-gray-200 px-3 py-2 text-left text-xs font-bold uppercase tracking-wide text-gray-500">
+                  {renderInline(cell, citations, onCiteClick)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, ri) => (
+              <tr key={ri} className="even:bg-gray-50/50">
+                {row.map((cell, ci) => (
+                  <td key={ci} className="border-b border-gray-100 px-3 py-2 text-sm text-gray-700 last:border-b-0">
+                    {renderInline(cell, citations, onCiteClick)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
 
   const isBullet = lines.every(l => /^[•\-\*]\s/.test(l))
   if (isBullet) {

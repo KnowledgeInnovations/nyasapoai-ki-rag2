@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import {
   Send, Sparkles,
   AlertTriangle, CheckCircle2, Paperclip,
+  Copy, Check, FileText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { uploadDocument } from '@/lib/uploadDocument'
@@ -67,6 +68,77 @@ function ThinkingSkeleton() {
   )
 }
 
+// Strips the [ANSWER]/[RISKS]/[RECS] delimiters so copied text is clean prose
+function cleanAnswerText(text: string) {
+  return text
+    .replace(/^\s*\[ANSWER\]\s*\n?/, '')
+    .split('\n[RISKS]')[0]
+    .split('\n[RECS]')[0]
+    .trim()
+}
+
+/* ── Copy button ──────────────────────────────────────────── */
+function CopyButton({ text, className }: { text: string; className?: string }) {
+  const [copied, setCopied] = useState(false)
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {}
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={copied ? 'Copied!' : 'Copy message'}
+      className={cn(
+        'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-600',
+        className,
+      )}
+    >
+      {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+    </button>
+  )
+}
+
+/* ── Sources list ─────────────────────────────────────────── */
+function SourcesList({ citations, onCiteClick }: {
+  citations: Citation[]
+  onCiteClick: (c: Citation) => void
+}) {
+  if (citations.length === 0) return null
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-gray-50/60 px-4 py-3.5">
+      <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-gray-400">
+        Sources ({citations.length})
+      </p>
+      <div className="space-y-1">
+        {citations.map((c, i) => (
+          <button
+            key={c.id ?? i}
+            type="button"
+            onClick={() => onCiteClick(c)}
+            className="flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left transition hover:bg-white"
+          >
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand/10 text-[10px] font-black text-brand">
+              {i + 1}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-xs font-semibold text-gray-700">{c.document_title}</span>
+              <span className="block truncate text-[11px] text-gray-400">{c.chunk_text}</span>
+            </span>
+            <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-300" />
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /* ── Message bubble ──────────────────────────────────────── */
 function MessageBubble({
   msg, initials, onCiteClick,
@@ -78,7 +150,7 @@ function MessageBubble({
   const citations = msg.response?.citations ?? []
 
   return (
-    <div className={cn('flex gap-4', msg.role === 'user' && 'flex-row-reverse')}>
+    <div className={cn('group flex gap-4', msg.role === 'user' && 'flex-row-reverse')}>
       <div className={cn(
         'hidden h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold shadow-sm sm:flex',
         msg.role === 'user' ? 'bg-brand text-white shadow-brand/30' : 'bg-brand text-white shadow-brand/30',
@@ -89,7 +161,7 @@ function MessageBubble({
       <div className="min-w-0 flex-1 space-y-3 sm:max-w-xl">
         {/* Bubble */}
         <div className={cn(
-          'rounded-2xl px-5 py-4',
+          'relative rounded-2xl px-5 py-4',
           msg.role === 'user'
             ? 'rounded-tr-sm bg-brand text-white text-sm leading-relaxed'
             : 'rounded-tl-sm border border-gray-200 bg-white shadow-sm',
@@ -107,6 +179,17 @@ function MessageBubble({
                 <span className="ml-0.5 inline-block h-3.5 w-0.5 animate-pulse rounded-full bg-gray-400 align-middle" />
               )}
             </>
+          )}
+
+          {/* Copy — visible on hover (desktop) or always on touch */}
+          {!msg.streaming && (
+            <CopyButton
+              text={msg.role === 'user' ? msg.text : cleanAnswerText(msg.text)}
+              className={cn(
+                'absolute -top-2 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 sm:bg-white sm:shadow-sm sm:border sm:border-gray-100',
+                msg.role === 'user' ? '-left-2' : '-right-2',
+              )}
+            />
           )}
         </div>
 
@@ -133,6 +216,9 @@ function MessageBubble({
             </ul>
           </div>
         )}
+
+        {/* Sources */}
+        {!msg.streaming && <SourcesList citations={citations} onCiteClick={onCiteClick} />}
       </div>
     </div>
   )
