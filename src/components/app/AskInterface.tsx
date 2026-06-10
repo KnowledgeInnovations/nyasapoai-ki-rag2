@@ -207,8 +207,8 @@ function MessageBubble({
   const citations = msg.response?.citations ?? []
 
   return (
-    <div className={cn('group flex', msg.role === 'user' && 'justify-end')}>
-      <div className="min-w-0 flex-1 space-y-3 sm:max-w-3xl">
+    <div className={cn('msg-fade-in group flex', msg.role === 'user' && 'justify-end')}>
+      <div className="min-w-0 max-w-[85%] space-y-3 sm:max-w-[70%]">
         {/* Bubble */}
         <div className={cn(
           'relative rounded-2xl px-5 py-4',
