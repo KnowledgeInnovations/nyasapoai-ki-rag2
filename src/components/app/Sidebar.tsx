@@ -4,10 +4,11 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
-  MessageSquare, FileText, LayoutDashboard, Settings, Brain,
+  MessageSquare, FileText, LayoutDashboard, Settings, Brain, Users,
   ChevronLeft, ChevronRight, X, Plus, History, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { canAccessDashboards, canAccessTraining, canManageUsers, normalizeRole } from '@/lib/roles'
 
 interface HistoryItem {
   id: string
@@ -18,15 +19,14 @@ interface HistoryItem {
   created_at: string
 }
 
-// New roles + legacy roles (senior/middle/junior) — remove legacy entries once DB is migrated
-const DASHBOARD_ROLES = ['admin', 'exco', 'senior_manager', 'senior', 'middle']
-
 function getNavItems(role: string) {
+  const r = normalizeRole(role)
   return [
     { href: '/ask',        icon: MessageSquare,   label: 'Ask AI'     },
     { href: '/documents',  icon: FileText,         label: 'Documents'  },
-    ...(role === 'admin'               ? [{ href: '/training',   icon: Brain,           label: 'Training'   }] : []),
-    ...(DASHBOARD_ROLES.includes(role) ? [{ href: '/dashboards', icon: LayoutDashboard, label: 'Dashboards' }] : []),
+    ...(canAccessTraining(r)   ? [{ href: '/training',   icon: Brain,           label: 'Training'   }] : []),
+    ...(canAccessDashboards(r) ? [{ href: '/dashboards', icon: LayoutDashboard, label: 'Dashboards' }] : []),
+    ...(canManageUsers(r)      ? [{ href: '/users',      icon: Users,           label: 'Users'      }] : []),
     { href: '/settings',   icon: Settings,         label: 'Settings'   },
   ]
 }

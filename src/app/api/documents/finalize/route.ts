@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { extractText, chunkText, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
+import { normalizeRole, canUploadDocuments } from '@/lib/roles'
 
 export const maxDuration = 300 // 5 min — extraction + embedding can take a while for large documents
 
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (!membership) return NextResponse.json({ error: 'No workspace found' }, { status: 403 })
-  if (!['admin', 'exco', 'senior_manager', 'senior', 'middle'].includes(membership.role)) {
+  if (!canUploadDocuments(normalizeRole(membership.role))) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 

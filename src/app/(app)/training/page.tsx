@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import TrainingClient from '@/components/app/TrainingClient'
+import { canAccessTraining } from '@/lib/roles'
 
 export const metadata: Metadata = { title: 'AI Training - Knowledge Innovations' }
 
@@ -28,7 +29,7 @@ export interface TrainingDoc {
 
 export default async function TrainingPage() {
   const membership = await getMembership()
-  if (!membership || membership.role !== 'admin') redirect('/ask')
+  if (!membership || !canAccessTraining(membership.role)) redirect('/ask')
 
   const service = svc()
   const tid      = membership.tenant_id

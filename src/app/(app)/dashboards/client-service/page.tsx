@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { HeartHandshake, MessageSquare, ClipboardList, Star } from 'lucide-react'
 import { getMembership, createClient } from '@/lib/supabase/server'
+import { canAccessDashboards } from '@/lib/roles'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { CATEGORIES } from '@/lib/documentCategories'
 import DashboardShell from '@/components/app/DashboardShell'
@@ -10,7 +11,6 @@ import { StatCard, DocList } from '@/components/app/DashboardWidgets'
 
 export const metadata: Metadata = { title: 'Client Service Dashboard - Knowledge Innovations' }
 
-const ALLOWED = ['admin', 'exco', 'senior_manager', 'senior', 'middle']
 
 function svc() {
   return createServiceClient(
@@ -28,7 +28,7 @@ const INSIGHTS = [
 
 export default async function ClientServiceDashboard() {
   const membership = await getMembership()
-  if (!membership || !ALLOWED.includes(membership.role)) redirect('/ask')
+  if (!membership || !canAccessDashboards(membership.role)) redirect('/ask')
 
   const supabase = await createClient()
   const service  = svc()

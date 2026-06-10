@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { cache } from 'react'
 import type { User } from '@supabase/supabase-js'
+import { normalizeRole, type Role } from '@/lib/roles'
 
 // ── Module-level caches ────────────────────────────────────────
 // Survive across requests within the same server process.
@@ -14,7 +15,7 @@ const USER_TTL       = 30_000  // 30 s  — auth check
 const MEMBERSHIP_TTL = 300_000 // 5 min — membership rarely changes
 
 const userCache       = new Map<string, Entry<User | null>>()
-const membershipCache = new Map<string, Entry<{ tenant_id: string; role: string } | null>>()
+const membershipCache = new Map<string, Entry<{ tenant_id: string; role: Role } | null>>()
 
 /** Derive a compact, unique cache key from the Supabase session cookies. */
 function authKey(cookieStore: Awaited<ReturnType<typeof cookies>>): string {
@@ -89,7 +90,8 @@ export const getMembership = cache(async () => {
     .eq('user_id', user.id)
     .single()
 
-  const val = data as { tenant_id: string; role: string } | null
+  const raw = data as { tenant_id: string; role: string } | null
+  const val = raw ? { tenant_id: raw.tenant_id, role: normalizeRole(raw.role) } : null
   evict(membershipCache)
   membershipCache.set(user.id, { v: val, exp: Date.now() + MEMBERSHIP_TTL })
   return val

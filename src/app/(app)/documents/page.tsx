@@ -3,6 +3,7 @@ import { getMembership, createClient } from '@/lib/supabase/server'
 import DocumentsClient from '@/components/app/DocumentsClient'
 import type { Document } from '@/types'
 import { mergeWithDbCategories, type DbCategory } from '@/lib/documentCategories'
+import { canUploadDocuments, canDeleteDocuments } from '@/lib/roles'
 
 export const metadata: Metadata = { title: 'Documents - Knowledge Innovations' }
 
@@ -15,8 +16,8 @@ export default async function DocumentsPage() {
   let initialCategories = mergeWithDbCategories([])
 
   if (membership) {
-    canUpload = ['admin', 'exco', 'senior_manager', 'senior', 'middle'].includes(membership.role)
-    canDelete = membership.role === 'admin'
+    canUpload = canUploadDocuments(membership.role)
+    canDelete = canDeleteDocuments(membership.role)
 
     const supabase = await createClient()
     const [{ data: docs }, { data: dbCats }] = await Promise.all([

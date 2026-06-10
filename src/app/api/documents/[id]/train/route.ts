@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { extractText, chunkText, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
+import { canAccessTraining } from '@/lib/roles'
 
 export const maxDuration = 300 // 5 min for large documents
 
@@ -23,7 +24,7 @@ export async function POST(
 ) {
   const { id } = await params
   const membership = await getMembership()
-  if (!membership || membership.role !== 'admin') {
+  if (!membership || !canAccessTraining(membership.role)) {
     return new Response('Unauthorized', { status: 401 })
   }
 

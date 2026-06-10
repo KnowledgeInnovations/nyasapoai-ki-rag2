@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { normalizeRole, canManageCategories } from '@/lib/roles'
 
 function svc() {
   return createServiceClient(
@@ -22,7 +23,7 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (!membership) return NextResponse.json({ error: 'No workspace found' }, { status: 403 })
-  if (!['admin', 'exco', 'senior_manager', 'senior', 'middle'].includes(membership.role)) {
+  if (!canManageCategories(normalizeRole(membership.role))) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 

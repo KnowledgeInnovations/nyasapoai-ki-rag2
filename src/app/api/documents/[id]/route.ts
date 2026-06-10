@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-
-const DELETE_ROLES = ['admin']
+import { normalizeRole, canDeleteDocuments } from '@/lib/roles'
 
 function svc() {
   return createServiceClient(
@@ -29,8 +28,8 @@ export async function DELETE(
     .single()
 
   if (!membership) return NextResponse.json({ error: 'No workspace found' }, { status: 403 })
-  if (!DELETE_ROLES.includes(membership.role)) {
-    return NextResponse.json({ error: 'Only admins can delete documents' }, { status: 403 })
+  if (!canDeleteDocuments(normalizeRole(membership.role))) {
+    return NextResponse.json({ error: 'Only senior users can delete documents' }, { status: 403 })
   }
 
   const service = svc()

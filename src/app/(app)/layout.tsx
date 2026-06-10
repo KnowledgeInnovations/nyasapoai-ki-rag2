@@ -6,6 +6,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const user = await getUser()
   if (!user) redirect('/auth/login')
   const membership = await getMembership()
-  const role = membership?.role ?? 'staff'
+  const role = membership?.role ?? 'junior'
   return <AppShell user={user} role={role}>{children}</AppShell>
 }

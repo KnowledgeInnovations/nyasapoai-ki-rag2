@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { CheckCircle2, Loader2 } from 'lucide-react'
+import { normalizeRole, ROLE_LABELS, ROLE_DESCRIPTIONS, canUploadDocuments } from '@/lib/roles'
 
 interface Props {
   email: string
@@ -40,17 +41,15 @@ export default function SettingsClient({ email, name, role }: Props) {
     setSaving(false)
   }
 
-  const ROLE_META: Record<string, { label: string; badge: string }> = {
-    admin:          { label: 'Admin',           badge: 'bg-gold/15 text-yellow-700 border-gold/30' },
-    exco:           { label: 'EXCO',            badge: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
-    senior_manager: { label: 'Senior Manager',  badge: 'bg-brand-light text-brand border-brand/20' },
-    staff:          { label: 'Staff',           badge: 'bg-gray-100 text-gray-600 border-gray-200' },
-    // legacy
-    senior:         { label: 'Senior',          badge: 'bg-gold/15 text-yellow-700 border-gold/30' },
-    middle:         { label: 'Middle',          badge: 'bg-brand-light text-brand border-brand/20' },
-    junior:         { label: 'Junior',          badge: 'bg-gray-100 text-gray-600 border-gray-200' },
+  const ROLE_BADGES: Record<string, string> = {
+    senior: 'bg-gold/15 text-yellow-700 border-gold/30',
+    middle: 'bg-brand-light text-brand border-brand/20',
+    junior: 'bg-gray-100 text-gray-600 border-gray-200',
   }
-  const { label: roleLabel, badge: roleBadge } = ROLE_META[role] ?? { label: role, badge: 'bg-gray-100 text-gray-600 border-gray-200' }
+  const normalizedRole = normalizeRole(role)
+  const roleLabel = ROLE_LABELS[normalizedRole]
+  const roleBadge = ROLE_BADGES[normalizedRole]
+  const roleDescription = ROLE_DESCRIPTIONS[normalizedRole]
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -115,11 +114,12 @@ export default function SettingsClient({ email, name, role }: Props) {
           <h2 className="text-sm font-bold text-gray-800">Workspace Access</h2>
           <p className="mt-0.5 text-xs text-gray-500">Permissions for your current role.</p>
         </div>
-        <div className="p-6">
+        <div className="p-6 space-y-2">
+          <p className="text-sm text-gray-600">{roleDescription}</p>
           <p className="text-sm text-gray-600">
-            {['admin', 'exco', 'senior_manager', 'senior', 'middle'].includes(role)
+            {canUploadDocuments(normalizedRole)
               ? 'You have access to upload documents, manage categories, and view dashboards.'
-              : 'Document uploads and dashboards are available to Admin, EXCO, and Senior Manager roles. Contact your admin for access.'}
+              : 'Document uploads and dashboards are available to Senior and Middle roles. Contact your workspace admin for access.'}
           </p>
         </div>
       </section>
