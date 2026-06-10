@@ -104,20 +104,40 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
   )
 }
 
+// Strips the "[Document: Title]" prefix injected for embedding context and
+// collapses whitespace/newlines for a clean one-line preview
+function previewText(text: string): string {
+  return text.replace(/^\s*\[Document:[^\]]*\]\s*/, '').replace(/\s+/g, ' ').trim()
+}
+
+const SOURCES_PREVIEW_COUNT = 6
+
 /* ── Sources list ─────────────────────────────────────────── */
-function SourcesList({ citations, onCiteClick }: {
+function SourcesList({ text, citations, onCiteClick }: {
+  text: string
   citations: Citation[]
   onCiteClick: (c: Citation) => void
 }) {
+  const [expanded, setExpanded] = useState(false)
+
   if (citations.length === 0) return null
+
+  // Only show sources actually referenced by a [n] marker in the answer —
+  // broad/aggregation queries can retrieve dozens of chunks for context but
+  // most are never cited, so listing all of them is just noise.
+  const cited = citations.filter((_, i) => new RegExp(`\\[${i + 1}\\]`).test(text))
+  const list = cited.length > 0 ? cited : citations
+
+  const visible = expanded ? list : list.slice(0, SOURCES_PREVIEW_COUNT)
+  const hiddenCount = list.length - visible.length
 
   return (
     <div className="rounded-xl border border-gray-200 bg-gray-50/60 px-4 py-3.5">
       <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-gray-400">
-        Sources ({citations.length})
+        Sources ({list.length})
       </p>
       <div className="space-y-1">
-        {citations.map((c, i) => (
+        {visible.map((c, i) => (
           <button
             key={c.id ?? i}
             type="button"
@@ -125,16 +145,34 @@ function SourcesList({ citations, onCiteClick }: {
             className="flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left transition hover:bg-white"
           >
             <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand/10 text-[10px] font-black text-brand">
-              {i + 1}
+              {citations.indexOf(c) + 1}
             </span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-xs font-semibold text-gray-700">{c.document_title}</span>
-              <span className="block truncate text-[11px] text-gray-400">{c.chunk_text}</span>
+              <span className="line-clamp-2 text-[11px] leading-snug text-gray-400">{previewText(c.chunk_text)}</span>
             </span>
             <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-300" />
           </button>
         ))}
       </div>
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="mt-1.5 px-2 text-[11px] font-semibold text-brand hover:text-brand-dark"
+        >
+          Show {hiddenCount} more {hiddenCount === 1 ? 'source' : 'sources'}
+        </button>
+      )}
+      {expanded && list.length > SOURCES_PREVIEW_COUNT && (
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="mt-1.5 px-2 text-[11px] font-semibold text-gray-400 hover:text-gray-600"
+        >
+          Show less
+        </button>
+      )}
     </div>
   )
 }
@@ -218,7 +256,7 @@ function MessageBubble({
         )}
 
         {/* Sources */}
-        {!msg.streaming && <SourcesList citations={citations} onCiteClick={onCiteClick} />}
+        {!msg.streaming && <SourcesList text={msg.text} citations={citations} onCiteClick={onCiteClick} />}
       </div>
     </div>
   )
@@ -302,6 +340,8 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
         messages: StoredMessage[]
       }
       if (!Array.isArray(saved) || saved.length === 0) return
+      // One-time restore of a previous session from localStorage on initial mount
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSessionConvId(convId ?? null)
       setMessages(saved.map(m => ({
         role: m.role,
