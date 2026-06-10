@@ -62,6 +62,8 @@ export interface Citation {
   // [start, end) character offsets within chunk_text for the sentence that
   // best matches the user's question — null if no clear match was found
   highlight?: [number, number] | null
+  page_number?: number | null
+  section_title?: string | null
 }
 
 export interface AuditLog {
@@ -79,6 +81,7 @@ export interface RAGResponse {
   answer: string
   citations: Citation[]
   confidence_score: number
+  confidence_level?: 'High' | 'Medium' | 'Low'
   risks: string[]
   recommendations: string[]
 }

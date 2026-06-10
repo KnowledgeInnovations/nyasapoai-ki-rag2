@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { extractText, chunkText, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
+import { extractStructuredText, chunkPages, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
 import { canAccessTraining } from '@/lib/roles'
 
 export const maxDuration = 300 // 5 min for large documents
@@ -63,16 +63,16 @@ export async function POST(
         // ── 2. Extract text ───────────────────────────────────────
         send({ stage: 'extracting', message: 'Extracting all text content…', progress: 15 })
 
-        const text = await extractText(buffer, doc.source)
+        const pages = await extractStructuredText(buffer, doc.source)
 
-        if (!text?.trim()) throw new Error('No text could be extracted. The file may be image-based, password-protected, or has an unsupported format.')
+        if (!pages.some(p => p.text.trim())) throw new Error('No text could be extracted. The file may be image-based, password-protected, or has an unsupported format.')
 
         // ── 3. Chunk ──────────────────────────────────────────────
         send({ stage: 'chunking', message: 'Analysing document structure…', progress: 25 })
 
         const titleLabel = `[Document: ${doc.title}]\n`
-        const rawChunks  = chunkText(text)
-        const chunks     = rawChunks.map(c => titleLabel + c)
+        const rawChunks  = chunkPages(pages, doc.title)
+        const chunks     = rawChunks.map(c => ({ ...c, text: titleLabel + c.text }))
 
         send({ stage: 'chunking', message: `Document split into ${chunks.length} knowledge chunks`, progress: 30 })
 
@@ -94,19 +94,25 @@ export async function POST(
             progress,
           })
 
-          const embeddings = await embedBatch(batch)
+          const embeddings = await embedBatch(batch.map(c => c.text))
 
           await service.from('document_chunks').insert(
-            batch.map((chunkText, j) => ({
+            batch.map((c, j) => ({
               document_id: id,
               tenant_id:   membership.tenant_id,
-              chunk_text:  chunkText,
+              chunk_text:  c.text,
               chunk_index: i + j,
               embedding:   embeddings[j],
               metadata: {
                 source: doc.source,
                 chunk_index: i + j,
                 total_chunks: chunks.length,
+                page_number: c.page_number,
+                section_title: c.section_title,
+                fiscal_year: c.fiscal_year,
+                ministry: c.ministry,
+                sector: c.sector,
+                is_table: c.is_table,
                 trained_at: new Date().toISOString(),
               },
             }))

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { extractText, chunkText, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
+import { extractStructuredText, chunkPages, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
 import { normalizeRole, canUploadDocuments } from '@/lib/roles'
 
 export const maxDuration = 300 // 5 min — extraction + embedding can take a while for large documents
@@ -91,10 +91,10 @@ export async function POST(request: NextRequest) {
     }
     const buffer = Buffer.from(await blob!.arrayBuffer())
 
-    // Step 1: extract text
-    let text: string
+    // Step 1: extract text (page-aware where the format supports it)
+    let pages: Awaited<ReturnType<typeof extractStructuredText>>
     try {
-      text = await extractText(buffer, originalFilename)
+      pages = await extractStructuredText(buffer, originalFilename)
     } catch (extractErr) {
       console.error('Text extraction error:', extractErr)
       await serviceClient.from('documents').update({ status: 'failed' }).eq('id', document.id)
@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!text.trim()) {
+    if (!pages.some(p => p.text.trim())) {
       await serviceClient.from('documents').update({ status: 'failed' }).eq('id', document.id)
       return NextResponse.json(
         { error: 'No text could be extracted. The file may be image-based, password-protected, or corrupted.' },
@@ -112,17 +112,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Step 2: paragraph-aware chunking + batch embedding
+    // Step 2: structure-aware chunking + batch embedding
     // Prepend document title to every chunk so filename searches work via vector search
     const titleLabel = `[Document: ${docTitle}]\n`
-    const rawChunks  = chunkText(text)
-    const chunks     = rawChunks.map(c => titleLabel + c)
+    const rawChunks  = chunkPages(pages, docTitle)
+    const chunks     = rawChunks.map(c => ({ ...c, text: titleLabel + c.text }))
 
     for (let start = 0; start < chunks.length; start += EMBED_BATCH) {
       const batch = chunks.slice(start, start + EMBED_BATCH)
       let embeddings: number[][]
       try {
-        embeddings = await embedBatch(batch)
+        embeddings = await embedBatch(batch.map(c => c.text))
       } catch (embedErr) {
         console.error('Embedding error at batch', start, embedErr)
         await serviceClient.from('documents').update({ status: 'failed' }).eq('id', document.id)
@@ -132,13 +132,23 @@ export async function POST(request: NextRequest) {
         )
       }
       await serviceClient.from('document_chunks').insert(
-        batch.map((chunkText, j) => ({
+        batch.map((c, j) => ({
           document_id: document.id,
           tenant_id:   membership.tenant_id,
-          chunk_text:  chunkText,
+          chunk_text:  c.text,
           chunk_index: start + j,
           embedding:   embeddings[j],
-          metadata: { source: originalFilename, chunk_index: start + j, total_chunks: chunks.length },
+          metadata: {
+            source: originalFilename,
+            chunk_index: start + j,
+            total_chunks: chunks.length,
+            page_number: c.page_number,
+            section_title: c.section_title,
+            fiscal_year: c.fiscal_year,
+            ministry: c.ministry,
+            sector: c.sector,
+            is_table: c.is_table,
+          },
         }))
       )
     }

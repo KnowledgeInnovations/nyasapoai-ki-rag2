@@ -64,8 +64,11 @@ export default function SourceViewer({ citation, onClose }: Props) {
               <p className="text-sm font-bold text-gray-900 leading-snug truncate pr-2">
                 {citation.document_title}
               </p>
-              <div className="mt-1 flex items-center gap-2">
-                <span className="text-[11px] text-gray-400">Source document</span>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <span className="text-[11px] text-gray-400">
+                  {citation.section_title ? citation.section_title : 'Source document'}
+                  {citation.page_number != null ? ` · p. ${citation.page_number}` : ''}
+                </span>
                 {score > 0 && (
                   <span className="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                     {score}% match

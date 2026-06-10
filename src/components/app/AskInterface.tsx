@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import {
   Send, Sparkles,
   AlertTriangle, CheckCircle2, Paperclip,
-  Copy, Check, FileText,
+  Copy, Check, FileText, ShieldCheck,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { uploadDocument } from '@/lib/uploadDocument'
@@ -104,6 +104,27 @@ function previewText(text: string): string {
 
 const SOURCES_PREVIEW_COUNT = 6
 
+/* ── Confidence badge ─────────────────────────────────────── */
+function ConfidenceBadge({ score, level }: { score?: number; level?: RAGResponse['confidence_level'] }) {
+  if (score == null || level == null) return null
+
+  const styles: Record<NonNullable<RAGResponse['confidence_level']>, string> = {
+    High:   'bg-emerald-50 border-emerald-200 text-emerald-700',
+    Medium: 'bg-amber-50 border-amber-200 text-amber-700',
+    Low:    'bg-red-50 border-red-200 text-red-700',
+  }
+
+  return (
+    <div className={cn(
+      'inline-flex items-center gap-1.5 self-start rounded-full border px-2.5 py-1 text-[11px] font-semibold',
+      styles[level],
+    )}>
+      <ShieldCheck className="h-3 w-3" />
+      Confidence: {score}% — {level}
+    </div>
+  )
+}
+
 /* ── Sources list ─────────────────────────────────────────── */
 function SourcesList({ text, citations, onCiteClick }: {
   text: string
@@ -140,7 +161,17 @@ function SourcesList({ text, citations, onCiteClick }: {
               {citations.indexOf(c) + 1}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-xs font-semibold text-gray-700">{c.document_title}</span>
+              <span className="block truncate text-xs font-semibold text-gray-700">
+                {c.document_title}
+                {(c.section_title || c.page_number != null) && (
+                  <span className="font-normal text-gray-400">
+                    {' · '}
+                    {c.section_title ? c.section_title : null}
+                    {c.section_title && c.page_number != null ? ' · ' : null}
+                    {c.page_number != null ? `p. ${c.page_number}` : null}
+                  </span>
+                )}
+              </span>
               <span className="line-clamp-2 text-[11px] leading-snug text-gray-400">{previewText(c.chunk_text)}</span>
             </span>
             <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-300" />
@@ -237,6 +268,11 @@ function MessageBubble({
               {msg.response.recommendations.map((r, ri) => <li key={ri} className="text-xs text-emerald-700">• {r}</li>)}
             </ul>
           </div>
+        )}
+
+        {/* Confidence */}
+        {!msg.streaming && (
+          <ConfidenceBadge score={msg.response?.confidence_score} level={msg.response?.confidence_level} />
         )}
 
         {/* Sources */}
@@ -504,7 +540,7 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
-          let event: { t?: string; done?: boolean; answer?: string; risks?: string[]; recommendations?: string[]; citations?: RAGResponse['citations']; confidence_score?: number; convId?: string | null; title?: string }
+          let event: { t?: string; done?: boolean; answer?: string; risks?: string[]; recommendations?: string[]; citations?: RAGResponse['citations']; confidence_score?: number; confidence_level?: RAGResponse['confidence_level']; convId?: string | null; title?: string }
           try { event = JSON.parse(line.slice(6)) } catch { continue }
 
           if (event.t) {
@@ -533,7 +569,8 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
                 citations:        event.citations ?? [],
                 risks:            event.risks ?? [],
                 recommendations:  event.recommendations ?? [],
-                confidence_score: event.confidence_score ?? 0.85,
+                confidence_score: event.confidence_score ?? 85,
+                confidence_level: event.confidence_level,
               },
             }
             setMessages(prev => [...prev.slice(0, -1), finalMsg])

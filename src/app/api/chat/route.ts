@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, getUser, getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { classifyQuery, computeGrowthCalculations, verifyAnswer, type QueryType } from '@/lib/ragAnalysis'
+import { rerankChunks } from '@/lib/rerank'
 
 // Service-role client for document/chunk queries — bypasses RLS.
 // Tenant isolation is enforced by p_tenant_id in the RPC, so this is safe.
@@ -37,8 +39,10 @@ Rules:
   | 2020 | GHS 1.2bn [3] | ... |
   Still cite each row with [n] markers. Add a short paragraph of analysis (trends, changes, anomalies) after the table.
 - For analytical questions (trends, growth %, totals, anomalies) — show the underlying figures and a brief calculation/reasoning, not just the final number.
+- A "PRE-COMPUTED FIGURES & GROWTH" block may be provided below the excerpts — these year-over-year growth percentages were calculated deterministically from the source figures and are VERIFIED CORRECT. When discussing growth/change between those years, use these exact numbers rather than recalculating, and cite the same [n] markers shown for each one.
 - When listing multiple points (e.g. an "Analysis" section with several observations, a list of risks, or a list of recommendations) — put EACH point on its OWN line as a separate numbered (1. 2. 3.) or bulleted (- ) item, with a blank line before the list. NEVER run multiple points together in one paragraph.
 - If figures for some years/items are missing from the excerpts, say so explicitly (e.g. "No figure found for 2003 in the available excerpts") rather than omitting them silently — this helps the user know what to check manually.
+- HALLUCINATION PREVENTION — never invent figures, guess missing values, fabricate trends, or fabricate ministry/department allocations. If the excerpts and inventory genuinely contain nothing useful for the question, respond in [ANSWER] with exactly: "Insufficient evidence found in the available documents." and leave [RISKS]/[RECS] as "None identified" / omitted.
 - If no relevant excerpts were found but a document exists in the inventory, acknowledge the document exists and suggest the user ask more specific questions about its content
 - When the user asks to "open", "show", "view", or "read" a document — you cannot open files directly in this chat. Respond by summarising the key contents you have from the document excerpts, and tell the user they can view the full document in the Documents section.
 - RECOMMENDATIONS must be specific and actionable — only include them if there is a genuine next step (e.g. "Review clause 4.2 on payment terms before signing"). Never add generic filler like "feel free to ask if you have more questions" as a recommendation.
@@ -53,6 +57,18 @@ Your detailed answer here with inline citations like [1]
 
 [RECS]
 • recommendation 1 (omit this section entirely if there are no specific actionable recommendations)`
+
+// Per-query-type guidance appended to the user message — steers the model
+// toward the right pipeline (Retrieve -> ... -> Answer) for each category
+// without needing separate prompts/routes.
+const QUERY_TYPE_GUIDANCE: Record<QueryType, string> = {
+  fact_lookup: 'QUERY TYPE: Fact lookup. Find the specific figure(s) requested, state them plainly with citations, and verify they appear in the excerpts before answering.',
+  trend: 'QUERY TYPE: Trend analysis. Extract the relevant figures for each year/period from the excerpts and the PRE-COMPUTED FIGURES & GROWTH block, then describe the trend (direction, magnitude, anomalies) using those verified numbers.',
+  comparison: 'QUERY TYPE: Comparison. Aggregate the relevant figures for each item being compared into a markdown table, then write a short comparative analysis (which is larger/smaller, by how much, and why if evident).',
+  forecast: 'QUERY TYPE: Forecasting. Build a simple time series from the figures in the excerpts, describe the recent trend (e.g. average year-over-year growth), and project the next period using simple linear extrapolation. Clearly label this as an ESTIMATE based on historical trend, not a guaranteed figure, and state the assumption.',
+  evidence: 'QUERY TYPE: Evidence search. Quote the most relevant passages verbatim (in quotation marks) with citations, and briefly explain how each quote supports or relates to the claim in the question.',
+  general: '',
+}
 
 function parseDelimited(text: string) {
   const answerMatch = text.match(/\[ANSWER\]([\s\S]*?)(?=\n\[RISKS\]|\n\[RECS\]|$)/)
@@ -288,7 +304,7 @@ export async function POST(request: NextRequest) {
 
     return new Response(
       new ReadableStream({ async start(c) {
-        await streamWords(c, enc, msg, { risks: [], recommendations: [], citations: [], confidence_score: 1, convId, title })
+        await streamWords(c, enc, msg, { risks: [], recommendations: [], citations: [], confidence_score: 100, confidence_level: 'High', convId, title })
       }}),
       { headers: sseHeaders() }
     )
@@ -319,19 +335,29 @@ export async function POST(request: NextRequest) {
         docInventory.map(d => `• ${d.title}${d.department ? ` [category: ${d.department}]` : ''}`).join('\n')
       : 'KNOWLEDGE BASE INVENTORY: No files have been uploaded yet.'
 
-    /* ── 2. Retrieve chunks via service role (bypasses RLS) ─────
-       Tenant isolation enforced by p_tenant_id — this is safe. */
-    const { data: globalChunks, error: rpcError } = await svc.rpc('match_document_chunks', {
-      query_embedding: queryEmbedding, p_tenant_id: tenantId,
-      match_threshold: 0.15, match_count: 8,
+    /* ── 2. Hybrid retrieval (dense vector + BM25-ish FTS via RRF) ──
+       Tenant isolation enforced by p_tenant_id — this is safe.
+       Returns up to 30 candidates, reranked down to the top 10. */
+    const { data: hybridChunks, error: rpcError } = await svc.rpc('match_document_chunks_hybrid', {
+      query_embedding: queryEmbedding, query_text: query, p_tenant_id: tenantId,
+      match_count: 30,
     })
-    if (rpcError) console.error('[RAG] RPC error:', JSON.stringify(rpcError))
+    if (rpcError) console.error('[RAG] hybrid RPC error:', JSON.stringify(rpcError))
 
-    let chunks = globalChunks ?? []
+    type RetrievedChunk = { id: string; document_id: string; chunk_text: string; metadata: Record<string, unknown>; similarity: number; rrf_score?: number; rerank_score?: number }
+    const chunks: RetrievedChunk[] = hybridChunks?.length
+      ? await rerankChunks(query, hybridChunks as RetrievedChunk[], 10)
+      : []
+
+    if (chunks.length) {
+      console.log('[RAG] retrieval scores:', chunks.map(c => ({
+        id: c.id.slice(0, 8), similarity: c.similarity?.toFixed(3), rrf: c.rrf_score?.toFixed(4), rerank: c.rerank_score?.toFixed(2),
+      })))
+    }
 
     // Broad/aggregation question (e.g. "X for each year from 1999-2026") —
     // pull a couple of top chunks from EVERY ready document so no year/file
-    // is silently dropped, then merge with the global top-8 above.
+    // is silently dropped, then merge with the reranked top-10 above.
     if (BROAD_QUERY_RX.test(query)) {
       const { data: perDocChunks, error: perDocError } = await svc.rpc('match_document_chunks_per_doc', {
         query_embedding: queryEmbedding, p_tenant_id: tenantId,
@@ -339,7 +365,7 @@ export async function POST(request: NextRequest) {
       })
       if (perDocError) console.error('[RAG] per-doc RPC error:', JSON.stringify(perDocError))
       if (perDocChunks?.length) {
-        const seen = new Set(chunks.map((c: { id: string }) => c.id))
+        const seen = new Set(chunks.map(c => c.id))
         for (const c of perDocChunks) if (!seen.has(c.id)) { chunks.push(c); seen.add(c.id) }
       }
     }
@@ -374,20 +400,36 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
 
       return new Response(
         new ReadableStream({ async start(c) {
-          await streamWords(c, enc, msg, { risks: [], recommendations: [], citations: [], confidence_score: 0.3, convId, title })
+          await streamWords(c, enc, msg, { risks: [], recommendations: [], citations: [], confidence_score: 30, confidence_level: 'Low', convId, title })
         }}),
         { headers: sseHeaders() }
       )
     }
 
     const context = chunks
-      .map((c: { chunk_text: string }, i: number) => `[${i + 1}] ${c.chunk_text}`)
+      .map((c, i) => `[${i + 1}] ${c.chunk_text}`)
       .join('\n\n')
+
+    /* ── 2b. Deterministic calculation engine ────────────────────
+       Extract figures + compute year-over-year growth ourselves so the
+       model doesn't have to (and can't get the arithmetic wrong). */
+    const growthCalcs = computeGrowthCalculations(chunks)
+    const calcBlock = growthCalcs.length
+      ? '\n\nPRE-COMPUTED FIGURES & GROWTH (verified — use these exact numbers):\n' +
+        growthCalcs.map(g =>
+          `- ${g.fromYear} → ${g.toYear}: ${g.fromValue} → ${g.toValue} (${g.unit}), `
+          + `growth ${g.growthPct > 0 ? '+' : ''}${g.growthPct}% ${g.citations.map(n => `[${n}]`).join('')}`
+        ).join('\n')
+      : ''
+
+    const queryType = classifyQuery(query)
+    const guidance = QUERY_TYPE_GUIDANCE[queryType]
+    const guidanceBlock = guidance ? `\n\n${guidance}` : ''
 
     /* ── 3. Prefetch citation titles via service role ────────── */
     const chunkDetailsPromise = svc
       .from('document_chunks').select('id, documents(title)')
-      .in('id', chunks.map((c: { id: string }) => c.id))
+      .in('id', chunks.map(c => c.id))
 
     /* ── 4. Pre-generate conversation ID so we can include in done event ── */
     const title  = makeTitle(query)
@@ -400,7 +442,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           ...historyMsgs,
-          { role: 'user',   content: `${inventoryText}\n\nDOCUMENT EXCERPTS FROM SEARCH:\n${context}\n\nQuestion: ${query}` },
+          { role: 'user',   content: `${inventoryText}\n\nDOCUMENT EXCERPTS FROM SEARCH:\n${context}${calcBlock}${guidanceBlock}\n\nQuestion: ${query}` },
         ],
       }),
       signal: request.signal,
@@ -437,6 +479,21 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
 
           const { answer, risks, recommendations } = parseDelimited(fullText)
 
+          /* ── Answer verification + confidence scoring ──────────
+             Deterministic second pass: every non-percentage figure in the
+             answer should appear in the retrieved chunks, and any "+X%"
+             growth claim should match the actual change between the two
+             cited figures. Combined with retrieval quality, this replaces
+             the old hardcoded 0.85 confidence score. */
+          const retrievalScores = chunks.map(c => c.rerank_score ?? c.similarity ?? c.rrf_score ?? 0)
+          const verification = verifyAnswer(answer, chunks, retrievalScores)
+          if (verification.unsupported.length) {
+            console.log('[RAG] unsupported figures in answer:', verification.unsupported)
+          }
+          if (verification.growthChecks.some(g => !g.ok)) {
+            console.log('[RAG] growth claim mismatches:', verification.growthChecks.filter(g => !g.ok))
+          }
+
           let convId: string | null = null
           if (newSession) {
             try {
@@ -448,7 +505,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
                 .from('conversations')
                 .insert({
                   user_id: user!.id, tenant_id: tenantId,
-                  query, response: answer, confidence_score: 0.85, risks, recommendations,
+                  query, response: answer, confidence_score: verification.confidenceScore / 100, risks, recommendations,
                   messages,
                 })
                 .select('id')
@@ -457,7 +514,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
               convId = conv?.id ?? null
               if (convId && chunks.length) {
                 await supabase.from('citations').insert(
-                  chunks.map((c: { id: string; similarity: number }) => ({
+                  chunks.map(c => ({
                     conversation_id: convId, document_chunk_id: c.id, relevance_score: c.similarity,
                   }))
                 )
@@ -470,10 +527,11 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
 
           // Build citation objects with the real DB-generated convId
           const { data: chunkDetails } = await chunkDetailsPromise
-          const citations = chunks.map((c: { id: string; chunk_text: string; similarity: number }) => {
+          const citations = chunks.map(c => {
             const detail  = chunkDetails?.find(d => d.id === c.id)
             const rawDocs = detail?.documents as { title: string } | { title: string }[] | null
             const docTitle = Array.isArray(rawDocs) ? rawDocs[0]?.title : rawDocs?.title
+            const meta = c.metadata ?? {}
             return {
               id: c.id, conversation_id: convId ?? '',
               document_chunk_id: c.id,
@@ -481,11 +539,18 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
               chunk_text: c.chunk_text,
               relevance_score: c.similarity,
               highlight: findHighlightSpan(c.chunk_text, query),
+              page_number: (meta.page_number as number | null) ?? null,
+              section_title: (meta.section_title as string | null) ?? null,
             }
           })
 
           controller.enqueue(enc.encode(
-            `data: ${JSON.stringify({ done: true, answer, risks, recommendations, citations, confidence_score: 0.85, convId, title })}\n\n`
+            `data: ${JSON.stringify({
+              done: true, answer, risks, recommendations, citations,
+              confidence_score: verification.confidenceScore,
+              confidence_level: verification.confidenceLevel,
+              convId, title,
+            })}\n\n`
           ))
 
         } catch (err) {
