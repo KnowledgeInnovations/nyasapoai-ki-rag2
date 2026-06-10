@@ -96,11 +96,39 @@ function renderBlock(
   let lines = trimmed.split('\n').map(l => l.trim()).filter(Boolean)
 
   if (lines.length === 1) {
-    if (/^\d{1,2}[.)]\s/.test(lines[0])) {
-      lines = splitInlineNumbered(lines[0])
-    } else if (/^•\s/.test(lines[0])) {
-      lines = splitInlineBullets(lines[0])
+    const numbered = splitInlineNumbered(lines[0])
+    const bulleted = splitInlineBullets(lines[0])
+    if (numbered.length > 1) {
+      lines = numbered
+    } else if (bulleted.length > 1) {
+      lines = bulleted
     }
+  }
+
+  // The model sometimes prefixes a numbered/bulleted list with a heading or
+  // lead-in sentence on the same line, e.g. "### Analysis of Trends: 1. ... 2. ...".
+  // After splitting, that lead-in ends up as lines[0] while the rest form a
+  // proper list — render the lead-in separately so it doesn't get swallowed
+  // into the list or absorb the whole block as a heading.
+  let leadIn: string | null = null
+  if (lines.length > 1) {
+    const rest = lines.slice(1)
+    if (!/^\d+[.)]\s/.test(lines[0]) && rest.every(l => /^\d+[.)]\s/.test(l))) {
+      leadIn = lines[0]
+      lines = rest
+    } else if (!/^[•\-\*]\s/.test(lines[0]) && rest.every(l => /^[•\-\*]\s/.test(l))) {
+      leadIn = lines[0]
+      lines = rest
+    }
+  }
+
+  if (leadIn !== null) {
+    return (
+      <div key={idx}>
+        {renderBlock(leadIn, citations, onCiteClick, idx)}
+        {renderBlock(lines.join('\n'), citations, onCiteClick, idx + 0.5)}
+      </div>
+    )
   }
 
   // Markdown table: header row, separator row (---|---), then data rows

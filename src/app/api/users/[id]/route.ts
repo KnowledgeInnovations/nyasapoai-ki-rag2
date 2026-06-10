@@ -66,5 +66,18 @@ export async function DELETE(
     return NextResponse.json({ error: 'Failed to remove member' }, { status: 500 })
   }
 
+  // If this user has no memberships left in any tenant, remove their auth
+  // account too — otherwise Supabase Auth keeps treating the email as
+  // registered and re-inviting it fails with "already registered".
+  const { count } = await service
+    .from('memberships')
+    .select('user_id', { count: 'exact', head: true })
+    .eq('user_id', id)
+
+  if (!count) {
+    const { error: authError } = await service.auth.admin.deleteUser(id)
+    if (authError) console.error('Auth user delete error:', authError)
+  }
+
   return NextResponse.json({ success: true })
 }

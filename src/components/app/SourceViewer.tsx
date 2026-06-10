@@ -44,12 +44,12 @@ export default function SourceViewer({ citation, onClose }: Props) {
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px]"
+        className="fixed inset-0 z-[350] bg-black/30 backdrop-blur-[2px]"
         onClick={onClose}
       />
 
       {/* Panel — slides in from the right on desktop, up from bottom on mobile */}
-      <div className="fixed bottom-0 right-0 z-50 flex flex-col bg-white shadow-2xl
+      <div className="fixed bottom-0 right-0 z-[400] flex flex-col bg-white shadow-2xl
                       w-full md:w-[420px] md:h-full md:border-l md:border-gray-200
                       h-[70vh] rounded-t-3xl md:rounded-none
                       animate-in slide-in-from-bottom md:slide-in-from-right duration-300">

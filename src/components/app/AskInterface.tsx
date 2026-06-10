@@ -40,11 +40,8 @@ interface HistoryItem {
 /* ── Shimmer skeleton ────────────────────────────────────── */
 function ThinkingSkeleton() {
   return (
-    <div className="flex gap-4">
-      <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand text-[11px] font-black text-white shadow-sm shadow-brand/30 sm:flex">
-        KI
-      </div>
-      <div className="min-w-0 flex-1 rounded-2xl rounded-tl-sm border border-gray-200 bg-white px-4 py-3.5 shadow-sm sm:max-w-xl sm:px-5 sm:py-4">
+    <div className="flex">
+      <div className="min-w-0 flex-1 rounded-2xl rounded-tl-sm border border-gray-200 bg-white px-4 py-3.5 shadow-sm sm:max-w-3xl sm:px-5 sm:py-4">
         <div className="mb-4 flex items-center gap-2">
           <Sparkles className="h-3.5 w-3.5 animate-pulse text-brand" />
           <span className="text-xs font-semibold text-gray-400">Knowledge Innovations AI is thinking…</span>
