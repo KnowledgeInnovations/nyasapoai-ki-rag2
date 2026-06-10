@@ -129,6 +129,13 @@ async function streamWords(
   controller.close()
 }
 
+// Detects questions that need coverage across MANY documents at once — e.g.
+// "total budget for each year from 1999-2026" against 27 separate yearly
+// budget files. A single global top-K vector search can only return chunks
+// from a handful of the most-similar documents, so most years get silently
+// dropped. These queries need at least one chunk from every ready document.
+const BROAD_QUERY_RX = /\beach year\b|\bevery year\b|\byear[\s-]?(over|on)[\s-]?year\b|\b(all|both|across)\b.*\byears?\b|\bover the (years|decade|period)\b|\b(19|20)\d{2}\s*(?:[-–—]|to)\s*(19|20)\d{2}\b|\bcumulative\b|\btrend\b|\b\d{1,3}[\s-]?years?\b/i
+
 // Derive a short memorable title from the query
 function makeTitle(query: string): string {
   const q = query.trim().replace(/[?!.]+$/, '')
@@ -305,11 +312,28 @@ export async function POST(request: NextRequest) {
 
     /* ── 2. Retrieve chunks via service role (bypasses RLS) ─────
        Tenant isolation enforced by p_tenant_id — this is safe. */
-    const { data: chunks, error: rpcError } = await svc.rpc('match_document_chunks', {
+    const { data: globalChunks, error: rpcError } = await svc.rpc('match_document_chunks', {
       query_embedding: queryEmbedding, p_tenant_id: tenantId,
       match_threshold: 0.15, match_count: 8,
     })
     if (rpcError) console.error('[RAG] RPC error:', JSON.stringify(rpcError))
+
+    let chunks = globalChunks ?? []
+
+    // Broad/aggregation question (e.g. "X for each year from 1999-2026") —
+    // pull a couple of top chunks from EVERY ready document so no year/file
+    // is silently dropped, then merge with the global top-8 above.
+    if (BROAD_QUERY_RX.test(query)) {
+      const { data: perDocChunks, error: perDocError } = await svc.rpc('match_document_chunks_per_doc', {
+        query_embedding: queryEmbedding, p_tenant_id: tenantId,
+        match_count_per_doc: 2, match_threshold: 0.05,
+      })
+      if (perDocError) console.error('[RAG] per-doc RPC error:', JSON.stringify(perDocError))
+      if (perDocChunks?.length) {
+        const seen = new Set(chunks.map((c: { id: string }) => c.id))
+        for (const c of perDocChunks) if (!seen.has(c.id)) { chunks.push(c); seen.add(c.id) }
+      }
+    }
 
     /* ── No matching chunks — answer from inventory ─────────── */
     if (!chunks?.length) {
@@ -363,7 +387,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
     const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST', headers: OPENAI_HEADERS,
       body: JSON.stringify({
-        model: 'gpt-4o-mini', temperature: 0.2, max_tokens: 800, stream: true,
+        model: 'gpt-4o-mini', temperature: 0.2, max_tokens: BROAD_QUERY_RX.test(query) ? 1600 : 800, stream: true,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           ...historyMsgs,
