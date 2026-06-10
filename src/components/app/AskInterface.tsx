@@ -298,11 +298,11 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
       const raw = localStorage.getItem('ki_last_session')
       if (!raw) return
       const { convId, messages: saved } = JSON.parse(raw) as {
-        convId: string
+        convId: string | null
         messages: StoredMessage[]
       }
-      if (!convId || !Array.isArray(saved) || saved.length === 0) return
-      setSessionConvId(convId)
+      if (!Array.isArray(saved) || saved.length === 0) return
+      setSessionConvId(convId ?? null)
       setMessages(saved.map(m => ({
         role: m.role,
         text: m.text,
@@ -320,18 +320,21 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Persist active session whenever it changes
+  // Persist active session whenever it changes — even before the first
+  // response finishes (sessionConvId may still be null), so a refresh or
+  // accidental reload never wipes out the conversation in progress.
   useEffect(() => {
-    if (!sessionConvId || messages.length === 0) return
+    if (messages.length === 0) return
     try {
-      const storable = messages
-        .filter(m => !m.streaming)
-        .map(m => ({
-          role:            m.role,
-          text:            m.text,
-          risks:           m.response?.risks,
-          recommendations: m.response?.recommendations,
-        }))
+      const storable = messages.map(m => ({
+        role:            m.role,
+        // A message can still be mid-stream when this fires (e.g. the user
+        // refreshes before [done] arrives) — persist whatever text has
+        // arrived so far rather than dropping the message entirely.
+        text:            m.text,
+        risks:           m.response?.risks,
+        recommendations: m.response?.recommendations,
+      }))
       localStorage.setItem('ki_last_session', JSON.stringify({ convId: sessionConvId, messages: storable }))
     } catch {}
   }, [sessionConvId, messages])
@@ -458,6 +461,7 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
       let buf = ''
       let streamText = ''
       let aiMsgAdded = false
+      let receivedDone = false
 
       while (true) {
         const { done, value } = await reader.read()
@@ -488,6 +492,7 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
           }
 
           if (event.done) {
+            receivedDone = true
             const finalMsg: Message = {
               role: 'ai',
               text: event.answer ?? '',
@@ -507,6 +512,16 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
             }
           }
         }
+      }
+
+      // Stream ended without a [done] event (e.g. connection cut short) —
+      // finalize whatever text arrived so the message isn't stuck in a
+      // permanent "streaming" state and silently dropped on next refresh.
+      if (aiMsgAdded && !receivedDone) {
+        setMessages(prev => [
+          ...prev.slice(0, -1),
+          { role: 'ai', text: streamText, streaming: false },
+        ])
       }
     } catch {
       setMessages(prev => [...prev, {

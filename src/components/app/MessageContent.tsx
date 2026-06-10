@@ -1,6 +1,7 @@
 'use client'
 
 import { FileText } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import type { Citation } from '@/types'
 
 interface Props {
@@ -61,6 +62,14 @@ function splitTableRow(line: string): string[] {
 
 const TABLE_SEPARATOR_RX = /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$/
 
+// Detects values like "1,234.50", "12%", "GHS 1.2bn", "$45,000" — used to
+// right-align and tabular-number numeric columns in rendered tables.
+function isNumericCell(cell: string): boolean {
+  const stripped = cell.replace(/\[\d+\]/g, '').replace(/\*\*/g, '').trim()
+  if (!stripped) return false
+  return /^[+-]?(GH[S₵]|US\$|\$|₵|GHS)?\s*[\d,]+(\.\d+)?\s*(%|bn|m|k|million|billion|cedis)?$/i.test(stripped)
+}
+
 // Block renderer: paragraphs, bullet lists, numbered lists, headings, tables
 function renderBlock(
   raw: string,
@@ -80,30 +89,52 @@ function renderBlock(
   if (isTable) {
     const header = splitTableRow(lines[0])
     const rows = lines.slice(2).map(splitTableRow)
+
+    // Right-align + tabular-number any column (other than the first, which
+    // is usually a year/category label) whose data cells are all numeric.
+    const numericCol = header.map((_, ci) =>
+      ci > 0 && rows.length > 0 && rows.every(r => !r[ci]?.trim() || isNumericCell(r[ci])),
+    )
+
     return (
-      <div key={idx} className="my-3 overflow-x-auto rounded-xl border border-gray-200">
-        <table className="w-full min-w-[420px] border-collapse text-sm">
-          <thead>
-            <tr className="bg-gray-50">
-              {header.map((cell, ci) => (
-                <th key={ci} className="border-b border-gray-200 px-3 py-2 text-left text-xs font-bold uppercase tracking-wide text-gray-500">
-                  {renderInline(cell, citations, onCiteClick)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, ri) => (
-              <tr key={ri} className="even:bg-gray-50/50">
-                {row.map((cell, ci) => (
-                  <td key={ci} className="border-b border-gray-100 px-3 py-2 text-sm text-gray-700 last:border-b-0">
+      <div key={idx} className="my-3 overflow-hidden rounded-xl border border-gray-200 shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[420px] border-collapse text-sm">
+            <thead>
+              <tr className="bg-brand-light/60">
+                {header.map((cell, ci) => (
+                  <th
+                    key={ci}
+                    className={cn(
+                      'border-b border-gray-200 px-3.5 py-2.5 text-xs font-bold uppercase tracking-wide text-brand whitespace-nowrap',
+                      numericCol[ci] ? 'text-right' : 'text-left',
+                    )}
+                  >
                     {renderInline(cell, citations, onCiteClick)}
-                  </td>
+                  </th>
                 ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((row, ri) => (
+                <tr key={ri} className="transition-colors even:bg-gray-50/60 hover:bg-brand-light/30">
+                  {row.map((cell, ci) => (
+                    <td
+                      key={ci}
+                      className={cn(
+                        'border-b border-gray-100 px-3.5 py-2.5 text-sm text-gray-700 last:border-r-0',
+                        numericCol[ci] ? 'text-right tabular-nums' : 'text-left',
+                        ci === 0 && 'font-semibold text-gray-900 whitespace-nowrap',
+                      )}
+                    >
+                      {renderInline(cell, citations, onCiteClick)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     )
   }
@@ -136,11 +167,18 @@ function renderBlock(
     )
   }
 
-  const headingMatch = trimmed.match(/^#{1,3}\s+(.+)$/)
+  const headingMatch = trimmed.match(/^(#{1,3})\s+(.+)$/)
   if (headingMatch) {
+    const level = headingMatch[1].length
     return (
-      <p key={idx} className="mt-3 mb-1 font-bold text-gray-900 text-sm">
-        {renderInline(headingMatch[1], citations, onCiteClick)}
+      <p
+        key={idx}
+        className={cn(
+          'font-bold text-gray-900',
+          level === 1 ? 'mt-4 mb-2 pb-1.5 border-b border-gray-100 text-base' : 'mt-3 mb-1.5 text-sm',
+        )}
+      >
+        {renderInline(headingMatch[2], citations, onCiteClick)}
       </p>
     )
   }
