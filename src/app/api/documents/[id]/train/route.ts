@@ -1,9 +1,11 @@
 import { NextRequest } from 'next/server'
+import path from 'node:path'
 import { getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { extractStructuredText, chunkPages, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
 import { canAccessTraining } from '@/lib/roles'
-import { extractFactsFromChunk, runSanityChecks, type FinancialFact } from '@/lib/factExtraction'
+import { extractFactsFromChunk, tableRecordToFact, runSanityChecks, type FinancialFact } from '@/lib/factExtraction'
+import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
 
 export const maxDuration = 300 // 5 min for large documents
 
@@ -128,14 +130,28 @@ export async function POST(
           }
         }
 
-        // ── 6. Sanity-check + store financial facts ───────────────
+        // ── 6. Table-aware fact extraction (PDFs only) ────────────
+        if (path.extname(doc.source).toLowerCase() === '.pdf') {
+          send({ stage: 'tables', message: 'Extracting tables for financial facts…', progress: 90 })
+          try {
+            const tableRecords = await extractTableRecordsFromPdf(buffer)
+            for (const record of tableRecords) {
+              const fact = tableRecordToFact({ ...record, document_id: id }, membership.tenant_id, id)
+              if (fact) allFacts.push(fact)
+            }
+          } catch (err) {
+            console.error('[Train] table extraction failed', err)
+          }
+        }
+
+        // ── 7. Sanity-check + store financial facts ───────────────
         runSanityChecks(allFacts)
         if (allFacts.length) {
           await service.from('financial_facts').insert(allFacts)
         }
         send({ stage: 'facts', message: `Extracted ${allFacts.length} financial facts`, progress: 95 })
 
-        // ── 7. Mark document as ready ─────────────────────────────
+        // ── 8. Mark document as ready ─────────────────────────────
         await service.from('documents').update({ status: 'ready' }).eq('id', id)
 
         send({

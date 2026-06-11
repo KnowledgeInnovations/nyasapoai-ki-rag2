@@ -3,11 +3,11 @@
 import { useState, useRef, useEffect } from 'react'
 import {
   Brain, CheckCircle2, AlertCircle, Clock, RefreshCw, Zap,
-  FileText, ChevronDown, ChevronUp, X, ClipboardCheck, Check,
+  FileText, ChevronDown, ChevronUp, X, Search, Quote, Sparkles,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import type { TrainingDoc, Assessment, AssessmentResultRow } from '@/app/(app)/training/page'
+import type { TrainingDoc, Performance } from '@/app/(app)/training/page'
 
 type TrainStatus = 'idle' | 'running' | 'done' | 'error'
 
@@ -19,21 +19,49 @@ interface TrainState {
   log:      string[]
 }
 
-interface AssessmentState {
-  status:        TrainStatus
-  message:       string
-  progress:      number
-  log:           string[]
-  accuracy:      number | null
-  avgConfidence: number | null
-  total:         number
-  passed:        number
-  results:       AssessmentResultRow[]
+interface SearchExcerpt {
+  pageNumber:   number | null
+  sectionTitle: string | null
+  text:         string
 }
 
-const EMPTY_ASSESSMENT_STATE: AssessmentState = {
-  status: 'idle', message: '', progress: 0, log: [],
-  accuracy: null, avgConfidence: null, total: 0, passed: 0, results: [],
+interface SearchResultDoc {
+  documentId: string
+  title:      string
+  source:     string
+  excerpts:   SearchExcerpt[]
+}
+
+interface DirectFact {
+  fiscalYear:    string | null
+  entity:        string
+  entityType:    string
+  metric:        string
+  value:         number
+  unit:          string
+  documentId:    string
+  documentTitle: string
+  pageNumber:    number | null
+  sectionTitle:  string | null
+}
+
+interface ReviewResult {
+  verdict:   'correct' | 'incorrect'
+  reasoning: string
+}
+
+interface SearchState {
+  status:    TrainStatus
+  message:   string
+  question:  string
+  keywords:  string[]
+  facts:     DirectFact[]
+  documents: SearchResultDoc[]
+  review:    ReviewResult | null
+}
+
+const EMPTY_SEARCH_STATE: SearchState = {
+  status: 'idle', message: '', question: '', keywords: [], facts: [], documents: [], review: null,
 }
 
 function performanceLabel(accuracy: number): { label: string; color: string } {
@@ -63,77 +91,60 @@ const DEPT_LABELS: Record<string, string> = {
   general:         'General',
 }
 
-export default function TrainingClient({ docs, trainedCount, untrainedCount, latestAssessment }: {
+export default function TrainingClient({ docs, trainedCount, untrainedCount, performance }: {
   docs: TrainingDoc[]
   trainedCount: number
   untrainedCount: number
-  latestAssessment: Assessment | null
+  performance: Performance | null
 }) {
   const router = useRouter()
   const [states,    setStates]    = useState<Record<string, TrainState>>({})
   const [sheetDoc,  setSheetDoc]  = useState<TrainingDoc | null>(null)
   const abortRefs = useRef<Record<string, AbortController>>({})
 
-  // Self-assessment: target=null means whole-knowledge-base run.
-  const [assessmentOpen,   setAssessmentOpen]   = useState(false)
-  const [assessmentTarget, setAssessmentTarget] = useState<{ documentId: string | null; title: string } | null>(null)
-  const [assessmentState,  setAssessmentState]  = useState<AssessmentState>(EMPTY_ASSESSMENT_STATE)
-  const assessmentAbort = useRef<AbortController | null>(null)
+  // Manual document search: target=null means search the whole knowledge base.
+  const [searchOpen,   setSearchOpen]   = useState(false)
+  const [searchTarget, setSearchTarget] = useState<{ documentId: string | null; title: string } | null>(null)
+  const [searchState,  setSearchState]  = useState<SearchState>(EMPTY_SEARCH_STATE)
+  const [livePerf,     setLivePerf]     = useState<Performance | null>(performance)
+  const [reviewVersion, setReviewVersion] = useState(0)
 
   const totalChunks = docs.reduce((a, d) => a + d.chunkCount, 0)
 
-  async function runAssessment(documentId: string | null, title: string) {
-    setAssessmentTarget({ documentId, title })
-    setAssessmentOpen(true)
-    setAssessmentState({ ...EMPTY_ASSESSMENT_STATE, status: 'running', message: 'Starting…' })
-
-    const abort = new AbortController()
-    assessmentAbort.current = abort
+  async function runSearch(documentId: string | null, title: string, question: string) {
+    setSearchTarget({ documentId, title })
+    setSearchOpen(true)
+    setSearchState({ ...EMPTY_SEARCH_STATE, status: 'running', question })
 
     try {
-      const res = await fetch('/api/assessment', {
+      const res = await fetch('/api/document-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ documentId }),
-        signal: abort.signal,
+        body: JSON.stringify({ question, documentId }),
       })
-      if (!res.ok) throw new Error(`Server returned ${res.status}`)
-      const reader  = res.body!.getReader()
-      const decoder = new TextDecoder()
-      let buf = ''
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-        const lines = buf.split('\n')
-        buf = lines.pop() ?? ''
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          try {
-            const ev = JSON.parse(line.slice(6)) as {
-              stage: string; message: string; progress: number
-              accuracy?: number; avgConfidence?: number; total?: number; passed?: number
-              results?: AssessmentResultRow[]
-            }
-            const status: TrainStatus = ev.stage === 'complete' ? 'done' : ev.stage === 'error' ? 'error' : 'running'
-            setAssessmentState(prev => ({
-              ...prev,
-              status, message: ev.message, progress: Math.max(ev.progress, 0),
-              log: [...prev.log, ev.message],
-              accuracy: ev.accuracy ?? prev.accuracy,
-              avgConfidence: ev.avgConfidence ?? prev.avgConfidence,
-              total: ev.total ?? prev.total,
-              passed: ev.passed ?? prev.passed,
-              results: ev.results ?? prev.results,
-            }))
-          } catch {}
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || `Server returned ${res.status}`)
+      const review: ReviewResult | null = data.review ?? null
+      setSearchState({
+        status: 'done', message: '', question,
+        keywords: data.keywords ?? [], facts: data.facts ?? [], documents: data.documents ?? [],
+        review,
+      })
+      // The AI verdict was recorded server-side — reflect it in the
+      // performance stats immediately without an extra round trip.
+      if (review) {
+        if (documentId === null) {
+          setLivePerf(prev => {
+            const total   = (prev?.total ?? 0) + 1
+            const correct = (prev?.correct ?? 0) + (review.verdict === 'correct' ? 1 : 0)
+            return { total, correct, accuracy: Math.round((correct / total) * 10000) / 100 }
+          })
         }
+        setReviewVersion(v => v + 1)
+        router.refresh()
       }
-      router.refresh()
     } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
-        setAssessmentState(prev => ({ ...prev, status: 'error', message: (err as Error).message }))
-      }
+      setSearchState(prev => ({ ...prev, status: 'error', message: (err as Error).message }))
     }
   }
 
@@ -204,12 +215,11 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, lat
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <button onClick={() => runAssessment(null, 'Whole Knowledge Base')}
-            disabled={assessmentState.status === 'running'}
+          <button onClick={() => { setSearchTarget({ documentId: null, title: 'Whole Knowledge Base' }); setSearchOpen(true); setSearchState(EMPTY_SEARCH_STATE) }}
             className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-xs font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:opacity-50">
-            <ClipboardCheck className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Run Self-Assessment</span>
-            <span className="sm:hidden">Assess</span>
+            <Search className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Search Documents</span>
+            <span className="sm:hidden">Search</span>
           </button>
           {untrainedCount > 0 && (
             <button onClick={trainAll}
@@ -237,16 +247,17 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, lat
           <p className={cn('text-2xl font-black tracking-tight', untrainedCount > 0 ? 'text-amber-700' : 'text-gray-300')}>{untrainedCount}</p>
           <p className={cn('mt-0.5 text-xs', untrainedCount > 0 ? 'text-amber-600' : 'text-gray-400')}>Pending</p>
         </div>
-        <div className={cn('rounded-2xl border p-4 shadow-sm', latestAssessment ? performanceLabel(latestAssessment.accuracy).color : 'border-gray-200 bg-white')}>
-          {latestAssessment ? (
+        <div className={cn('rounded-2xl border p-4 shadow-sm', livePerf ? performanceLabel(livePerf.accuracy).color : 'border-gray-200 bg-white')}>
+          {livePerf ? (
             <>
-              <p className="text-2xl font-black tracking-tight">{latestAssessment.accuracy}%</p>
-              <p className="mt-0.5 text-xs">Accuracy · {performanceLabel(latestAssessment.accuracy).label}</p>
+              <p className="text-2xl font-black tracking-tight">{livePerf.accuracy}%</p>
+              <p className="mt-0.5 text-xs">Performance · {performanceLabel(livePerf.accuracy).label}</p>
+              <p className="mt-0.5 text-[10px] opacity-70">{livePerf.correct}/{livePerf.total} reviewed correct</p>
             </>
           ) : (
             <>
               <p className="text-2xl font-black tracking-tight text-gray-300">—</p>
-              <p className="mt-0.5 text-xs text-gray-400">Not yet assessed</p>
+              <p className="mt-0.5 text-xs text-gray-400">No reviews yet</p>
             </>
           )}
         </div>
@@ -350,40 +361,66 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, lat
         <DetailSheet
           doc={sheetDoc}
           state={getState(sheetDoc.id)}
+          reviewVersion={reviewVersion}
           onTrain={() => trainDocument(sheetDoc)}
-          onAssess={() => runAssessment(sheetDoc.id, sheetDoc.title)}
+          onOpenSearch={() => { setSearchTarget({ documentId: sheetDoc.id, title: sheetDoc.title }); setSearchState(EMPTY_SEARCH_STATE); setSearchOpen(true) }}
           onClose={() => setSheetDoc(null)}
         />
       )}
 
-      {/* ── Self-assessment sheet ────────────────────────────────── */}
-      {assessmentOpen && assessmentTarget && (
-        <AssessmentSheet
-          target={assessmentTarget}
-          state={assessmentState}
-          onClose={() => {
-            assessmentAbort.current?.abort()
-            setAssessmentOpen(false)
-          }}
+      {/* ── Document search sheet ────────────────────────────────── */}
+      {searchOpen && searchTarget && (
+        <SearchSheet
+          target={searchTarget}
+          state={searchState}
+          onSearch={(question) => runSearch(searchTarget.documentId, searchTarget.title, question)}
+          onClose={() => setSearchOpen(false)}
         />
       )}
     </div>
   )
 }
 
-/* ── Self-Assessment Sheet ───────────────────────────────────── */
-function AssessmentSheet({
-  target, state, onClose,
+/* Wraps every occurrence of any keyword in `text` with a <mark> highlight,
+   so the user can see exactly which words anchored this passage to the question. */
+function highlightText(text: string, keywords: string[]) {
+  if (!keywords.length) return text
+  const escaped = keywords
+    .slice()
+    .sort((a, b) => b.length - a.length)
+    .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const pattern = `(${escaped.join('|')})`
+  const parts = text.split(new RegExp(pattern, 'gi'))
+  const test = new RegExp(`^${pattern}$`, 'i')
+  return parts.map((part, i) =>
+    part && test.test(part)
+      ? <mark key={i} className="rounded bg-amber-200 px-0.5 text-gray-900">{part}</mark>
+      : <span key={i}>{part}</span>
+  )
+}
+
+/* ── Document Search Sheet ───────────────────────────────────── */
+function SearchSheet({
+  target, state, onSearch, onClose,
 }: {
   target: { documentId: string | null; title: string }
-  state: AssessmentState
+  state: SearchState
+  onSearch: (question: string) => void
   onClose: () => void
 }) {
   const isRunning = state.status === 'running'
   const isDone    = state.status === 'done'
   const isFailed  = state.status === 'error'
-  const [logOpen, setLogOpen] = useState(true)
-  const [resultsOpen, setResultsOpen] = useState(true)
+  const [question, setQuestion] = useState('')
+  const [openDocs, setOpenDocs] = useState<Record<string, boolean>>({})
+
+  function submit() {
+    const q = question.trim()
+    if (!q || isRunning) return
+    onSearch(q)
+  }
+
+  const totalExcerpts = state.documents.reduce((a, d) => a + d.excerpts.length, 0)
 
   return (
     <>
@@ -394,7 +431,7 @@ function AssessmentSheet({
 
         <div className="flex items-start justify-between gap-3 px-5 pb-4 pt-4">
           <div className="min-w-0">
-            <p className="truncate font-bold text-gray-900">Self-Assessment</p>
+            <p className="truncate font-bold text-gray-900">Document Search</p>
             <p className="mt-0.5 truncate text-xs text-gray-400">{target.title}</p>
           </div>
           <button onClick={onClose} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-500 hover:bg-gray-200">
@@ -402,131 +439,173 @@ function AssessmentSheet({
           </button>
         </div>
 
-        {/* Progress bar while running */}
-        {isRunning && (
-          <div className="mx-5 mt-1 rounded-xl border border-brand/20 bg-brand-light/40 p-4">
-            <div className="mb-2 flex items-center gap-2">
-              <RefreshCw className="h-4 w-4 animate-spin text-brand" />
-              <span className="text-sm font-semibold text-brand">Assessing… {state.progress}%</span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-brand/10">
-              <div className="h-full rounded-full bg-brand transition-all duration-500" style={{ width: `${state.progress}%` }} />
-            </div>
-            {state.message && <p className="mt-2 truncate text-xs text-brand/70">{state.message}</p>}
-          </div>
-        )}
+        {/* Question input */}
+        <div className="mx-5 flex items-center gap-2">
+          <input
+            value={question}
+            onChange={e => setQuestion(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') submit() }}
+            placeholder="Ask a question…"
+            className="flex-1 rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 outline-none focus:border-brand"
+          />
+          <button
+            onClick={submit}
+            disabled={isRunning || !question.trim()}
+            className="flex items-center gap-2 rounded-xl bg-brand px-3.5 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-50">
+            {isRunning ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+            Search
+          </button>
+        </div>
+        <p className="mx-5 mt-1.5 text-[11px] text-gray-400">
+          Searches every chunk of every relevant document and returns verbatim excerpts — no AI-generated answers.
+        </p>
 
         {isFailed && (
-          <div className="mx-5 mt-1 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+          <div className="mx-5 mt-3 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
             <AlertCircle className="h-5 w-5 text-red-500" />
             <div>
-              <p className="text-sm font-semibold text-red-800">Assessment failed</p>
+              <p className="text-sm font-semibold text-red-800">Search failed</p>
               <p className="text-xs text-red-600">{state.message || 'An error occurred.'}</p>
             </div>
           </div>
         )}
 
-        {/* Summary */}
-        {isDone && state.accuracy != null && (
-          <div className="mx-5 mt-1 grid grid-cols-2 gap-3">
-            <div className={cn('rounded-2xl border p-4', performanceLabel(state.accuracy).color)}>
-              <p className="text-2xl font-black tracking-tight">{state.accuracy}%</p>
-              <p className="mt-0.5 text-xs">Accuracy · {performanceLabel(state.accuracy).label}</p>
-              <p className="mt-0.5 text-[10px] opacity-70">{state.passed}/{state.total} passed</p>
-            </div>
-            <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-              <p className="text-2xl font-black tracking-tight text-gray-900">{state.avgConfidence}%</p>
-              <p className="mt-0.5 text-xs text-gray-500">Avg. confidence</p>
-            </div>
-          </div>
-        )}
-
-        {/* Live log */}
-        {state.log.length > 0 && (
-          <div className="mx-5 mt-4 rounded-xl border border-gray-200 bg-gray-50">
-            <button
-              onClick={() => setLogOpen(o => !o)}
-              className="flex w-full items-center justify-between px-4 py-3 text-xs font-bold uppercase tracking-wider text-gray-500">
-              Log
-              {logOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            </button>
-            {logOpen && (
-              <div className="border-t border-gray-200 px-4 pb-3 pt-2 space-y-1.5 max-h-40 overflow-y-auto">
-                {state.log.map((line, i) => (
-                  <div key={i} className="flex items-start gap-2">
-                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand/40" />
-                    <p className="text-xs text-gray-600">{line}</p>
-                  </div>
-                ))}
-              </div>
+        {isDone && (
+          <div className="mx-5 mt-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+            <p className="text-xs text-gray-600">
+              <span className="font-semibold text-gray-800">{state.question}</span>
+            </p>
+            {state.keywords.length > 0 && (
+              <p className="mt-1 text-[11px] text-gray-400">
+                Matched on: {state.keywords.join(', ')}
+              </p>
             )}
+            <p className="mt-1 text-[11px] text-gray-400">
+              {state.documents.length} document{state.documents.length === 1 ? '' : 's'}, {totalExcerpts} matching passage{totalExcerpts === 1 ? '' : 's'}
+            </p>
           </div>
         )}
 
-        {/* Per-question results */}
-        {isDone && state.results.length > 0 && (
-          <div className="mx-5 mb-5 mt-4 rounded-xl border border-gray-200 bg-white">
-            <button
-              onClick={() => setResultsOpen(o => !o)}
-              className="flex w-full items-center justify-between px-4 py-3 text-xs font-bold uppercase tracking-wider text-gray-500">
-              Questions ({state.results.length})
-              {resultsOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            </button>
-            {resultsOpen && (
-              <div className="space-y-2 border-t border-gray-200 p-3">
-                {state.results.map((r, i) => (
-                  <div key={i} className={cn(
-                    'rounded-xl border p-3',
-                    r.passed ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50',
-                  )}>
-                    <div className="flex items-start gap-2">
-                      {r.passed
-                        ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-600" />
-                        : <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />}
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold text-gray-800">{r.question}</p>
-                        {r.expected && 'value' in r.expected && (
-                          <p className="mt-1 text-[11px] text-gray-500">
-                            Expected: {r.expected.value} {r.expected.unit} ({r.expected.entity}, {r.expected.fiscalYear ?? '—'})
-                          </p>
-                        )}
-                        {r.expected && 'growthPct' in r.expected && (
-                          <p className="mt-1 text-[11px] text-gray-500">
-                            Expected: {r.expected.entity} {r.expected.metric.replace(/_/g, ' ')} change {r.expected.fromYear} → {r.expected.toYear} = {r.expected.growthPct > 0 ? '+' : ''}{r.expected.growthPct}%
-                          </p>
-                        )}
-                        {r.expected && 'docTitle' in r.expected && (
-                          <p className="mt-1 text-[11px] text-gray-500">Expected file: {r.expected.docTitle}</p>
-                        )}
-                        {r.expected && 'answer' in r.expected && (
-                          <p className="mt-1 text-[11px] text-gray-500">Reference answer: {r.expected.answer}</p>
-                        )}
-                        <p className="mt-1 text-[11px] text-gray-600">{r.answerExcerpt}</p>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                          <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-gray-500">
-                            Confidence {r.confidenceScore}%
-                          </span>
-                          {!r.numericMatch && (
-                            <span className="rounded-full border border-red-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-red-500">
-                              Answer mismatch
-                            </span>
-                          )}
-                          {r.risks.map((risk, j) => (
-                            <span key={j} className="rounded-full border border-amber-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-amber-600">
-                              {risk}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
+        {/* Direct answer — from validated, document-extracted figures */}
+        {isDone && state.facts.length > 0 && (
+          <div className="mx-5 mt-3 overflow-hidden rounded-xl border border-green-200 bg-green-50">
+            <div className="px-4 pt-3">
+              <p className="text-xs font-bold uppercase tracking-wider text-green-700">Direct Answer</p>
+              <p className="mt-0.5 text-[11px] text-green-600">
+                Figures extracted directly from the source document tables — not AI-generated.
+              </p>
+            </div>
+            <div className="overflow-x-auto px-4 pb-3 pt-2">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="text-[10px] uppercase tracking-wider text-green-600">
+                    <th className="py-1 pr-3">Year</th>
+                    <th className="py-1 pr-3">Entity</th>
+                    <th className="py-1 pr-3">Metric</th>
+                    <th className="py-1 pr-3">Value</th>
+                    <th className="py-1">Source</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {state.facts.map((f, i) => (
+                    <tr key={i} className="border-t border-green-100">
+                      <td className="py-1.5 pr-3 font-semibold text-gray-800">{f.fiscalYear ?? '—'}</td>
+                      <td className="py-1.5 pr-3 text-gray-700">{f.entity}</td>
+                      <td className="py-1.5 pr-3 text-gray-700">{f.metric.replace(/_/g, ' ')}</td>
+                      <td className="py-1.5 pr-3 font-semibold text-gray-900">{f.value.toLocaleString()} {f.unit}</td>
+                      <td className="py-1.5 text-[11px] text-gray-500">
+                        {f.documentTitle}{f.pageNumber != null ? `, p.${f.pageNumber}` : ''}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Results — grouped by document */}
+        {isDone && state.documents.length === 0 && state.facts.length === 0 && (
+          <div className="mx-5 mb-5 mt-3 rounded-xl border border-gray-200 bg-white px-4 py-6 text-center">
+            <p className="text-sm font-medium text-gray-500">No matching passages found.</p>
+            <p className="mt-1 text-xs text-gray-400">Try different wording, or include a year, ministry, or document name.</p>
+          </div>
+        )}
+
+        {isDone && state.documents.length > 0 && (
+          <div className="mx-5 mb-5 mt-3 space-y-2">
+            {state.documents.map(doc => {
+              const open = openDocs[doc.documentId] ?? true
+              return (
+                <div key={doc.documentId} className="rounded-xl border border-gray-200 bg-white">
+                  <button
+                    onClick={() => setOpenDocs(prev => ({ ...prev, [doc.documentId]: !open }))}
+                    className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <FileText className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+                      <span className="truncate text-xs font-bold text-gray-800">{doc.title}</span>
+                      <span className="shrink-0 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
+                        {doc.excerpts.length}
+                      </span>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                    {open ? <ChevronUp className="h-3.5 w-3.5 shrink-0 text-gray-400" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400" />}
+                  </button>
+                  {open && (
+                    <div className="space-y-2 border-t border-gray-200 p-3">
+                      {doc.excerpts.map((ex, i) => (
+                        <div key={i} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                          <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                            <Quote className="h-3 w-3 text-gray-400" />
+                            <span className="rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-green-700">
+                              Verbatim from source
+                            </span>
+                            {ex.pageNumber != null && (
+                              <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-gray-500">
+                                Page {ex.pageNumber}
+                              </span>
+                            )}
+                            {ex.sectionTitle && (
+                              <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-gray-500">
+                                {ex.sectionTitle}
+                              </span>
+                            )}
+                          </div>
+                          <p className="whitespace-pre-wrap text-xs text-gray-700">{highlightText(ex.text, state.keywords)}</p>
+                          <p className="mt-1.5 text-[10px] font-medium text-gray-400">
+                            Source: {doc.title}{ex.pageNumber != null ? `, page ${ex.pageNumber}` : ''}{ex.sectionTitle ? ` — ${ex.sectionTitle}` : ''}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
 
-        {!isDone && !isFailed && state.results.length === 0 && (
+        {/* AI review — automatically grades the Direct Answer + excerpts above
+            against the question and records the verdict as performance. */}
+        {isDone && state.review && (
+          <div className={cn(
+            'mx-5 mb-5 mt-1 flex items-start gap-2.5 rounded-xl border p-3',
+            state.review.verdict === 'correct'
+              ? 'border-green-200 bg-green-50'
+              : 'border-red-200 bg-red-50',
+          )}>
+            <Sparkles className={cn('mt-0.5 h-3.5 w-3.5 shrink-0', state.review.verdict === 'correct' ? 'text-green-600' : 'text-red-500')} />
+            <div className="min-w-0">
+              <p className={cn('text-xs font-semibold', state.review.verdict === 'correct' ? 'text-green-700' : 'text-red-700')}>
+                AI review: {state.review.verdict === 'correct' ? 'Correct' : 'Incorrect / Incomplete'}
+              </p>
+              {state.review.reasoning && (
+                <p className="mt-0.5 text-[11px] text-gray-600">{state.review.reasoning}</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {!isDone && !isFailed && !isRunning && (
           <div className="h-5" />
         )}
       </div>
@@ -536,12 +615,13 @@ function AssessmentSheet({
 
 /* ── Detail Sheet ────────────────────────────────────────────── */
 function DetailSheet({
-  doc, state, onTrain, onAssess, onClose,
+  doc, state, reviewVersion, onTrain, onOpenSearch, onClose,
 }: {
   doc: TrainingDoc
   state: TrainState
+  reviewVersion: number
   onTrain: () => void
-  onAssess: () => void
+  onOpenSearch: () => void
   onClose: () => void
 }) {
   const isRunning  = state.status === 'running'
@@ -550,16 +630,16 @@ function DetailSheet({
   const chunkCount = state.status === 'done' ? state.chunks : doc.chunkCount
 
   const [logOpen, setLogOpen] = useState(true)
-  const [docAssessment, setDocAssessment] = useState<Assessment | null>(null)
+  const [docPerf, setDocPerf] = useState<Performance | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    fetch(`/api/assessment?documentId=${doc.id}`)
+    fetch(`/api/search-reviews?documentId=${doc.id}`)
       .then(res => res.json())
-      .then(data => { if (!cancelled) setDocAssessment(data.assessment ?? null) })
+      .then((data: Performance) => { if (!cancelled && data.total > 0) setDocPerf(data) })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [doc.id])
+  }, [doc.id, reviewVersion])
 
   return (
     <>
@@ -602,9 +682,9 @@ function DetailSheet({
               Last trained {new Date(doc.lastTrainedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
             </span>
           )}
-          {docAssessment && (
-            <span className={cn('rounded-full border px-2.5 py-1 text-[11px] font-semibold', performanceLabel(docAssessment.accuracy).color)}>
-              {docAssessment.accuracy}% accuracy · {performanceLabel(docAssessment.accuracy).label}
+          {docPerf && (
+            <span className={cn('rounded-full border px-2.5 py-1 text-[11px] font-semibold', performanceLabel(docPerf.accuracy).color)}>
+              {docPerf.accuracy}% performance · {docPerf.correct}/{docPerf.total} reviewed
             </span>
           )}
         </div>
@@ -691,10 +771,10 @@ function DetailSheet({
           </button>
           {isDone && (
             <button
-              onClick={onAssess}
+              onClick={onOpenSearch}
               className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white py-3 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50">
-              <ClipboardCheck className="h-4 w-4" />
-              Assess this document
+              <Search className="h-4 w-4" />
+              Search this document
             </button>
           )}
         </div>

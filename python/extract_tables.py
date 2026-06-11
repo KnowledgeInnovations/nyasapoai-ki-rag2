@@ -57,6 +57,11 @@ MINISTRY_COL_RX = re.compile(r"ministry|mda|vote|agency", re.I)
 # Column-header patterns for funding-source columns -> all map to 'allocation'.
 ALLOCATION_COL_RX = re.compile(r"gog|igf|abfa|donor|total", re.I)
 
+# Column-header patterns for deviation/variance/growth columns -> these are
+# differences or rates, not absolute monetary totals, even when their unit
+# looks like "million" (e.g. an absolute Budget-vs-Outturn deviation).
+SKIP_COL_RX = re.compile(r"dev[’']?t[’']?n|deviation|variance|growth\s+rate|%\s*change", re.I)
+
 YEAR_RX = re.compile(r"\b(19|20)\d{2}\b")
 
 UNIT_RX = [
@@ -99,6 +104,39 @@ def parse_number(cell: str) -> float | None:
         return None
 
 
+def is_data_row(row: list[str | None]) -> bool:
+    """A row is a data row if its first cell is a non-empty label and at
+    least one other cell parses as a plain number — header rows (column
+    titles, units, "Amt./% of GDP" sub-labels) never satisfy both."""
+    if not row or not (row[0] or "").strip():
+        return False
+    return any(parse_number(c) is not None for c in row[1:])
+
+
+def merge_header(table: list[list[str | None]]) -> tuple[list[str], int]:
+    """Government budget tables often spread the column header across 2-4
+    rows (e.g. "2016 Revised" / "Budget" / "Amt." / "% of GDP" stacked in
+    separate cells of separate rows for the same column). Concatenating all
+    leading non-data rows per column recovers headers like
+    "2016 Revised Budget Amt." so detect_year()/detect_unit()/SKIP_COL_RX can
+    see the full label instead of just one fragment."""
+    data_start = 1
+    for i, row in enumerate(table):
+        if is_data_row(row):
+            data_start = max(i, 1)
+            break
+
+    n_cols = max((len(r) for r in table[:data_start]), default=0)
+    headers = []
+    for col in range(n_cols):
+        parts = []
+        for row in table[:data_start]:
+            if col < len(row) and row[col]:
+                parts.append(row[col].strip())
+        headers.append(" ".join(parts))
+    return headers, data_start
+
+
 def classify_national_row(row: list[str | None]) -> str | None:
     label = (row[0] or "").strip()
     for rx, metric in NATIONAL_ROW_METRICS:
@@ -111,9 +149,9 @@ def extract_national_table(table: list[list[str | None]], page_text: str, page_n
     if not table or len(table) < 2:
         return []
 
-    header = [c or "" for c in table[0]]
+    header, data_start = merge_header(table)
     records = []
-    for row in table[1:]:
+    for row in table[data_start:]:
         if not row:
             continue
         metric = classify_national_row(row)
@@ -121,11 +159,14 @@ def extract_national_table(table: list[list[str | None]], page_text: str, page_n
             continue
 
         for col_idx in range(1, len(row)):
+            col_header = header[col_idx] if col_idx < len(header) else ""
+            if SKIP_COL_RX.search(col_header):
+                continue
+
             value = parse_number(row[col_idx] if col_idx < len(row) else None)
             if value is None:
                 continue
 
-            col_header = header[col_idx] if col_idx < len(header) else ""
             unit = detect_unit(col_header, caption or "")
             if unit == "%":
                 continue
@@ -150,17 +191,20 @@ def extract_ministry_table(table: list[list[str | None]], page_text: str, page_n
     if not table or len(table) < 2:
         return []
 
-    header = [c or "" for c in table[0]]
+    header, data_start = merge_header(table)
     if not any(MINISTRY_COL_RX.search(h) for h in header):
         return []
 
     entity_col = next((i for i, h in enumerate(header) if MINISTRY_COL_RX.search(h)), 0)
-    alloc_cols = [i for i, h in enumerate(header) if i != entity_col and ALLOCATION_COL_RX.search(h)]
+    alloc_cols = [
+        i for i, h in enumerate(header)
+        if i != entity_col and ALLOCATION_COL_RX.search(h) and not SKIP_COL_RX.search(h)
+    ]
     if not alloc_cols:
         return []
 
     records = []
-    for row in table[1:]:
+    for row in table[data_start:]:
         if not row or entity_col >= len(row):
             continue
         entity = (row[entity_col] or "").strip()

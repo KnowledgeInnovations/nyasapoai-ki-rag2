@@ -23,7 +23,7 @@ export interface FinancialFact {
   is_table: boolean
   confidence: number
   flags: string[]
-  extraction_method: 'regex' | 'table'
+  extraction_method: 'regex' | 'table' | 'prose'
 }
 
 // One row from extract_tables.py's per-document JSON output.
@@ -66,14 +66,34 @@ const NATIONAL_AGGREGATE_METRICS = new Set([
   'total_budget', 'revenue', 'debt', 'recurrent_expenditure', 'capital_expenditure',
 ])
 
+// Picks the pattern whose match sits CLOSEST to the figure, rather than the
+// first pattern (in METRIC_PATTERNS order) that matches anywhere in the
+// window. Otherwise a sentence like "Capital expenditure was GHC 12,000
+// million, against total expenditure of GHC 80,000 million" would classify
+// the GHC 12,000 million figure as 'total_budget' purely because
+// 'total_budget' is checked before 'capital_expenditure', even though
+// "Capital expenditure" is the nearer (and correct) label for that figure.
 function classifyMetric(text: string, index: number, window = 80): string {
   const start = Math.max(0, index - window)
   const end = Math.min(text.length, index + window)
   const around = text.slice(start, end)
-  for (const { metric, rx } of METRIC_PATTERNS) {
-    if (rx.test(around)) return metric
+  const localIndex = index - start
+
+  let best: { metric: string; distance: number; order: number } | null = null
+  for (let order = 0; order < METRIC_PATTERNS.length; order++) {
+    const { metric, rx } = METRIC_PATTERNS[order]
+    const re = new RegExp(rx.source, rx.flags.includes('g') ? rx.flags : rx.flags + 'g')
+    let m: RegExpExecArray | null
+    while ((m = re.exec(around))) {
+      const matchCenter = m.index + m[0].length / 2
+      const distance = Math.abs(matchCenter - localIndex)
+      if (!best || distance < best.distance || (distance === best.distance && order < best.order)) {
+        best = { metric, distance, order }
+      }
+      if (m[0].length === 0) re.lastIndex++
+    }
   }
-  return 'other'
+  return best ? best.metric : 'other'
 }
 
 function classifyEntity(
@@ -191,7 +211,7 @@ export function extractFactsFromChunk(chunk: FactSourceChunk): FinancialFact[] {
 // dropped rather than stored at low confidence, since they're parsing
 // artifacts rather than genuine (if anomalous) figures.
 const PLAUSIBLE_VALUE_MILLIONS: Record<'national' | 'ministry' | 'sector', [number, number]> = {
-  national: [1_000, 500_000],
+  national: [500, 500_000],
   ministry: [0.01, 100_000],
   sector: [0.01, 100_000],
 }
@@ -312,7 +332,15 @@ export function runSanityChecks(facts: FinancialFact[]): FinancialFact[] {
       const to = byYear[i + 1]
       if (from.value_millions === 0) continue
       const growthPct = ((to.value_millions! - from.value_millions!) / from.value_millions!) * 100
-      if (Math.abs(growthPct) > 500) {
+      // A single backfill batch may only cover a sparse subset of years for a
+      // given (entity, metric) — e.g. table-extraction years with a gap where
+      // intervening years' figures come from a separate prose-extraction
+      // batch. A multi-year gap's cumulative growth should be compared
+      // against a proportionally larger threshold, not the same 500% used for
+      // adjacent years, otherwise normal high-inflation compounding across a
+      // gap (e.g. ~37%/yr over 9 years) is mistaken for a single bad value.
+      const gapYears = Math.max(1, parseInt(to.fiscal_year!, 10) - parseInt(from.fiscal_year!, 10))
+      if (Math.abs(growthPct) > 500 * gapYears) {
         from.flags.push('anomalous_growth')
         from.confidence = Math.max(0, from.confidence - 30)
         to.flags.push('anomalous_growth')
@@ -321,26 +349,109 @@ export function runSanityChecks(facts: FinancialFact[]): FinancialFact[] {
     }
   }
 
-  // National aggregates (total_budget, revenue, debt, etc.) should have one
-  // value per (metric, fiscal_year) — they describe a single economy-wide
-  // figure. When prose-derived extraction produces multiple distinct values
-  // for the same national metric/year, at least one is noise (e.g. a page
-  // number or unrelated figure picked up near the keyword). Flag all of them
-  // rather than presenting a confident-but-contradictory pick as fact.
+  // National aggregates (total_budget, revenue, debt, etc.) ideally have one
+  // value per (metric, fiscal_year), but budget documents legitimately report
+  // several figures for the same year — different documents' "Budget" vs
+  // "Revised Budget" vs "Provisional Outturn" vs forecast/indicative figures
+  // for a future year, which can vary more across the whole group than a
+  // single global max/min ratio can tolerate even though most of them agree.
+  // So compare each value to the group's MEDIAN individually: values within
+  // ~3x of the median are 'alternate_estimate' (still excluded from the
+  // VALIDATED FACTS gate, but not presented as outright noise), while values
+  // more than ~3x from the median (e.g. a misread page number) are flagged
+  // 'conflicting_national_value' as genuine outliers.
   const nationalGroups = new Map<string, FinancialFact[]>()
   for (const f of facts) {
-    if (f.entity_type !== 'national' || !f.fiscal_year || f.value_millions == null) continue
+    // Non-positive values (e.g. a misread "0") can never be legitimate
+    // national totals — leave them out of the conflict comparison entirely
+    // so they don't distort the median for an otherwise-consistent group of
+    // real estimates.
+    if (f.entity_type !== 'national' || !f.fiscal_year || f.value_millions == null || f.value_millions <= 0) continue
     const key = `${f.metric}|${f.fiscal_year}`
     if (!nationalGroups.has(key)) nationalGroups.set(key, [])
     nationalGroups.get(key)!.push(f)
   }
   for (const group of nationalGroups.values()) {
-    const distinctValues = new Set(group.map(f => f.value_millions))
-    if (distinctValues.size > 1) {
-      for (const f of group) {
+    const distinctValues = [...new Set(group.map(f => f.value_millions!))].sort((a, b) => a - b)
+    if (distinctValues.length <= 1) continue
+
+    const median = distinctValues[Math.floor(distinctValues.length / 2)]
+
+    for (const f of group) {
+      const v = f.value_millions!
+      if (v === median) continue
+      const ratio = Math.max(v, median) / Math.min(v, median)
+      if (ratio <= 3) {
+        f.flags.push('alternate_estimate')
+        f.confidence = Math.min(f.confidence, 65)
+      } else {
         f.flags.push('conflicting_national_value')
         f.confidence = Math.min(f.confidence, 60)
       }
+    }
+  }
+
+  // NOTE: a check that summed all ministry/sector `allocation` facts per
+  // year and flagged the group when the total was an implausible multiple of
+  // the national budget was tried here and removed. MDA annex tables encode
+  // a multi-level hierarchy (ministry totals, sub-agency lines, and
+  // GoG/IGF/ABFA/Donor/recurrent/capex sub-components all extracted as
+  // separate `entity_type: 'ministry', metric: 'allocation'` facts), so the
+  // raw per-year sum across all of them is many times the national total
+  // even for a single, correct extraction pass — the check flagged the vast
+  // majority of valid ministry facts. Catching genuinely duplicated table
+  // extractions is instead handled by the `duplicate_extraction` check below.
+
+  // Within a (entity, metric) series across years, every value should be on
+  // the same scale — a single year whose figure is >10x the series median
+  // AND was recorded in a different unit than the rest of the series usually
+  // means the unit (thousand vs million vs billion) was misread for that one
+  // cell.
+  for (const group of groups.values()) {
+    const withValues = group.filter(f => f.value_millions != null)
+    if (withValues.length < 3) continue
+    const sortedValues = withValues.map(f => f.value_millions!).sort((a, b) => a - b)
+    const median = sortedValues[Math.floor(sortedValues.length / 2)]
+    if (median <= 0) continue
+
+    const unitCounts = new Map<string, number>()
+    for (const f of withValues) unitCounts.set(f.unit, (unitCounts.get(f.unit) ?? 0) + 1)
+    let modalUnit = withValues[0].unit
+    let modalCount = 0
+    for (const [u, c] of unitCounts) {
+      if (c > modalCount) {
+        modalUnit = u
+        modalCount = c
+      }
+    }
+
+    for (const f of withValues) {
+      const ratio = Math.max(f.value_millions!, median) / Math.min(f.value_millions!, median)
+      if (ratio > 10 && f.unit !== modalUnit) {
+        f.flags.push('unit_outlier_in_series')
+        f.confidence = Math.min(f.confidence, 50)
+      }
+    }
+  }
+
+  // extractFactsFromChunk's regex pass and tableRecordToFact's table pass can
+  // independently produce a fact for the same (entity, metric, fiscal_year,
+  // value) — e.g. a figure that appears both in prose and in a table on the
+  // same page. Keep the highest-confidence copy and flag the rest so
+  // aggregate sums (computeAggregate) don't double-count them.
+  const dupGroups = new Map<string, FinancialFact[]>()
+  for (const f of facts) {
+    if (!f.fiscal_year || f.value_millions == null) continue
+    const key = `${f.entity_type}|${f.entity}|${f.metric}|${f.fiscal_year}|${f.value_millions.toFixed(2)}`
+    if (!dupGroups.has(key)) dupGroups.set(key, [])
+    dupGroups.get(key)!.push(f)
+  }
+  for (const group of dupGroups.values()) {
+    if (group.length <= 1) continue
+    const sorted = [...group].sort((a, b) => b.confidence - a.confidence)
+    for (const f of sorted.slice(1)) {
+      f.flags.push('duplicate_extraction')
+      f.confidence = Math.min(f.confidence, 50)
     }
   }
 
@@ -350,7 +461,23 @@ export function runSanityChecks(facts: FinancialFact[]): FinancialFact[] {
 // ── Query-side filter helpers ───────────────────────────────────────
 
 const QUERY_YEAR_RX = /\b(19|20)\d{2}\b/g
+const YEAR_RANGE_RX = /\b((?:19|20)\d{2})\s*(?:-|–|—|to)\s*((?:19|20)\d{2})\b/i
 const MINISTRY_RX = /ministry\s+of\s+[a-z][a-z,&'\-\s]{2,60}?(?=[.,;:?]|\s{2,}|$)/i
+
+// Expands a "1999-2026"/"1999 to 2026" style range in the query to every year
+// in between (inclusive), so a "for each year from X to Y" question matches
+// facts for every intervening year, not just the two range endpoints that
+// QUERY_YEAR_RX would otherwise pick up.
+export function expandYearRange(query: string, years: string[]): string[] {
+  const m = query.match(YEAR_RANGE_RX)
+  if (!m) return years
+  const from = parseInt(m[1], 10)
+  const to = parseInt(m[2], 10)
+  if (to < from || to - from > 60) return years
+  const expanded: string[] = []
+  for (let y = from; y <= to; y++) expanded.push(String(y))
+  return expanded
+}
 
 const SECTOR_KEYWORDS = [
   'Education', 'Health', 'Agriculture', 'Infrastructure', 'Energy', 'Water',
@@ -372,7 +499,8 @@ export function extractQueryFilters(
   query: string,
   chunks: { metadata: Record<string, unknown> }[],
 ): QueryFilters {
-  const years = [...new Set(query.match(QUERY_YEAR_RX) ?? [])]
+  let years = [...new Set(query.match(QUERY_YEAR_RX) ?? [])]
+  years = expandYearRange(query, years)
 
   if (!years.length) {
     const chunkYears = new Set<string>()

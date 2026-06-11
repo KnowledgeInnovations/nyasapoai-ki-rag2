@@ -15,6 +15,12 @@ function svc() {
   )
 }
 
+export interface Performance {
+  total:    number
+  correct:  number
+  accuracy: number
+}
+
 export interface TrainingDoc {
   id: string
   title: string
@@ -25,32 +31,6 @@ export interface TrainingDoc {
   created_at: string
   chunkCount: number
   lastTrainedAt: string | null
-}
-
-export interface AssessmentResultRow {
-  question: string
-  expected:
-    | { entity: string; metric: string; fiscalYear: string | null; value: number; unit: string }
-    | { entity: string; metric: string; fromYear: string; toYear: string; growthPct: number }
-    | { docTitle: string }
-    | { answer: string }
-    | null
-  answerExcerpt: string
-  confidenceScore: number
-  risks: string[]
-  numericMatch: boolean
-  citationMatch: boolean
-  passed: boolean
-}
-
-export interface Assessment {
-  id: string
-  total_questions: number
-  passed: number
-  accuracy: number
-  avg_confidence: number
-  results: AssessmentResultRow[]
-  created_at: string
 }
 
 export default async function TrainingPage() {
@@ -108,22 +88,26 @@ export default async function TrainingPage() {
   const trainedCount   = trainingDocs.filter(d => d.chunkCount > 0).length
   const untrainedCount = trainingDocs.filter(d => d.chunkCount === 0).length
 
-  // Latest global (whole-knowledge-base) self-assessment, if any.
-  const { data: latestAssessment } = await service
-    .from('self_assessments')
-    .select('id, total_questions, passed, accuracy, avg_confidence, results, created_at')
+  // Overall manual-review performance: how often the user has marked the
+  // Document Search results (whole knowledge base) as correct.
+  const { data: reviews } = await service
+    .from('search_reviews')
+    .select('verdict')
     .eq('tenant_id', tid)
     .is('document_id', null)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+
+  const reviewTotal   = reviews?.length ?? 0
+  const reviewCorrect = reviews?.filter(r => r.verdict === 'correct').length ?? 0
+  const performance = reviewTotal > 0
+    ? { total: reviewTotal, correct: reviewCorrect, accuracy: Math.round((reviewCorrect / reviewTotal) * 10000) / 100 }
+    : null
 
   return (
     <TrainingClient
       docs={trainingDocs}
       trainedCount={trainedCount}
       untrainedCount={untrainedCount}
-      latestAssessment={latestAssessment}
+      performance={performance}
     />
   )
 }

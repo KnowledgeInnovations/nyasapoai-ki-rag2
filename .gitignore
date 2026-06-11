@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# python extraction artifacts
+python/__pycache__/
+python/output/
+python/extract_log.txt
