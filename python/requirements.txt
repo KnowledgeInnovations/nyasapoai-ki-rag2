@@ -1,0 +1,3 @@
+pdfplumber
+supabase
+python-dotenv

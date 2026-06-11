@@ -7,12 +7,13 @@
  * actually match the source chunks.
  */
 
-export type QueryType = 'fact_lookup' | 'trend' | 'comparison' | 'forecast' | 'evidence' | 'general'
+export type QueryType = 'fact_lookup' | 'trend' | 'comparison' | 'forecast' | 'evidence' | 'anomaly_detection' | 'general'
 
 const FORECAST_RX  = /\b(predict|forecast|projection|project(ed)?|next year|upcoming year|estimate for \d{4})\b/i
 const TREND_RX     = /\b(trend|over (the|\d+) (years?|decades?)|year[\s-]?on[\s-]?year|growth|increase|decrease|change (over|from)|since \d{4}|\d{4}\s*(to|-|–|—)\s*\d{4})\b/i
 const COMPARISON_RX = /\b(compare|comparison|versus|\bvs\.?\b|difference between|relative to|against)\b/i
 const EVIDENCE_RX  = /\b(evidence|prove|support(ing)?\s+(this|that|the)\s+claim|cite|source(s)?\s+for|justify)\b/i
+const ANOMALY_RX   = /\b(anomal(y|ies)|suspicious|outlier|inconsistent|inconsistenc(y|ies)|irregular(it(y|ies))?)\b/i
 
 // Classifies a user query so the chat route can pick the right pipeline:
 //   fact lookup    -> Retrieve -> Verify -> Answer
@@ -20,7 +21,9 @@ const EVIDENCE_RX  = /\b(evidence|prove|support(ing)?\s+(this|that|the)\s+claim|
 //   comparison     -> Retrieve -> Aggregate -> Compare
 //   forecast       -> Retrieve -> Build series -> Project (linear trend)
 //   evidence       -> Retrieve -> Quote -> Cite
+//   anomaly_detection -> Retrieve -> Check VALIDATED FACTS flags -> Report
 export function classifyQuery(query: string): QueryType {
+  if (ANOMALY_RX.test(query)) return 'anomaly_detection'
   if (FORECAST_RX.test(query)) return 'forecast'
   if (COMPARISON_RX.test(query)) return 'comparison'
   if (TREND_RX.test(query)) return 'trend'
@@ -92,7 +95,7 @@ export function extractFigures(text: string): Figure[] {
 
 // Converts a figure to a common "millions" scale, or null if its unit
 // can't be compared on that scale (percentages, plain cedis amounts, etc).
-function toMillions(f: Figure): number | null {
+export function toMillions(f: Figure): number | null {
   if (f.unit === 'million') return f.value
   if (f.unit === 'billion') return f.value * 1000
   return null

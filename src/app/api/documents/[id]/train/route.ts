@@ -3,6 +3,7 @@ import { getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { extractStructuredText, chunkPages, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
 import { canAccessTraining } from '@/lib/roles'
+import { extractFactsFromChunk, runSanityChecks, type FinancialFact } from '@/lib/factExtraction'
 
 export const maxDuration = 300 // 5 min for large documents
 
@@ -76,12 +77,14 @@ export async function POST(
 
         send({ stage: 'chunking', message: `Document split into ${chunks.length} knowledge chunks`, progress: 30 })
 
-        // ── 4. Delete old chunks ──────────────────────────────────
+        // ── 4. Delete old chunks + facts ──────────────────────────
         send({ stage: 'clearing', message: 'Removing previous training data…', progress: 35 })
         await service.from('document_chunks').delete().eq('document_id', id)
+        await service.from('financial_facts').delete().eq('document_id', id)
 
         // ── 5. Embed in batches ───────────────────────────────────
         const totalBatches = Math.ceil(chunks.length / EMBED_BATCH)
+        const allFacts: FinancialFact[] = []
 
         for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
           const batch    = chunks.slice(i, i + EMBED_BATCH)
@@ -96,7 +99,7 @@ export async function POST(
 
           const embeddings = await embedBatch(batch.map(c => c.text))
 
-          await service.from('document_chunks').insert(
+          const { data: inserted } = await service.from('document_chunks').insert(
             batch.map((c, j) => ({
               document_id: id,
               tenant_id:   membership.tenant_id,
@@ -116,10 +119,23 @@ export async function POST(
                 trained_at: new Date().toISOString(),
               },
             }))
-          )
+          ).select('id, document_id, tenant_id, chunk_text, metadata')
+
+          for (const row of inserted ?? []) {
+            allFacts.push(...extractFactsFromChunk(row as {
+              id: string; document_id: string; tenant_id: string; chunk_text: string; metadata: Record<string, unknown>
+            }))
+          }
         }
 
-        // ── 6. Mark document as ready ─────────────────────────────
+        // ── 6. Sanity-check + store financial facts ───────────────
+        runSanityChecks(allFacts)
+        if (allFacts.length) {
+          await service.from('financial_facts').insert(allFacts)
+        }
+        send({ stage: 'facts', message: `Extracted ${allFacts.length} financial facts`, progress: 95 })
+
+        // ── 7. Mark document as ready ─────────────────────────────
         await service.from('documents').update({ status: 'ready' }).eq('id', id)
 
         send({

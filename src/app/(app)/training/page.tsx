@@ -27,6 +27,32 @@ export interface TrainingDoc {
   lastTrainedAt: string | null
 }
 
+export interface AssessmentResultRow {
+  question: string
+  expected:
+    | { entity: string; metric: string; fiscalYear: string | null; value: number; unit: string }
+    | { entity: string; metric: string; fromYear: string; toYear: string; growthPct: number }
+    | { docTitle: string }
+    | { answer: string }
+    | null
+  answerExcerpt: string
+  confidenceScore: number
+  risks: string[]
+  numericMatch: boolean
+  citationMatch: boolean
+  passed: boolean
+}
+
+export interface Assessment {
+  id: string
+  total_questions: number
+  passed: number
+  accuracy: number
+  avg_confidence: number
+  results: AssessmentResultRow[]
+  created_at: string
+}
+
 export default async function TrainingPage() {
   const membership = await getMembership()
   if (!membership || !canAccessTraining(membership.role)) redirect('/ask')
@@ -82,11 +108,22 @@ export default async function TrainingPage() {
   const trainedCount   = trainingDocs.filter(d => d.chunkCount > 0).length
   const untrainedCount = trainingDocs.filter(d => d.chunkCount === 0).length
 
+  // Latest global (whole-knowledge-base) self-assessment, if any.
+  const { data: latestAssessment } = await service
+    .from('self_assessments')
+    .select('id, total_questions, passed, accuracy, avg_confidence, results, created_at')
+    .eq('tenant_id', tid)
+    .is('document_id', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
   return (
     <TrainingClient
       docs={trainingDocs}
       trainedCount={trainedCount}
       untrainedCount={untrainedCount}
+      latestAssessment={latestAssessment}
     />
   )
 }

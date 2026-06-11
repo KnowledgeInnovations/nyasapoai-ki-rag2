@@ -56,6 +56,7 @@ export interface Citation {
   id: string
   conversation_id: string
   document_chunk_id: string
+  document_id: string
   document_title: string
   chunk_text: string
   relevance_score: number

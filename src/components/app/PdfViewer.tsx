@@ -13,11 +13,12 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 
 interface Props {
   url: string
+  initialPage?: number
 }
 
-export default function PdfViewer({ url }: Props) {
+export default function PdfViewer({ url, initialPage = 1 }: Props) {
   const [numPages, setNumPages]   = useState<number | null>(null)
-  const [pageNumber, setPageNumber] = useState(1)
+  const [pageNumber, setPageNumber] = useState(initialPage)
   const [error, setError]         = useState(false)
   const [width, setWidth]         = useState<number>()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -31,6 +32,11 @@ export default function PdfViewer({ url }: Props) {
     observer.observe(el)
     return () => observer.disconnect()
   }, [])
+
+  useEffect(() => {
+    setPageNumber(initialPage)
+    setError(false)
+  }, [url, initialPage])
 
   return (
     <div className="flex h-full flex-col">

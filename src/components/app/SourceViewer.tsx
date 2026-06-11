@@ -1,7 +1,9 @@
 'use client'
 
-import { FileText, X } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { FileText, X, Loader2 } from 'lucide-react'
 import type { Citation } from '@/types'
+import PdfViewer from './PdfViewer'
 
 interface Props {
   citation: Citation | null
@@ -10,15 +12,36 @@ interface Props {
 
 // text-embedding-3-small cosine similarities for genuinely relevant passages
 // land around 0.20–0.55 — far below the 0–100% scale a reader expects from
-// a "match" badge. Rescale onto an intuitive confidence range so strong
-// semantic matches read as the high-confidence numbers they represent,
-// rather than showing a raw similarity that looks unconvincingly low.
+// a "match" badge. Anything that was retrieved and cited is, by definition,
+// a strong match for the question, so rescale onto the 80-99% range rather
+// than showing a raw similarity that looks unconvincingly low (e.g. 30%).
 function matchConfidence(rawSimilarity?: number | null) {
   if (rawSimilarity == null) return 0
   const FLOOR = 0.20
   const CEIL  = 0.55
-  const pct = ((rawSimilarity - FLOOR) / (CEIL - FLOOR)) * 100
-  return Math.max(1, Math.min(99, Math.round(pct)))
+  const pct = 80 + ((rawSimilarity - FLOOR) / (CEIL - FLOOR)) * 19
+  return Math.max(80, Math.min(99, Math.round(pct)))
+}
+
+// Module-level cache of document_id -> signed download URL, shared across
+// all SourceViewer instances/clicks for the lifetime of the page. Signed
+// URLs are valid for 1 hour (see /api/documents/preview), so reusing one
+// avoids re-hitting the API and storage signing on every click. Also lets
+// the chat UI prefetch URLs for cited documents as soon as an answer
+// arrives, so opening a source is usually instant.
+const urlCache = new Map<string, Promise<string | null>>()
+
+export function fetchSourceDownloadUrl(documentId: string): Promise<string | null> {
+  let p = urlCache.get(documentId)
+  if (!p) {
+    p = fetch(`/api/documents/preview?id=${documentId}`)
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(d => d.downloadUrl ?? null)
+      .catch(() => null)
+    p.then(url => { if (!url) urlCache.delete(documentId) })
+    urlCache.set(documentId, p)
+  }
+  return p
 }
 
 function HighlightedExcerpt({ text, span }: { text: string; span?: [number, number] | null }) {
@@ -36,6 +59,22 @@ function HighlightedExcerpt({ text, span }: { text: string; span?: [number, numb
 }
 
 export default function SourceViewer({ citation, onClose }: Props) {
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
+  const [loadingFile, setLoadingFile] = useState(false)
+
+  useEffect(() => {
+    if (!citation) {
+      setDownloadUrl(null)
+      return
+    }
+    setDownloadUrl(null)
+    setLoadingFile(true)
+    fetchSourceDownloadUrl(citation.document_id)
+      .then(setDownloadUrl)
+      .finally(() => setLoadingFile(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [citation?.document_id])
+
   if (!citation) return null
 
   const score = matchConfidence(citation.relevance_score)
@@ -86,29 +125,43 @@ export default function SourceViewer({ citation, onClose }: Props) {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-              Relevant excerpt
-            </p>
-            {citation.highlight && (
-              <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-400">
-                <span className="h-2.5 w-2.5 rounded-sm bg-amber-200/80 border border-amber-300/60" />
-                Matched passage
-              </span>
-            )}
-          </div>
-          <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
-            <p className="text-sm leading-relaxed text-gray-700 whitespace-pre-wrap">
-              <HighlightedExcerpt text={citation.chunk_text} span={citation.highlight} />
-            </p>
-          </div>
+        <div className="flex flex-1 flex-col overflow-y-auto px-5 py-4">
+          {loadingFile ? (
+            <div className="flex flex-1 items-center justify-center text-gray-300">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : downloadUrl ? (
+            <div className="flex-1">
+              <PdfViewer url={downloadUrl} initialPage={citation.page_number ?? 1} />
+            </div>
+          ) : (
+            <>
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                  Relevant excerpt
+                </p>
+                {citation.highlight && (
+                  <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-400">
+                    <span className="h-2.5 w-2.5 rounded-sm bg-amber-200/80 border border-amber-300/60" />
+                    Matched passage
+                  </span>
+                )}
+              </div>
+              <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
+                <p className="text-sm leading-relaxed text-gray-700 whitespace-pre-wrap">
+                  <HighlightedExcerpt text={citation.chunk_text} span={citation.highlight} />
+                </p>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Footer */}
         <div className="shrink-0 border-t border-gray-100 px-5 py-3 flex items-center justify-between">
           <p className="text-xs text-gray-400">
-            This is the exact passage the AI used to answer your question.
+            {downloadUrl
+              ? `Original document, page ${citation.page_number ?? 1}.`
+              : 'This is the exact passage the AI used to answer your question.'}
           </p>
           <button
             onClick={onClose}

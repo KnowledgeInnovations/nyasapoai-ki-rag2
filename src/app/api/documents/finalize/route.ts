@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { extractStructuredText, chunkPages, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
 import { normalizeRole, canUploadDocuments } from '@/lib/roles'
+import { extractFactsFromChunk, runSanityChecks, type FinancialFact } from '@/lib/factExtraction'
 
 export const maxDuration = 300 // 5 min — extraction + embedding can take a while for large documents
 
@@ -118,6 +119,8 @@ export async function POST(request: NextRequest) {
     const rawChunks  = chunkPages(pages, docTitle)
     const chunks     = rawChunks.map(c => ({ ...c, text: titleLabel + c.text }))
 
+    const allFacts: FinancialFact[] = []
+
     for (let start = 0; start < chunks.length; start += EMBED_BATCH) {
       const batch = chunks.slice(start, start + EMBED_BATCH)
       let embeddings: number[][]
@@ -131,7 +134,7 @@ export async function POST(request: NextRequest) {
           { status: 500 }
         )
       }
-      await serviceClient.from('document_chunks').insert(
+      const { data: inserted } = await serviceClient.from('document_chunks').insert(
         batch.map((c, j) => ({
           document_id: document.id,
           tenant_id:   membership.tenant_id,
@@ -150,7 +153,18 @@ export async function POST(request: NextRequest) {
             is_table: c.is_table,
           },
         }))
-      )
+      ).select('id, document_id, tenant_id, chunk_text, metadata')
+
+      for (const row of inserted ?? []) {
+        allFacts.push(...extractFactsFromChunk(row as {
+          id: string; document_id: string; tenant_id: string; chunk_text: string; metadata: Record<string, unknown>
+        }))
+      }
+    }
+
+    runSanityChecks(allFacts)
+    if (allFacts.length) {
+      await serviceClient.from('financial_facts').insert(allFacts)
     }
 
     await serviceClient.from('documents').update({ status: 'ready' }).eq('id', document.id)

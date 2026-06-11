@@ -4,13 +4,13 @@ import { useState, useRef, useEffect } from 'react'
 import {
   Send, Sparkles,
   AlertTriangle, CheckCircle2, Paperclip,
-  Copy, Check, FileText, ShieldCheck,
+  Copy, Check, ShieldCheck,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { uploadDocument } from '@/lib/uploadDocument'
 import type { RAGResponse, Citation } from '@/types'
 import MessageContent from './MessageContent'
-import SourceViewer from './SourceViewer'
+import SourceViewer, { fetchSourceDownloadUrl } from './SourceViewer'
 
 /* ── Types ────────────────────────────────────────────────── */
 interface Message {
@@ -93,14 +93,6 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
   )
 }
 
-// Strips the "[Document: Title]" prefix injected for embedding context and
-// collapses whitespace/newlines for a clean one-line preview
-function previewText(text: string): string {
-  return text.replace(/^\s*\[Document:[^\]]*\]\s*/, '').replace(/\s+/g, ' ').trim()
-}
-
-const SOURCES_PREVIEW_COUNT = 6
-
 /* ── Confidence badge ─────────────────────────────────────── */
 function ConfidenceBadge({ score, level }: { score?: number; level?: RAGResponse['confidence_level'] }) {
   if (score == null || level == null) return null
@@ -118,81 +110,6 @@ function ConfidenceBadge({ score, level }: { score?: number; level?: RAGResponse
     )}>
       <ShieldCheck className="h-3 w-3" />
       Confidence: {score}% — {level}
-    </div>
-  )
-}
-
-/* ── Sources list ─────────────────────────────────────────── */
-function SourcesList({ text, citations, onCiteClick }: {
-  text: string
-  citations: Citation[]
-  onCiteClick: (c: Citation) => void
-}) {
-  const [expanded, setExpanded] = useState(false)
-
-  if (citations.length === 0) return null
-
-  // Only show sources actually referenced by a [n] marker in the answer —
-  // broad/aggregation queries can retrieve dozens of chunks for context but
-  // most are never cited, so listing all of them is just noise.
-  const cited = citations.filter((_, i) => new RegExp(`\\[${i + 1}\\]`).test(text))
-  const list = cited.length > 0 ? cited : citations
-
-  const visible = expanded ? list : list.slice(0, SOURCES_PREVIEW_COUNT)
-  const hiddenCount = list.length - visible.length
-
-  return (
-    <div className="rounded-xl border border-gray-200 bg-gray-50/60 px-4 py-3.5">
-      <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-gray-400">
-        Sources ({list.length})
-      </p>
-      <div className="space-y-1">
-        {visible.map((c, i) => (
-          <button
-            key={c.id ?? i}
-            type="button"
-            onClick={() => onCiteClick(c)}
-            className="flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left transition hover:bg-white"
-          >
-            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand/10 text-[10px] font-black text-brand">
-              {citations.indexOf(c) + 1}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-xs font-semibold text-gray-700">
-                {c.document_title}
-                {(c.section_title || c.page_number != null) && (
-                  <span className="font-normal text-gray-400">
-                    {' · '}
-                    {c.section_title ? c.section_title : null}
-                    {c.section_title && c.page_number != null ? ' · ' : null}
-                    {c.page_number != null ? `p. ${c.page_number}` : null}
-                  </span>
-                )}
-              </span>
-              <span className="line-clamp-2 text-[11px] leading-snug text-gray-400">{previewText(c.chunk_text)}</span>
-            </span>
-            <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-300" />
-          </button>
-        ))}
-      </div>
-      {hiddenCount > 0 && (
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          className="mt-1.5 px-2 text-[11px] font-semibold text-brand hover:text-brand-dark"
-        >
-          Show {hiddenCount} more {hiddenCount === 1 ? 'source' : 'sources'}
-        </button>
-      )}
-      {expanded && list.length > SOURCES_PREVIEW_COUNT && (
-        <button
-          type="button"
-          onClick={() => setExpanded(false)}
-          className="mt-1.5 px-2 text-[11px] font-semibold text-gray-400 hover:text-gray-600"
-        >
-          Show less
-        </button>
-      )}
     </div>
   )
 }
@@ -272,8 +189,8 @@ function MessageBubble({
           <ConfidenceBadge score={msg.response?.confidence_score} level={msg.response?.confidence_level} />
         )}
 
-        {/* Sources */}
-        {!msg.streaming && <SourcesList text={msg.text} citations={citations} onCiteClick={onCiteClick} />}
+        {/* Sources are cited inline via [n] pills in the answer text
+            (MessageContent) — no separate "Sources (N)" panel. */}
       </div>
     </div>
   )
@@ -376,6 +293,29 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
     } catch {}
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Restored sessions (from localStorage or the sidebar history) start with
+  // empty citations on AI messages, so inline [n] markers aren't clickable.
+  // Backfill them from the citations table whenever the active conversation
+  // changes.
+  useEffect(() => {
+    if (!sessionConvId) return
+    fetch(`/api/chat?citations=${sessionConvId}`)
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(d => {
+        const citations: RAGResponse['citations'] = d.citations ?? []
+        if (!citations.length) return
+        setMessages(prev => prev.map(m =>
+          m.role === 'ai' && m.response && m.response.citations.length === 0
+            ? { ...m, response: { ...m.response, citations } }
+            : m
+        ))
+        for (const docId of new Set(citations.map(c => c.document_id))) {
+          fetchSourceDownloadUrl(docId)
+        }
+      })
+      .catch(() => {})
+  }, [sessionConvId])
 
   // Persist active session whenever it changes — even before the first
   // response finishes (sessionConvId may still be null), so a refresh or
@@ -571,6 +511,9 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
               },
             }
             setMessages(prev => [...prev.slice(0, -1), finalMsg])
+            for (const docId of new Set((event.citations ?? []).map(c => c.document_id))) {
+              fetchSourceDownloadUrl(docId)
+            }
             if (isNewSession && event.convId) {
               setSessionConvId(event.convId)
               window.dispatchEvent(new CustomEvent('refresh-chat-history'))
