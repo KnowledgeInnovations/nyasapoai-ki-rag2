@@ -3,15 +3,22 @@
  *
  * We don't have a dedicated cross-encoder reranker (Cohere/Jina/BGE) wired
  * up — that needs a separate paid API key/infrastructure decision. Instead
- * we use a single cheap gpt-4o-mini call to score each retrieved candidate's
+ * we use a single gpt-4o-mini call to score each retrieved candidate's
  * relevance to the query (0-10), then keep only the top N. This still gives
  * a real second-pass relevance judgment beyond raw vector/BM25 scores, with
- * scores logged for internal visibility.
+ * scores logged for internal visibility. Kept on OpenAI (not Claude) to stay
+ * under the Claude org's 10k input-tokens/min rate limit, which the main
+ * chat answer call already consumes heavily.
  */
 
-const OPENAI_HEADERS = {
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+// A function, not a module-level constant — see getAnthropicHeaders() in
+// claude.ts for why: Next.js dev-server env reloads can bake a stale/undefined
+// key into a constant captured at import time.
+function getOpenAIHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+  }
 }
 
 export interface RankableChunk {
@@ -40,9 +47,12 @@ export async function rerankChunks<T extends RankableChunk>(
 
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST', headers: OPENAI_HEADERS,
+      method: 'POST',
+      headers: getOpenAIHeaders(),
       body: JSON.stringify({
-        model: 'gpt-4o-mini', temperature: 0, max_tokens: 400,
+        model: 'gpt-4o-mini',
+        temperature: 0,
+        max_tokens: 400,
         response_format: { type: 'json_object' },
         messages: [
           {
@@ -56,8 +66,10 @@ export async function rerankChunks<T extends RankableChunk>(
         ],
       }),
     })
+    if (!res.ok) throw new Error(`OpenAI API error ${res.status}: ${await res.text()}`)
     const data = await res.json()
-    const parsed = JSON.parse(data.choices?.[0]?.message?.content ?? '{}')
+    const raw = data.choices?.[0]?.message?.content ?? ''
+    const parsed = JSON.parse(raw || '{}')
     const scores: number[] = Array.isArray(parsed.scores) ? parsed.scores : []
 
     if (scores.length === chunks.length) {

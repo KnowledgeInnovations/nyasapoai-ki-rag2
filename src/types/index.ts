@@ -65,6 +65,9 @@ export interface Citation {
   highlight?: [number, number] | null
   page_number?: number | null
   section_title?: string | null
+  // Index into conversations.messages of the AI message that cited this
+  // chunk — used to restore citations to the right message on reload.
+  message_index?: number | null
 }
 
 export interface AuditLog {
@@ -78,6 +81,19 @@ export interface AuditLog {
   created_at: string
 }
 
+export interface ChartPoint {
+  year: number
+  value: number
+  // true for projected/forecast points, omitted for historical points
+  projected?: boolean
+}
+
+export interface ChartData {
+  title: string
+  unit: string
+  series: ChartPoint[]
+}
+
 export interface RAGResponse {
   answer: string
   citations: Citation[]
@@ -85,4 +101,5 @@ export interface RAGResponse {
   confidence_level?: 'High' | 'Medium' | 'Low'
   risks: string[]
   recommendations: string[]
+  chart?: ChartData | null
 }

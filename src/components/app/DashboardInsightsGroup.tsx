@@ -46,13 +46,15 @@ function setCached(key: string, data: InsightData[]) {
   try { sessionStorage.setItem(key, JSON.stringify({ data, ts: Date.now() })) } catch {}
 }
 
-function InsightCard({ data, loading, onRefresh }: { data?: InsightData; loading: boolean; onRefresh: () => void }) {
+function InsightCard({ data, loading, onRefresh, label }: { data?: InsightData; loading: boolean; onRefresh: () => void; label: string }) {
   const cfg = data ? SENTIMENT_CONFIG[data.sentiment] : SENTIMENT_CONFIG.neutral
 
   return (
     <div className={cn('rounded-2xl border p-5 shadow-sm transition', loading ? 'border-gray-200 bg-white' : cfg.border, !loading && data && cfg.bg)}>
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-bold uppercase tracking-wide text-gray-400">{data?.label ?? <span className="h-3 w-24 animate-pulse rounded bg-gray-200 inline-block" />}</p>
+        <p className="text-xs font-bold uppercase tracking-wide text-gray-400">
+          {loading ? <span className="h-3 w-24 animate-pulse rounded bg-gray-200 inline-block" /> : (data?.label ?? label)}
+        </p>
         {data && (
           <button onClick={onRefresh} className="flex h-6 w-6 items-center justify-center rounded-lg text-gray-300 transition hover:bg-gray-100 hover:text-gray-500" title="Refresh">
             <RefreshCw className="h-3 w-3" />
@@ -89,6 +91,10 @@ function InsightCard({ data, loading, onRefresh }: { data?: InsightData; loading
             </div>
           )}
         </>
+      )}
+
+      {!loading && !data && (
+        <p className="mt-3 text-sm text-gray-400">Unavailable</p>
       )}
     </div>
   )
@@ -137,6 +143,7 @@ export default function DashboardInsightsGroup({ insights }: Props) {
           data={data?.[i]}
           loading={loading}
           onRefresh={() => load(true)}
+          label={cfg.label}
         />
       ))}
     </>

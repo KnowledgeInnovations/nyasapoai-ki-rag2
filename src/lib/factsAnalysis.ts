@@ -6,6 +6,8 @@
 // (confidence >= 70, no flags — the caller filters before calling these) and
 // returns null/[] when there isn't enough data, rather than guessing.
 
+import { isRedenominationArtifact } from './ragAnalysis'
+
 export interface FactRow {
   fiscal_year: string | null
   entity: string
@@ -295,7 +297,10 @@ export function yoySeries(
   return series.map(f => {
     const year = Number(f.fiscal_year)
     const prev = byYear.get(year - 1)
-    const pctChangeFromPrev = prev && prev.value_millions! !== 0
+    // Skip the 2007 cedi-redenomination boundary — an old-cedi/new-cedi
+    // unit mismatch, not a real year-over-year change.
+    const pctChangeFromPrev = prev && prev.value_millions! !== 0 &&
+      !isRedenominationArtifact(year - 1, year)
       ? Math.round(((f.value_millions! - prev.value_millions!) / prev.value_millions!) * 1000) / 10
       : null
     return { year, value: f.value_millions!, pctChangeFromPrev, fact: f }
@@ -345,6 +350,8 @@ export function topNGrowth(
     const fromFact = sorted[0]
     const toFact = sorted[sorted.length - 1]
     if (fromFact === toFact || fromFact.value_millions === 0) continue
+    // Skip the 2007 cedi-redenomination boundary (see yoySeries).
+    if (isRedenominationArtifact(Number(fromFact.fiscal_year), Number(toFact.fiscal_year))) continue
     const growthPct = ((toFact.value_millions! - fromFact.value_millions!) / fromFact.value_millions!) * 100
     entries.push({
       entity,
@@ -440,12 +447,23 @@ export function detectDeviations(
 
   const out: DeviationEntry[] = []
   for (let i = 0; i < series.length; i++) {
+    const year = Number(series[i].fiscal_year)
     const neighbors = series
       .filter((_, j) => j !== i && Math.abs(j - i) <= 3)
+      // Exclude neighbors on the other side of the 2007 cedi redenomination
+      // — comparing old-cedi and new-cedi values would flag every year near
+      // 2007 as a false "deviation" purely due to the unit mismatch.
+      .filter(f => {
+        const ny = Number(f.fiscal_year)
+        return !isRedenominationArtifact(Math.min(year, ny), Math.max(year, ny))
+      })
       .map(f => f.value_millions!)
       .sort((a, b) => a - b)
     if (neighbors.length < 2) continue
-    const median = neighbors[Math.floor(neighbors.length / 2)]
+    const mid = neighbors.length / 2
+    const median = neighbors.length % 2 === 0
+      ? (neighbors[mid - 1] + neighbors[mid]) / 2
+      : neighbors[Math.floor(mid)]
     if (median <= 0) continue
     const value = series[i].value_millions!
     const ratio = value / median
@@ -491,7 +509,9 @@ export function summarizeTrend(
 
   const first = points[0]
   const last = points[points.length - 1]
-  const totalChangePct = first.value !== 0
+  // Skip the 2007 cedi-redenomination boundary (see yoySeries) — a unit
+  // mismatch across it, not a real total change.
+  const totalChangePct = first.value !== 0 && !isRedenominationArtifact(first.year, last.year)
     ? Math.round(((last.value - first.value) / first.value) * 1000) / 10
     : null
 
@@ -525,20 +545,31 @@ export function summarizeTrend(
 export interface FactsForecast {
   baseYears: number[]
   baseValues: number[]
-  forecastYear: number
-  forecastValue: number
+  forecastYears: number[]
+  forecastValues: number[]
   facts: FactRow[]
 }
 
-// Linear-regression projection for the next year, over (year, value_millions)
+// Linear-regression projection for future years, over (year, value_millions)
 // pairs from financial_facts — same method as ragAnalysis's computeForecast,
 // reimplemented against validated structured facts instead of chunk-derived
-// figures.
+// figures. Projects up to `periods` years past the last base year, stopping
+// early if a projected value would be <= 0.
 export function forecastNextYear(
   facts: FactRow[],
   opts: { entityType: string; entity: string; metric: string },
+  periods = 5,
 ): FactsForecast | null {
-  const points = yoySeries(facts, opts)
+  let points = yoySeries(facts, opts)
+  if (points.length < 2) return null
+
+  // 2007 redenomination guard (see isRedenominationArtifact / yoySeries):
+  // pre-2007 values are in old cedis and would corrupt a linear trend mixed
+  // with post-2007 (new cedi) values. If both exist, forecast from 2007
+  // onward (recent data is more relevant to a forecast anyway).
+  const pre = points.filter(p => p.year < 2007)
+  const post = points.filter(p => p.year >= 2007)
+  if (pre.length && post.length) points = post
   if (points.length < 2) return null
 
   const years = points.map(p => p.year)
@@ -553,15 +584,24 @@ export function forecastNextYear(
 
   const slope = (n * sumXY - sumX * sumY) / denom
   const intercept = (sumY - slope * sumX) / n
-  const forecastYear = years[years.length - 1] + 1
-  const forecastValue = slope * forecastYear + intercept
-  if (forecastValue <= 0) return null
+  const lastYear = years[years.length - 1]
+
+  const forecastYears: number[] = []
+  const forecastValues: number[] = []
+  for (let i = 1; i <= periods; i++) {
+    const year = lastYear + i
+    const value = slope * year + intercept
+    if (value <= 0) break
+    forecastYears.push(year)
+    forecastValues.push(Math.round(value * 100) / 100)
+  }
+  if (!forecastYears.length) return null
 
   return {
     baseYears: years,
     baseValues: values.map(v => Math.round(v * 100) / 100),
-    forecastYear,
-    forecastValue: Math.round(forecastValue * 100) / 100,
+    forecastYears,
+    forecastValues,
     facts: points.map(p => p.fact),
   }
 }

@@ -7,6 +7,14 @@ interface UploadMeta {
   sensitivity?: string
 }
 
+// One progress update from the finalize SSE stream — `stage` is a free-form
+// step name (e.g. "extracting", "embedding") plus whatever extra fields that
+// step reports (page counts, batch numbers, etc).
+export interface ExtractionProgress {
+  stage: string
+  [key: string]: unknown
+}
+
 /**
  * Uploads a file straight from the browser to Supabase Storage via a
  * signed URL, then asks the server to finalize it. Vercel's serverless
@@ -16,7 +24,11 @@ interface UploadMeta {
  * such limit). Routing the file bytes directly to storage and only sending
  * small JSON payloads to our API routes sidesteps that limit entirely.
  */
-export async function uploadDocument(file: File, meta: UploadMeta = {}): Promise<{ document?: Document; error?: string }> {
+export async function uploadDocument(
+  file: File,
+  meta: UploadMeta = {},
+  onProgress?: (p: ExtractionProgress) => void,
+): Promise<{ document?: Document; error?: string }> {
   const urlRes  = await fetch('/api/documents/upload-url', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -46,7 +58,38 @@ export async function uploadDocument(file: File, meta: UploadMeta = {}): Promise
       mimeType:         file.type,
     }),
   })
-  const finalizeData = await finalizeRes.json().catch(() => ({}))
-  if (!finalizeRes.ok) return { error: finalizeData.error ?? 'Could not process document' }
-  return { document: finalizeData.document as Document }
+
+  if (!finalizeRes.ok) {
+    const finalizeData = await finalizeRes.json().catch(() => ({}))
+    return { error: finalizeData.error ?? 'Could not process document' }
+  }
+  if (!finalizeRes.body) return { error: 'Could not process document' }
+
+  // The finalize endpoint streams progress as SSE ("data: {...}\n\n" lines)
+  // and ends with either a "done" (with the document) or "error" event.
+  const reader  = finalizeRes.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  let document: Document | undefined
+  let error: string | undefined
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+
+    const lines = buf.split('\n\n')
+    buf = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      const event = JSON.parse(line.slice(6)) as ExtractionProgress
+      if (event.stage === 'done') document = event.document as Document
+      else if (event.stage === 'error') error = (event.error as string) ?? 'Could not process document'
+      else onProgress?.(event)
+    }
+  }
+
+  if (error) return { error }
+  if (!document) return { error: 'Could not process document' }
+  return { document }
 }

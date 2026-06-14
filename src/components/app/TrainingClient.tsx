@@ -3,11 +3,14 @@
 import { useState, useRef, useEffect } from 'react'
 import {
   Brain, CheckCircle2, AlertCircle, Clock, RefreshCw, Zap,
-  FileText, ChevronDown, ChevronUp, X, Search, Quote, Sparkles,
+  FileText, ChevronDown, ChevronUp, X, Search, Quote, Sparkles, ClipboardCheck,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import type { TrainingDoc, Performance } from '@/app/(app)/training/page'
+import type { TrainingDoc, Performance, SelfAssessmentRun, RegressionResultRow } from '@/app/(app)/training/page'
+import { REGRESSION_QUESTIONS } from '@/lib/selfAssessment'
+
+const REGRESSION_QUESTION_COUNT = REGRESSION_QUESTIONS.length
 
 type TrainStatus = 'idle' | 'running' | 'done' | 'error'
 
@@ -91,16 +94,26 @@ const DEPT_LABELS: Record<string, string> = {
   general:         'General',
 }
 
-export default function TrainingClient({ docs, trainedCount, untrainedCount, performance }: {
+export default function TrainingClient({ docs, trainedCount, untrainedCount, performance, lastRun }: {
   docs: TrainingDoc[]
   trainedCount: number
   untrainedCount: number
   performance: Performance | null
+  lastRun: SelfAssessmentRun | null
 }) {
   const router = useRouter()
   const [states,    setStates]    = useState<Record<string, TrainState>>({})
   const [sheetDoc,  setSheetDoc]  = useState<TrainingDoc | null>(null)
   const abortRefs = useRef<Record<string, AbortController>>({})
+
+  // Regression suite (self-assessment) run state.
+  const [regression, setRegression] = useState<{
+    status: 'idle' | 'running' | 'done' | 'error'
+    message: string
+    results: RegressionResultRow[]
+    summary: { total: number; passed: number; accuracy: number; avgConfidence: number } | null
+  }>({ status: 'idle', message: '', results: [], summary: null })
+  const [regressionOpen, setRegressionOpen] = useState(false)
 
   // Manual document search: target=null means search the whole knowledge base.
   const [searchOpen,   setSearchOpen]   = useState(false)
@@ -203,6 +216,44 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, per
     docs.filter(d => getState(d.id).status === 'idle' && d.chunkCount === 0).forEach(trainDocument)
   }
 
+  async function runRegressionSuite() {
+    setRegressionOpen(true)
+    setRegression({ status: 'running', message: 'Starting…', results: [], summary: null })
+    try {
+      const res = await fetch('/api/self-assessment', { method: 'POST' })
+      if (!res.ok || !res.body) throw new Error(`Server returned ${res.status}`)
+      const reader  = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const ev = JSON.parse(line.slice(6))
+            if (ev.stage === 'running') {
+              setRegression(prev => ({ ...prev, message: ev.message }))
+            } else if (ev.stage === 'result') {
+              setRegression(prev => ({ ...prev, results: [...prev.results, ev as RegressionResultRow] }))
+            } else if (ev.stage === 'complete') {
+              setRegression(prev => ({
+                ...prev, status: 'done', message: '',
+                summary: { total: ev.total, passed: ev.passed, accuracy: ev.accuracy, avgConfidence: ev.avgConfidence },
+              }))
+              router.refresh()
+            }
+          } catch {}
+        }
+      }
+    } catch (err) {
+      setRegression(prev => ({ ...prev, status: 'error', message: (err as Error).message }))
+    }
+  }
+
   return (
     <div className="space-y-5">
 
@@ -262,6 +313,15 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, per
           )}
         </div>
       </div>
+
+      {/* ── Regression suite (self-assessment) ──────────────────── */}
+      <RegressionSuiteCard
+        lastRun={lastRun}
+        live={regression}
+        open={regressionOpen}
+        onToggle={() => setRegressionOpen(o => !o)}
+        onRun={runRegressionSuite}
+      />
 
       {/* ── Document cards — 2-col grid ──────────────────────────── */}
       {docs.length === 0 ? (
@@ -376,6 +436,117 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, per
           onSearch={(question) => runSearch(searchTarget.documentId, searchTarget.title, question)}
           onClose={() => setSearchOpen(false)}
         />
+      )}
+    </div>
+  )
+}
+
+/* ── Regression Suite Card ────────────────────────────────────
+   Runs the fixed set of REGRESSION_QUESTIONS (src/lib/selfAssessment.ts)
+   through /api/chat and records pass/fail + confidence per question. */
+function RegressionSuiteCard({ lastRun, live, open, onToggle, onRun }: {
+  lastRun: SelfAssessmentRun | null
+  live: {
+    status: 'idle' | 'running' | 'done' | 'error'
+    message: string
+    results: RegressionResultRow[]
+    summary: { total: number; passed: number; accuracy: number; avgConfidence: number } | null
+  }
+  open: boolean
+  onToggle: () => void
+  onRun: () => void
+}) {
+  const isRunning = live.status === 'running'
+  const results = live.results.length || live.status !== 'idle' ? live.results : (lastRun?.results ?? [])
+  const summary = live.summary ?? (lastRun ? {
+    total: lastRun.total_questions, passed: lastRun.passed,
+    accuracy: lastRun.accuracy, avgConfidence: lastRun.avg_confidence,
+  } : null)
+  const total = REGRESSION_QUESTION_COUNT
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-gray-50">
+            <ClipboardCheck className="h-4 w-4 text-gray-500" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Regression Suite</p>
+            <p className="text-[11px] text-gray-400">
+              {summary
+                ? `Last run: ${summary.passed}/${summary.total} passed · avg confidence ${summary.avgConfidence}%`
+                : `${total} representative questions — not run yet`}
+              {lastRun && !live.summary && ` · ${formatDate(lastRun.created_at)}`}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {summary && (
+            <span className={cn('rounded-full border px-2.5 py-1 text-[11px] font-semibold', performanceLabel(summary.accuracy).color)}>
+              {summary.accuracy}% {performanceLabel(summary.accuracy).label}
+            </span>
+          )}
+          <button
+            onClick={onRun}
+            disabled={isRunning}
+            className="flex items-center gap-2 rounded-xl bg-brand px-3.5 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-50">
+            {isRunning ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+            {isRunning ? 'Running…' : 'Run Suite'}
+          </button>
+          {results.length > 0 && (
+            <button
+              onClick={onToggle}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-gray-50 text-gray-500 transition hover:bg-gray-100">
+              {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {isRunning && (
+        <div className="mt-3">
+          <div className="mb-1 flex items-center gap-1.5">
+            <RefreshCw className="h-3 w-3 animate-spin text-brand" />
+            <span className="text-[11px] font-semibold text-brand">{results.length}/{total}</span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+            <div className="h-full rounded-full bg-brand transition-all duration-500" style={{ width: `${(results.length / total) * 100}%` }} />
+          </div>
+          <p className="mt-1 truncate text-[10px] text-gray-400">{live.message}</p>
+        </div>
+      )}
+
+      {live.status === 'error' && (
+        <div className="mt-3 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2">
+          <AlertCircle className="h-4 w-4 text-red-500" />
+          <p className="text-xs text-red-600">{live.message || 'Regression run failed.'}</p>
+        </div>
+      )}
+
+      {open && results.length > 0 && (
+        <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
+          {results.map(r => (
+            <div key={r.id} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-semibold text-gray-800">{r.query}</p>
+                  <p className="mt-0.5 text-[10px] uppercase tracking-wider text-gray-400">{r.category.replace(/_/g, ' ')}</p>
+                </div>
+                <span className={cn(
+                  'shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold',
+                  r.passed ? 'border-green-200 bg-green-50 text-green-700' : 'border-red-200 bg-red-50 text-red-700',
+                )}>
+                  {r.passed ? 'PASS' : 'FAIL'}
+                </span>
+              </div>
+              <p className="mt-1.5 text-[11px] text-gray-500">{r.reason}</p>
+              <p className="mt-1 text-[10px] text-gray-400">
+                Confidence {r.confidenceScore}% ({r.confidenceLevel}) · {r.citationCount} citation{r.citationCount === 1 ? '' : 's'}
+              </p>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )

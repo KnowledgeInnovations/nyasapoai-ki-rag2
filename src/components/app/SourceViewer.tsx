@@ -29,19 +29,24 @@ function matchConfidence(rawSimilarity?: number | null) {
 // avoids re-hitting the API and storage signing on every click. Also lets
 // the chat UI prefetch URLs for cited documents as soon as an answer
 // arrives, so opening a source is usually instant.
-const urlCache = new Map<string, Promise<string | null>>()
+// Entries are dropped after URL_TTL_MS so a chat session left open longer
+// than the signed URL's 1-hour lifetime re-fetches a fresh one instead of
+// handing pdf.js an expired URL (which surfaces as a 400 "Unexpected server
+// response" error in PdfViewer).
+const URL_TTL_MS = 55 * 60 * 1000
+const urlCache = new Map<string, { promise: Promise<string | null>; fetchedAt: number }>()
 
 export function fetchSourceDownloadUrl(documentId: string): Promise<string | null> {
-  let p = urlCache.get(documentId)
-  if (!p) {
-    p = fetch(`/api/documents/preview?id=${documentId}`)
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then(d => d.downloadUrl ?? null)
-      .catch(() => null)
-    p.then(url => { if (!url) urlCache.delete(documentId) })
-    urlCache.set(documentId, p)
-  }
-  return p
+  const cached = urlCache.get(documentId)
+  if (cached && Date.now() - cached.fetchedAt < URL_TTL_MS) return cached.promise
+
+  const promise = fetch(`/api/documents/preview?id=${documentId}`)
+    .then(r => r.ok ? r.json() : Promise.reject())
+    .then(d => d.downloadUrl ?? null)
+    .catch(() => null)
+  promise.then(url => { if (!url) urlCache.delete(documentId) })
+  urlCache.set(documentId, { promise, fetchedAt: Date.now() })
+  return promise
 }
 
 function HighlightedExcerpt({ text, span }: { text: string; span?: [number, number] | null }) {

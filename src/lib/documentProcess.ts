@@ -26,6 +26,11 @@ const OFFICE_EXTS = new Set([
 export interface ExtractedPage {
   page_number: number | null  // null when the source format has no page concept
   text: string
+  // Structured tables detected on this page via grid geometry (PDF only) —
+  // each table is an array of rows, each row an array of cell strings.
+  // Far more reliable for multi-column numeric tables than the whitespace
+  // heuristic in chunkPages, which can misalign or merge adjacent columns.
+  tables?: string[][][]
 }
 
 export interface ProcessedChunk {
@@ -50,10 +55,32 @@ export async function extractStructuredText(buffer: Buffer, filename: string): P
     const parser = new PDFParse({ data: buffer })
     const result = await parser.getText()
     const pages = (result?.pages as { num: number; text: string }[] | undefined) ?? []
-    if (pages.length > 0) {
-      return pages.map(p => ({ page_number: p.num, text: p.text ?? '' }))
+
+    // Loud, non-fatal check that every page made it through — a silent
+    // drop here (e.g. an unparseable page) would otherwise show up only as
+    // "missing" figures much later, in answers that look confidently wrong.
+    if (result?.total && pages.length !== result.total) {
+      console.error(`[extract] ${filename}: getText() returned ${pages.length} of ${result.total} pages`)
     }
-    return [{ page_number: null, text: (result?.text as string) ?? '' }]
+
+    // Structured tables (detected from vector grid geometry) — see the
+    // `tables` field comment on ExtractedPage. getTable() does a heavier
+    // geometric analysis that can fail on some PDFs; a failure here must
+    // not block extraction of the page's regular text.
+    const tablesByPage = new Map<number, string[][][]>()
+    try {
+      const tableResult = await parser.getTable()
+      for (const p of (tableResult?.pages as { num: number; tables: string[][][] }[] | undefined) ?? []) {
+        if (p.tables?.length) tablesByPage.set(p.num, p.tables)
+      }
+    } catch (e) {
+      console.error(`[extract] ${filename}: getTable() failed:`, e)
+    }
+
+    if (pages.length > 0) {
+      return pages.map(p => ({ page_number: p.num, text: p.text ?? '', tables: tablesByPage.get(p.num) ?? [] }))
+    }
+    return [{ page_number: null, text: (result?.text as string) ?? '', tables: [] }]
   }
 
   if (OFFICE_EXTS.has(ext)) {
@@ -94,7 +121,14 @@ const SECTOR_KEYWORDS = [
 
 export function extractSector(text: string): string | null {
   for (const s of SECTOR_KEYWORDS) {
-    if (new RegExp(`\\b${s}\\b`, 'i').test(text)) return s
+    // "Social Security" (a routine line item under Compensation of Employees
+    // in every budget's macro/national section) must not trigger the
+    // "Security" sector keyword — it's an unrelated fiscal term, not the
+    // Security sector (Defence/Police/etc).
+    const rx = s === 'Security'
+      ? new RegExp(`(?<!social\\s)\\b${s}\\b`, 'i')
+      : new RegExp(`\\b${s}\\b`, 'i')
+    if (rx.test(text)) return s
   }
   return null
 }
@@ -146,7 +180,10 @@ export function chunkPages(
 
   const flush = () => {
     const text = current.trim()
-    if (text.length > 50) {
+    // Low floor — high enough to skip stray page-number/whitespace
+    // artifacts, low enough not to drop a short but meaningful trailing
+    // line (e.g. an isolated total-figure sentence).
+    if (text.length > 10) {
       chunks.push({
         text,
         page_number: currentPage,
@@ -162,8 +199,7 @@ export function chunkPages(
 
   for (const page of pages) {
     const normalised = page.text.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
-    if (!normalised) continue
-    const blocks = normalised.split(/\n\n+/).map(b => b.trim()).filter(b => b.length > 0)
+    const blocks = normalised ? normalised.split(/\n\n+/).map(b => b.trim()).filter(b => b.length > 0) : []
 
     for (const block of blocks) {
       if (isHeading(block)) {
@@ -186,12 +222,12 @@ export function chunkPages(
         continue
       }
 
-      if (block.length < 20) continue
+      if (block.length < 8) continue
 
       if (current.length === 0) currentPage = page.page_number
 
       if (block.length > maxChars) {
-        const sentences = block.match(/[^.!?\n]+[.!?\n]+/g) ?? [block]
+        const sentences = block.match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g) ?? [block]
         for (const sent of sentences) {
           if (current.length > 0 && (current + ' ' + sent).length > maxChars) {
             flush()
@@ -209,6 +245,27 @@ export function chunkPages(
       } else {
         current += (current ? '\n\n' : '') + block
       }
+    }
+
+    // Structured tables for this page (see ExtractedPage.tables) — appended
+    // after the page's text blocks, each as its own is_table chunk so the
+    // PDF's vector-grid row/column structure survives verbatim, instead of
+    // relying on the whitespace-based isTableBlock heuristic above (which
+    // can misalign or merge adjacent numeric columns).
+    for (const table of page.tables ?? []) {
+      if (table.length < 2) continue
+      const tableText = table.map(row => row.map(c => c.trim()).join(' | ')).join('\n')
+      if (tableText.trim().length < 10) continue
+      flush()
+      chunks.push({
+        text: tableText,
+        page_number: page.page_number,
+        section_title: currentSection,
+        fiscal_year: docFiscalYear,
+        ministry: extractMinistry(tableText),
+        sector: extractSector(tableText),
+        is_table: true,
+      })
     }
   }
   flush()
@@ -232,7 +289,9 @@ export async function embedBatch(texts: string[]): Promise<number[][]> {
     },
     body: JSON.stringify({ model: 'text-embedding-3-small', input: texts }),
   })
+  if (!res.ok) throw new Error(`OpenAI embeddings error ${res.status}: ${await res.text()}`)
   const data = await res.json()
+  if (!Array.isArray(data?.data)) throw new Error('OpenAI embeddings: malformed response')
   return (data.data as { index: number; embedding: number[] }[])
     .sort((a, b) => a.index - b.index)
     .map(d => d.embedding)

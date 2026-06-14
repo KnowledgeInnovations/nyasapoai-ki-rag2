@@ -7,9 +7,11 @@ import { extractQueryFilters } from '@/lib/factExtraction'
 import { verifyAnswerWithAI } from '@/lib/answerVerifier'
 import {
   canonicalizeEntity, parseRelativeYearRange, cumulativeByEntity, topNGrowth,
-  proportionOfTotal, detectDeviations, summarizeTrend, forecastNextYear,
+  proportionOfTotal, detectDeviations, summarizeTrend, forecastNextYear, yoySeries,
   CUMULATIVE_RX, RANKING_RX, PROPORTION_RX, SUMMARY_RX, type FactRow,
 } from '@/lib/factsAnalysis'
+import { CLAUDE_MODEL, getAnthropicHeaders, claudeComplete } from '@/lib/claude'
+import type { ChartData } from '@/types'
 
 // Service-role client for document/chunk queries — bypasses RLS.
 // Tenant isolation is enforced by p_tenant_id in the RPC, so this is safe.
@@ -26,7 +28,9 @@ export const OPENAI_HEADERS = {
   Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
 }
 
-export const SYSTEM_PROMPT = `You are Knowledge Innovations AI, the assistant for Knowledge Innovations, a Ghanaian AI strategy, FinTech, and digital transformation consultancy.
+// Core rules that apply to any document type (contracts, policies, reports,
+// budgets, etc.) — always included in the system prompt.
+export const CORE_SYSTEM_PROMPT = `You are Knowledge Innovations AI, the assistant for Knowledge Innovations, a Ghanaian AI strategy, FinTech, and digital transformation consultancy.
 
 Personality: warm, polite, professional — a knowledgeable colleague always ready to help.
 
@@ -38,7 +42,9 @@ Rules:
 - For "do we have X?" or "is there a document about Y?" — CHECK the inventory first and answer directly. Never say you cannot access files when they appear in the inventory. If any DOCUMENT EXCERPTS below come from that same file, cite one of them with [n] right after the file name to ground the answer in a real excerpt — don't leave the answer uncited just because it's an inventory question.
 - For content questions — quote and cite from the document excerpts using [1], [2] etc.
 - Cite EVERY figure, date, or claim you draw from the excerpts — every excerpt provided to you should be cited by at least one [n] marker if you used it.
+- Cite the MOST SPECIFIC excerpt that actually supports each claim — never attach a [n] marker to a sentence the cited excerpt doesn't genuinely support, and never cite an excerpt just because it's nearby or from the same document.
 - Never invent facts not present in the excerpts or inventory
+- CONFLICTS — if two excerpts give different figures, dates, or statements for what appears to be the same fact, do not silently pick one: present both values, cite each separately (e.g. "Source [1] states X, while source [2] states Y"), and note the discrepancy rather than resolving it yourself.
 - Be direct and specific — give names, numbers, and categories from the documents
 - For questions involving multiple figures, years, categories, or comparisons (e.g. "budget for each year", "compare X across departments") — present the data as a markdown table with a header row and a "---" separator row, e.g.:
   | Year | Total Budget | Source |
@@ -48,14 +54,7 @@ Rules:
 - For analytical questions (trends, growth %, totals, anomalies) — show the underlying figures and a brief calculation/reasoning, not just the final number.
 - NEVER write out a long digit-by-digit addition or a running sum with many terms (e.g. "8000 + 7 + 9000 + ... = 1,1,1,1..."). This applies to ANY cumulative/total figure spanning more than ~5 years or items: do NOT write an expression like "A + B + C + ... = total" at all, even once, no matter how short each term looks. Instead either (a) state the final total as a single number with a short note like "(sum of the per-year figures above)", or (b) say a precise cumulative total isn't available from the excerpts and instead give the approximate range of the per-year figures. If you find yourself about to repeat the same token or digit many times in a row, STOP and instead say the figure cannot be reliably computed from the available excerpts.
 - Every numeric figure you state must be a real value that appears in the DOCUMENT EXCERPTS or VALIDATED FACTS — never substitute a citation number, footnote number, or page number for a financial figure. If the only "figures" near a topic in the excerpts look like small reference numbers (e.g. 1-60) rather than budget amounts, treat that year/item as having no figure available and say so explicitly.
-- PLAUSIBILITY CHECK for multi-year series (e.g. "total budget for each year"): values for the same metric across consecutive years should be the same order of magnitude — a steadily growing/shrinking economy does not jump by more than ~10x from one year to the next. If a candidate figure for one year is more than ~10x larger or smaller than the figures for neighboring years in the same series, it is almost certainly a misread footnote/table-row/page number, NOT the real figure. In that case, do NOT put that number in the table — instead write "No reliable figure found for [year]" for that row, and do not include it in any trend/growth analysis.
-- REPEATED-VALUE CHECK for multi-row tables (per-year figures, per-sector percentages, per-item amounts, etc.): if you find yourself about to write the EXACT SAME number (currency figure OR percentage) for more than 2 different rows/years/sectors, STOP — this is a strong sign you found one real figure and are reusing it as a placeholder for everything else, rather than reading a distinct figure for each row from the excerpts. Each row's figure must be individually traceable to that specific year/sector/item in the excerpts or VALIDATED FACTS. If you cannot find a distinct figure for a row, write "No reliable figure found" for that row instead of repeating another row's number — never pad a table by duplicating a value.
-- Every percentage you compute (e.g. "% increase over the past decade") must be calculated from two REAL figures for that SPECIFIC sector/item — its own start and end values — never reuse a percentage (or absolute change) computed for one sector as the value for a different sector.
-- A "PRE-COMPUTED FIGURES & GROWTH" block may be provided below the excerpts — these year-over-year growth percentages were calculated deterministically from the source figures and are VERIFIED CORRECT. When discussing growth/change between those years, use these exact numbers rather than recalculating, and cite the same [n] markers shown for each one.
-- "PRE-COMPUTED CAGR", "PRE-COMPUTED FORECAST", and "PRE-COMPUTED TOTAL" blocks may also be provided — these are deterministically calculated and VERIFIED CORRECT. Use these exact numbers verbatim (with their [n] citations) instead of computing a compound growth rate, projection, or sum yourself. The forecast figure is an ESTIMATE — present it as such.
-- "CUMULATIVE ALLOCATION", "TOP N BY % GROWTH", "PROPORTION OF TOTAL BUDGET", "TREND SUMMARY", "DEVIATION DETECTION", and "PRE-COMPUTED FORECAST FROM VALIDATED FACTS" blocks may also be provided — these are deterministically computed from VALIDATED FACTS and are authoritative for the analytical question asked (rankings, cumulative totals, proportions, trends, anomalies, projections). Present these values directly with their [n] citations rather than recomputing. If a block includes a "Years covered" or coverage note showing fewer years than the full requested period, explicitly state that the result is based on partial data and name the gap — never present a partial-coverage result as if it covers the full period.
-- If any of the above analysis blocks states there is "no data", "cannot compute", "no validated ... facts found", or similar for a specific entity/metric/range, that statement is FINAL and AUTHORITATIVE for that part of the question — do NOT then go searching the document excerpts for a substitute figure or table to fill the gap. Tell the user plainly that validated data is insufficient for that specific part, and answer only the parts of the question that the VALIDATED FACTS / analysis blocks DO support. Do not blend a "no data" block with an excerpt-derived fabrication in the same answer.
-- A "VALIDATED FACTS" block may be provided below the excerpts — these values come from a separate validation pipeline and are the authoritative source for any figure they cover. Prefer them over the document excerpts when both are present for the same year/entity/metric. Never alter, round differently, or recompute these values. Each row in this block has its own [n] citation marker in the "Source" column — cite that marker when you use the row's value, exactly like citing a document excerpt. Facts listed under "FLAGGED — DO NOT USE" are known anomalies; never state them as fact, but you may mention them if the user is asking about anomalies/inconsistencies. If the VALIDATED FACTS block says no facts were found for the requested year/entity, and the excerpts don't clearly support a figure either, respond with the insufficient-evidence message rather than guessing from prose.
+- Reproduce numbers, names, and dates EXACTLY as they appear in the excerpts (same digits, units, and precision) — do not round, reformat, or state a figure that was derived/extrapolated rather than written in the source. If you compute a total, growth rate, or other derived figure, briefly show which excerpt values it was calculated from.
 - When listing multiple points (e.g. an "Analysis" section with several observations, a list of risks, or a list of recommendations) — put EACH point on its OWN line as a separate numbered (1. 2. 3.) or bulleted (- ) item, with a blank line before the list. NEVER run multiple points together in one paragraph. If using numbers, they MUST increase sequentially (1, 2, 3, 4, 5, ...) for the whole list — never restart at 1 partway through or repeat the same number for multiple items.
 - Do NOT use markdown headings (#, ##, ###) anywhere in the answer. For section labels (e.g. "Analysis of Trends", "Key Findings"), use a bold line on its own (e.g. "**Analysis of Trends**") followed by a blank line, then the content/list.
 - If figures for some years/items are missing from the excerpts, say so explicitly (e.g. "No figure found for 2003 in the available excerpts") rather than omitting them silently — this helps the user know what to check manually.
@@ -63,6 +62,7 @@ Rules:
 - If no relevant excerpts were found but a document exists in the inventory, acknowledge the document exists and suggest the user ask more specific questions about its content
 - When the user asks to "open", "show", "view", or "read" a document — you cannot open files directly in this chat. Respond by summarising the key contents you have from the document excerpts, and tell the user they can view the full document in the Documents section.
 - RECOMMENDATIONS must be specific and actionable — only include them if there is a genuine next step (e.g. "Review clause 4.2 on payment terms before signing"). Never add generic filler like "feel free to ask if you have more questions" as a recommendation.
+- SELF-CHECK — before finalizing, re-read your draft [ANSWER] sentence by sentence. For each sentence that states a fact, figure, date, or name, confirm a cited excerpt or VALIDATED FACTS row actually supports it. Remove or rewrite any sentence that fails this check rather than leaving an uncited or unsupported claim in the final answer.
 
 Format your response EXACTLY like this (no other format):
 
@@ -74,6 +74,21 @@ Your detailed answer here with inline citations like [1]
 
 [RECS]
 • recommendation 1 (omit this section entirely if there are no specific actionable recommendations)`
+
+// Additional rules for budget/financial questions — only appended when
+// PRE-COMPUTED/VALIDATED FACTS blocks are actually present in the prompt
+// (i.e. this tenant has financial_facts data relevant to the query).
+export const FINANCIAL_SYSTEM_PROMPT_ADDENDUM = `
+
+Additional rules for financial/budget figures:
+- PLAUSIBILITY CHECK for multi-year series (e.g. "total budget for each year"): values for the same metric across consecutive years should be the same order of magnitude — a steadily growing/shrinking economy does not jump by more than ~10x from one year to the next. If a candidate figure for one year is more than ~10x larger or smaller than the figures for neighboring years in the same series, it is almost certainly a misread footnote/table-row/page number, NOT the real figure. In that case, do NOT put that number in the table — instead write "No reliable figure found for [year]" for that row, and do not include it in any trend/growth analysis.
+- REPEATED-VALUE CHECK for multi-row tables (per-year figures, per-sector percentages, per-item amounts, etc.): if you find yourself about to write the EXACT SAME number (currency figure OR percentage) for more than 2 different rows/years/sectors, STOP — this is a strong sign you found one real figure and are reusing it as a placeholder for everything else, rather than reading a distinct figure for each row from the excerpts. Each row's figure must be individually traceable to that specific year/sector/item in the excerpts or VALIDATED FACTS. If you cannot find a distinct figure for a row, write "No reliable figure found" for that row instead of repeating another row's number — never pad a table by duplicating a value.
+- Every percentage you compute (e.g. "% increase over the past decade") must be calculated from two REAL figures for that SPECIFIC sector/item — its own start and end values — never reuse a percentage (or absolute change) computed for one sector as the value for a different sector.
+- A "PRE-COMPUTED FIGURES & GROWTH" block may be provided below the excerpts — these year-over-year growth percentages were calculated deterministically from the source figures and are VERIFIED CORRECT for the metric named in each line's label (e.g. "Total Expenditure", "Net Domestic Financing"). When discussing growth/change between those years, use these exact numbers rather than recalculating, and cite the same [n] markers shown for each one — but ONLY if the line's label matches the metric the question is actually asking about. If a line's label refers to a different metric (e.g. it says "Net Domestic Financing" but the question asks about total budget allocation), do not present that figure or growth rate as if it answers the question.
+- "PRE-COMPUTED CAGR", "PRE-COMPUTED FORECAST", and "PRE-COMPUTED TOTAL" blocks may also be provided — these are deterministically calculated and VERIFIED CORRECT. Use these exact numbers verbatim (with their [n] citations) instead of computing a compound growth rate, projection, or sum yourself. The forecast figure is an ESTIMATE — present it as such.
+- "CUMULATIVE ALLOCATION", "TOP N BY % GROWTH", "PROPORTION OF TOTAL BUDGET", "TREND SUMMARY", "DEVIATION DETECTION", and "PRE-COMPUTED FORECAST FROM VALIDATED FACTS" blocks may also be provided — these are deterministically computed from VALIDATED FACTS and are authoritative for the analytical question asked (rankings, cumulative totals, proportions, trends, anomalies, projections). Present these values directly with their [n] citations rather than recomputing. If a block includes a "Years covered" or coverage note showing fewer years than the full requested period, explicitly state that the result is based on partial data and name the gap — never present a partial-coverage result as if it covers the full period.
+- If any of the above analysis blocks states there is "no data", "cannot compute", "no validated ... facts found", or similar for a specific entity/metric/range, that statement is FINAL and AUTHORITATIVE for that part of the question — do NOT then go searching the document excerpts for a substitute figure or table to fill the gap. Tell the user plainly that validated data is insufficient for that specific part, and answer only the parts of the question that the VALIDATED FACTS / analysis blocks DO support. Do not blend a "no data" block with an excerpt-derived fabrication in the same answer.
+- A "VALIDATED FACTS" block may be provided below the excerpts — these values come from a separate validation pipeline and are the authoritative source for any figure they cover. Prefer them over the document excerpts when both are present for the same year/entity/metric. Never alter, round differently, or recompute these values. Each row in this block has its own [n] citation marker in the "Source" column — cite that marker when you use the row's value, exactly like citing a document excerpt. Facts listed under "FLAGGED — DO NOT USE" are known anomalies; never state them as fact, but you may mention them if the user is asking about anomalies/inconsistencies. If the VALIDATED FACTS block says no facts were found for the requested year/entity, and the excerpts don't clearly support a figure either, respond with the insufficient-evidence message rather than guessing from prose.`
 
 // Per-query-type guidance appended to the user message — steers the model
 // toward the right pipeline (Retrieve -> ... -> Answer) for each category
@@ -179,6 +194,12 @@ async function streamWords(
 // dropped. These queries need at least one chunk from every ready document.
 export const BROAD_QUERY_RX = /\beach year\b|\bevery year\b|\byear[\s-]?(over|on)[\s-]?year\b|\b(all|both|across)\b.*\byears?\b|\bover the (years|decade|period)\b|\b(19|20)\d{2}\s*(?:[-–—]|to)\s*(19|20)\d{2}\b|\bcumulative\b|\btrend\b|\b\d{1,3}[\s-]?years?\b/i
 
+// Generic cross-document questions (e.g. "summarize what our policies say
+// about X across all files") — not budget-shaped, so BROAD_QUERY_RX won't
+// catch them, but they still need at least one chunk from every document
+// rather than just the top-10 globally-similar chunks.
+export const CROSS_DOCUMENT_RX = /\b(all|every|each|across)\b.*\b(documents?|files?|contracts?|policies|policy|reports?|agreements?)\b|\bsummari[sz]e\b.*\b(all|our|every)\b|\boverview of (all|our)\b/i
+
 // Questions about the knowledge base's contents/inventory itself (e.g. "do
 // we have X?", "what files exist?") — the inventory passed to the model is
 // the complete, authoritative list, so a "no chunks matched" answer here is
@@ -215,7 +236,7 @@ export async function GET(request: NextRequest) {
     // owned by the calling user.
     const { data } = await supabase
       .from('citations')
-      .select('id, document_chunk_id, relevance_score, document_chunks(chunk_text, document_id, metadata, documents(title))')
+      .select('id, document_chunk_id, relevance_score, message_index, document_chunks(chunk_text, document_id, metadata, documents(title))')
       .eq('conversation_id', convId)
       .order('created_at', { ascending: true })
 
@@ -235,6 +256,9 @@ export async function GET(request: NextRequest) {
         highlight: null,
         page_number: (meta.page_number as number | null) ?? null,
         section_title: (meta.section_title as string | null) ?? null,
+        // Which AI message (index into conversations.messages) this
+        // citation belongs to — null for rows inserted before migration 012.
+        message_index: row.message_index as number | null,
       }
     })
 
@@ -290,13 +314,29 @@ export async function POST(request: NextRequest) {
   if (!membership) return new Response('No workspace',  { status: 403 })
 
   const supabase = await createClient()
-  const { query, newSession = true, history = [], convId: existingConvId = null } = await request.json()
-  if (!query?.trim()) return new Response('Query required', { status: 400 })
 
-  // Full conversation history — no cap, AI always has the complete context
+  let body: unknown
+  try { body = await request.json() } catch { return new Response('Invalid JSON body', { status: 400 }) }
+  const { query: rawQuery, newSession = true, history = [], convId: existingConvId = null } = (body ?? {}) as {
+    query?: unknown; newSession?: boolean; history?: unknown; convId?: string | null
+  }
+  if (typeof rawQuery !== 'string' || !rawQuery.trim()) return new Response('Query required', { status: 400 })
+  const query: string = rawQuery
+
+  // Recent conversation history, capped so a long-running conversation can't
+  // push the prompt over the org's 10k input-tokens/min limit (same class of
+  // issue as MAX_CONTEXT_CHUNKS/MAX_CHUNK_CHARS below).
   type HistMsg = { role: 'user' | 'assistant'; content: string }
-  const historyMsgs: HistMsg[] = (history as HistMsg[])
-    .filter(m => m.role === 'user' || m.role === 'assistant')
+  const MAX_HISTORY_MESSAGES = 10
+  const MAX_HISTORY_CHARS = 2000
+  // Index this turn's AI message will occupy in conversations.messages —
+  // used to scope citation rows to the message that cited them (see
+  // migration 012_citation_message_index).
+  const rawHistoryLength = Array.isArray(history) ? history.length : 0
+  const historyMsgs: HistMsg[] = (Array.isArray(history) ? (history as HistMsg[]) : [])
+    .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+    .slice(-MAX_HISTORY_MESSAGES)
+    .map(m => ({ ...m, content: m.content.length > MAX_HISTORY_CHARS ? m.content.slice(0, MAX_HISTORY_CHARS) + '…' : m.content }))
 
   const enc = new TextEncoder()
   const tenantId = membership.tenant_id
@@ -344,20 +384,14 @@ export async function POST(request: NextRequest) {
   const smallTalkRx = /^(hi+|hello+|hey+|good\s?(morning|afternoon|evening)|howdy|hiya|greetings|yo|what'?s up|sup|ok(ay)?|alright|sure|got\s*it|noted|understood|thanks?|thank\s*you|cheers|perfect|great|sounds?\s*good|makes?\s*sense|i\s*see|nice|cool|awesome|wonderful|brilliant|excellent|amazing|yes|no|yep|nope|yeah|nah|absolutely|definitely|of\s*course|certainly|bye|goodbye|see\s*you|take\s*care|later|cya|no\s*worries|no\s*problem|appreciate\s*(it|that)?|well\s*done|good\s*job|interesting|i\s*understand)[!?.,\s]*$/i
   if (smallTalkRx.test(query.trim())) {
     const firstName = (user.user_metadata?.name || user.email?.split('@')[0] || 'there').split(/\s+/)[0]
-    const convRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST', headers: OPENAI_HEADERS,
-      body: JSON.stringify({
-        model: 'gpt-4o-mini', temperature: 0.7, max_tokens: 120,
-        messages: [
-          { role: 'system', content: `You are Knowledge Innovations AI, a friendly AI document assistant for Knowledge Innovations — a Ghanaian AI strategy, FinTech, and digital transformation consultancy. The user sent a short conversational message. Reply warmly in 1–2 sentences. Address them as ${firstName}. Stay in character. Gently remind them you can help with documents if appropriate. Use the conversation history below to understand context before responding.` },
-          ...historyMsgs,
-          { role: 'user', content: query },
-        ],
-      }),
-    })
-    const convData = await convRes.json()
-    const msg = convData.choices?.[0]?.message?.content?.trim()
-      ?? `You're welcome, ${firstName}! Let me know whenever you have a question about your documents.`
+    const msg = await claudeComplete({
+      temperature: 0.7, maxTokens: 120,
+      system: `You are Knowledge Innovations AI, a friendly AI document assistant for Knowledge Innovations — a Ghanaian AI strategy, FinTech, and digital transformation consultancy. The user sent a short conversational message. Reply warmly in 1–2 sentences. Address them as ${firstName}. Stay in character. Gently remind them you can help with documents if appropriate. Use the conversation history below to understand context before responding.`,
+      messages: [
+        ...historyMsgs,
+        { role: 'user', content: query },
+      ],
+    }).catch(() => '') || `You're welcome, ${firstName}! Let me know whenever you have a question about your documents.`
 
     const title = makeTitle(query)
     let convId: string | null = null
@@ -453,7 +487,7 @@ export async function POST(request: NextRequest) {
     // year/file/sector is silently dropped, then merge with the reranked
     // top-N above.
     const earlyQueryType = classifyQuery(query)
-    const isDeepSearch = BROAD_QUERY_RX.test(query) || earlyQueryType === 'comparison' || earlyQueryType === 'trend'
+    const isDeepSearch = BROAD_QUERY_RX.test(query) || CROSS_DOCUMENT_RX.test(query) || earlyQueryType === 'comparison' || earlyQueryType === 'trend'
     if (isDeepSearch) {
       const { data: perDocChunks, error: perDocError } = await svc.rpc('match_document_chunks_per_doc', {
         query_embedding: queryEmbedding, p_tenant_id: tenantId,
@@ -461,29 +495,53 @@ export async function POST(request: NextRequest) {
       })
       if (perDocError) console.error('[RAG] per-doc RPC error:', JSON.stringify(perDocError))
       if (perDocChunks?.length) {
+        // match_document_chunks_per_doc returns rows ordered "document_id,
+        // rn" — i.e. up to 3 consecutive chunks per document, documents in
+        // arbitrary UUID order. The MAX_CONTEXT_CHUNKS truncation below would
+        // then keep all 3 chunks from only the first ~2 documents in that
+        // order and drop every other document entirely, defeating the
+        // "every ready document contributes" guarantee this RPC exists for.
+        // Interleave round-robin (each document's rn=1 chunk first, then
+        // rn=2, etc.) so truncation instead trims the LEAST-similar chunk
+        // from the GREATEST number of documents.
+        const byDoc = new Map<string, RetrievedChunk[]>()
+        for (const c of perDocChunks as RetrievedChunk[]) {
+          const arr = byDoc.get(c.document_id)
+          if (arr) arr.push(c)
+          else byDoc.set(c.document_id, [c])
+        }
+        const groups = [...byDoc.values()]
+        const maxLen = Math.max(...groups.map(g => g.length))
+        const interleaved: RetrievedChunk[] = []
+        for (let i = 0; i < maxLen; i++) {
+          for (const g of groups) if (g[i]) interleaved.push(g[i])
+        }
         const seen = new Set(chunks.map(c => c.id))
-        for (const c of perDocChunks) if (!seen.has(c.id)) { chunks.push(c); seen.add(c.id) }
+        for (const c of interleaved) if (!seen.has(c.id)) { chunks.push(c); seen.add(c.id) }
       }
     }
 
+    // Cap total chunks sent to Claude. isDeepSearch can pull in up to 3
+    // chunks per document — for a tenant with many yearly budget files this
+    // can push the prompt (excerpts + VALIDATED FACTS table + system prompt)
+    // over the org's 10,000 input-tokens/min limit, surfacing as a 429. The
+    // highest-ranked reranked chunks are first in the array, so truncating
+    // keeps those and trims the lowest-ranked per-doc additions.
+    const MAX_CONTEXT_CHUNKS = 15
+    if (chunks.length > MAX_CONTEXT_CHUNKS) chunks.length = MAX_CONTEXT_CHUNKS
+
     /* ── No matching chunks — answer from inventory ─────────── */
     if (!chunks?.length) {
-      const noDocRes = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST', headers: OPENAI_HEADERS,
-        body: JSON.stringify({
-          model: 'gpt-4o-mini', temperature: 0.4, max_tokens: 250,
-          messages: [
-            { role: 'system', content: `You are Knowledge Innovations AI, the assistant for Knowledge Innovations (a Ghanaian AI strategy, FinTech, and digital transformation consultancy).
+      const msg = await claudeComplete({
+        temperature: 0.4, maxTokens: 250,
+        system: `You are Knowledge Innovations AI, the assistant for Knowledge Innovations (a Ghanaian AI strategy, FinTech, and digital transformation consultancy).
 No specific document excerpts matched this query, but you have the complete file inventory below.
-IMPORTANT: If the user asks whether a file or category of document exists, CHECK the inventory and answer directly — "Yes, we have..." or "No, there are none...". Never say you cannot access files when they appear in the inventory. Be specific about names and categories.` },
-            ...historyMsgs,
-            { role: 'user', content: `${inventoryText}\n\nQuestion: ${query}` },
-          ],
-        }),
-      })
-      const noDocData = await noDocRes.json()
-      const msg = noDocData.choices?.[0]?.message?.content?.trim()
-        ?? "I couldn't find relevant content for that query. Check the Documents section to see what has been uploaded, or try rephrasing your question."
+IMPORTANT: If the user asks whether a file or category of document exists, CHECK the inventory and answer directly — "Yes, we have..." or "No, there are none...". Never say you cannot access files when they appear in the inventory. Be specific about names and categories.`,
+        messages: [
+          ...historyMsgs,
+          { role: 'user', content: `${inventoryText}\n\nQuestion: ${query}` },
+        ],
+      }).catch(() => '') || "I couldn't find relevant content for that query. Check the Documents section to see what has been uploaded, or try rephrasing your question."
 
       // An inventory question (or a knowledge base with no files at all) is
       // answered directly and definitively from the inventory list above —
@@ -509,8 +567,11 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
       )
     }
 
+    // Truncate any single oversized chunk so one large chunk can't dominate
+    // the input-token budget (org cap is 10k input tokens/min).
+    const MAX_CHUNK_CHARS = 2000
     const context = chunks
-      .map((c, i) => `[${i + 1}] ${c.chunk_text}`)
+      .map((c, i) => `[${i + 1}] ${c.chunk_text.length > MAX_CHUNK_CHARS ? c.chunk_text.slice(0, MAX_CHUNK_CHARS) + '…' : c.chunk_text}`)
       .join('\n\n')
 
     /* ── 2b. Deterministic calculation engine ────────────────────
@@ -520,7 +581,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
     let calcBlock = growthCalcs.length
       ? '\n\nPRE-COMPUTED FIGURES & GROWTH (verified — use these exact numbers):\n' +
         growthCalcs.map(g =>
-          `- ${g.fromYear} → ${g.toYear}: ${g.fromValue} → ${g.toValue} (${g.unit}), `
+          `- ${g.label ? `${g.label}: ` : ''}${g.fromYear} → ${g.toYear}: ${g.fromValue} → ${g.toValue} (${g.unit}), `
           + `growth ${g.growthPct > 0 ? '+' : ''}${g.growthPct}% ${g.citations.map(n => `[${n}]`).join('')}`
         ).join('\n')
       : ''
@@ -529,29 +590,55 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
     const guidance = QUERY_TYPE_GUIDANCE[queryType]
     const guidanceBlock = guidance ? `\n\n${guidance}` : ''
 
+    // Chart data (historical + projected series) for trend/forecast answers
+    // — sent to the client alongside the answer for inline visualization.
+    // May be overwritten below by a more specific financial_facts-based chart.
+    let chartData: ChartData | null = null
+
     // CAGR: meaningful for trend/forecast questions spanning multiple years.
     if (queryType === 'trend' || queryType === 'forecast') {
       const cagr = computeCAGR(chunks)
       if (cagr) {
         calcBlock += '\n\nPRE-COMPUTED CAGR (verified — use this exact number):\n' +
-          `- ${cagr.fromYear} → ${cagr.toYear}: ${cagr.fromValue} → ${cagr.toValue} (${cagr.unit}), ` +
+          `- ${cagr.label ? `${cagr.label}: ` : ''}${cagr.fromYear} → ${cagr.toYear}: ${cagr.fromValue} → ${cagr.toValue} (${cagr.unit}), ` +
           `CAGR ${cagr.cagrPct > 0 ? '+' : ''}${cagr.cagrPct}% per year ${cagr.citations.map(n => `[${n}]`).join('')}`
       }
     }
 
-    // Forecast: project next period via linear trend over the figures found.
-    if (queryType === 'forecast') {
+    // Forecast: project future periods via linear trend over the figures
+    // found. For 'trend' questions this only populates the chart (a light
+    // projection alongside the historical series); for 'forecast' questions
+    // it's also surfaced to the model as a pre-computed estimate.
+    if (queryType === 'forecast' || queryType === 'trend') {
       const forecast = computeForecast(chunks)
       if (forecast) {
-        calcBlock += '\n\nPRE-COMPUTED FORECAST (verified linear-trend projection — label as an ESTIMATE):\n' +
-          `- Based on ${forecast.baseYears.join(', ')} (${forecast.baseValues.join(', ')} ${forecast.unit}), ` +
-          `projected ${forecast.forecastYear}: ~${forecast.forecastValue} ${forecast.unit} ${forecast.citations.map(n => `[${n}]`).join('')}`
+        chartData = {
+          title: 'Historical & projected values',
+          unit: forecast.unit,
+          series: [
+            ...forecast.baseYears.map((y, i) => ({ year: y, value: forecast.baseValues[i] })),
+            ...forecast.forecastYears.map((y, i) => ({ year: y, value: forecast.forecastValues[i], projected: true })),
+          ],
+        }
+        if (queryType === 'forecast') {
+          calcBlock += '\n\nPRE-COMPUTED FORECAST (verified linear-trend projection — label as an ESTIMATE):\n' +
+            `- Based on ${forecast.baseYears.join(', ')} (${forecast.baseValues.join(', ')} ${forecast.unit}), ` +
+            `projected ${forecast.forecastYears[0]}: ~${forecast.forecastValues[0]} ${forecast.unit} ${forecast.citations.map(n => `[${n}]`).join('')}\n` +
+            `- Multi-year outlook (ESTIMATES): ${forecast.forecastYears.map((y, i) => `${y} ~${forecast.forecastValues[i]}`).join(', ')} ${forecast.unit}`
+        }
       }
     }
 
     // Aggregate: "total/combined/sum" questions get a pre-summed figure so
-    // the model never writes out a long addition itself.
-    if (AGGREGATE_QUERY_RX.test(query)) {
+    // the model never writes out a long addition itself. Skip this for
+    // per-year/trend/series questions (BROAD_QUERY_RX, e.g. "total budget
+    // for EACH YEAR from 1999-2026") — those want a year-by-year breakdown,
+    // not a single sum, and with no single target year computeAggregate
+    // would add together figures (totals, sub-components, GDP%, different
+    // fiscal years/currency eras) from across every retrieved chunk into one
+    // meaningless number mislabeled with whichever year happened to come
+    // first.
+    if (AGGREGATE_QUERY_RX.test(query) && !BROAD_QUERY_RX.test(query)) {
       const queryYears = (query.match(/\b(19|20)\d{2}\b/g) ?? []).map((y: string) => parseInt(y, 10))
       const aggregate = computeAggregate(chunks, queryYears.length === 1 ? queryYears[0] : undefined)
       if (aggregate) {
@@ -575,6 +662,10 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
       page_number: number | null; section_title: string | null
     }
     let factCitations: FactCitation[] = []
+    // Resolves document titles for fact citations — fired alongside
+    // chunkDetailsPromise (not awaited here) so it doesn't block the start
+    // of the Claude stream; titles are patched into factCitations afterward.
+    let factDocsPromise: PromiseLike<{ data: { id: string; title: string }[] | null }> = Promise.resolve({ data: [] })
     // Handed to verifyAnswer() so it can cross-check the answer's figures
     // against ground-truth values that may not be repeated verbatim in the
     // retrieved chunk text.
@@ -616,12 +707,18 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
         }
       }
 
+      // 144+ raw national total_budget/allocation rows now exist across
+      // 1999-2026 (recent years alone have 6-16 candidate extractions
+      // before confidence/flags filtering) — a 100-row cap ordered by
+      // fiscal_year truncates partway through 2024, silently dropping
+      // 2025/2026 from "for each year" answers even though valid facts
+      // exist for them. 300 gives ~2x headroom over the current total.
       let factsQuery = svc
         .from('financial_facts')
         .select('fiscal_year, entity, entity_type, metric, value, unit, value_millions, page_number, section_title, document_id, confidence, flags')
         .eq('tenant_id', tenantId)
         .order('fiscal_year', { ascending: true })
-        .limit(100)
+        .limit(300)
       if (years.length) factsQuery = factsQuery.in('fiscal_year', years)
       if (entityHint === 'National') {
         // Mirror Document Search's national lookup: scope to entity_type
@@ -670,12 +767,22 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
         // value_millions desc so the largest (most "headline") allocations —
         // the ones cumulative/ranking questions care about — are the ones
         // kept within the row cap, rather than an arbitrary subset.
+        // MDA appendix tables contain thousands of line-item rows — many
+        // mis-extracted with a bare row-code as "entity" (e.g. "293", "8
+        // Sissala West") and an implausibly large value_millions (often
+        // >GH¢90bn for a single line). Ordered by value_millions desc, these
+        // garbage rows dominate the top of a 1000-row cap and crowd out real
+        // "Ministry of X" rows for most years. Restrict entity_type=ministry
+        // rows to actual ministry votes ("Ministry of ..." / "Sub-Total
+        // Ministry of ..."); sector rows (from a small fixed keyword list)
+        // are already clean and pass through unchanged.
         let ministryQuery = svc
           .from('financial_facts')
           .select(FACTS_SELECT)
           .eq('tenant_id', tenantId)
           .gte('confidence', 70)
           .in('entity_type', ['ministry', 'sector'])
+          .or('entity_type.eq.sector,entity.ilike.%ministry of%')
           .order('value_millions', { ascending: false })
           .limit(1000)
         if (years.length) ministryQuery = ministryQuery.in('fiscal_year', years)
@@ -707,10 +814,9 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
       // those years.
       const citedFacts = validFacts.slice(0, 50)
       const factDocIds = new Set([...citedFacts, ...analysisFacts].map(f => f.document_id).filter(Boolean))
-      const { data: factDocs } = factDocIds.size
-        ? await svc.from('documents').select('id, title').in('id', [...factDocIds])
-        : { data: [] as { id: string; title: string }[] }
-      const docTitleById = new Map((factDocs ?? []).map(d => [d.id, d.title]))
+      factDocsPromise = factDocIds.size
+        ? svc.from('documents').select('id, title').in('id', [...factDocIds])
+        : Promise.resolve({ data: [] as { id: string; title: string }[] })
 
       let nextCitation = chunks.length + 1
       // Adds a synthetic [n] citation for a fact used in an analysis block
@@ -723,7 +829,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           id: `fact-${f.document_id}-${f.fiscal_year}-${f.metric}-${f.entity}-${n}`,
           document_chunk_id: null,
           document_id: f.document_id,
-          document_title: docTitleById.get(f.document_id) ?? 'Document',
+          document_title: 'Document',
           chunk_text: `${f.entity} — ${f.metric.replace(/_/g, ' ')} (${f.fiscal_year ?? '—'}): ${d.value} ${d.unit}`
             + (f.section_title ? ` — ${f.section_title}` : ''),
           relevance_score: f.confidence / 100,
@@ -746,7 +852,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
               id: `fact-${f.document_id}-${f.fiscal_year}-${f.metric}-${n}`,
               document_chunk_id: null,
               document_id: f.document_id,
-              document_title: docTitleById.get(f.document_id) ?? 'Document',
+              document_title: 'Document',
               chunk_text: `${f.entity} — ${f.metric.replace(/_/g, ' ')} (${f.fiscal_year ?? '—'}): ${d.value} ${d.unit}`
                 + (f.section_title ? ` — ${f.section_title}` : ''),
               relevance_score: f.confidence / 100,
@@ -802,6 +908,12 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           analysisLines.push('| Entity | Total (GH¢ million) | Years covered | Source |')
           for (const e of entries) {
             const n = citeFact(e.facts[0])
+            // The cumulative TOTAL is a sum the model will quote verbatim,
+            // but it doesn't equal any single financial_facts row's
+            // value_millions — without registering it here, verifyAnswer()
+            // can't find it anywhere and marks it "unsupported", capping
+            // confidence at 60.
+            validatedFactsForVerification.push({ value_millions: e.total })
             analysisLines.push(`| ${e.entity} | ${e.total.toLocaleString()} | ${e.coverage} | [${n}] |`)
           }
         } else {
@@ -870,6 +982,16 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           if (trend.maxChange) analysisLines.push(`- Largest single-year increase: ${trend.maxChange.pct > 0 ? '+' : ''}${trend.maxChange.pct}% in ${trend.maxChange.year}`)
           if (trend.minChange) analysisLines.push(`- Largest single-year decrease: ${trend.minChange.pct > 0 ? '+' : ''}${trend.minChange.pct}% in ${trend.minChange.year}`)
           if (trend.yearsCovered < trend.rangeSize) analysisLines.push(`- NOTE: only ${trend.yearsCovered} of ${trend.rangeSize} years in this range have validated figures — treat this as a partial trend, not the full ${trend.rangeSize}-year period.`)
+
+          const series = yoySeries(analysisFacts, { entityType: sumEntityType, entity: sumEntity, metric: sumMetric })
+            .filter(p => p.year >= range.from && p.year <= range.to)
+          if (series.length >= 2) {
+            chartData = {
+              title: `${trend.entity} ${trend.metric.replace(/_/g, ' ')} (${trend.from}-${trend.to})`,
+              unit: 'GH¢ million',
+              series: series.map(p => ({ year: p.year, value: p.value })),
+            }
+          }
         } else {
           analysisLines.push(`TREND SUMMARY — ${canonicalizeEntity(sumEntity)} ${sumMetric.replace(/_/g, ' ')} ${range.from}-${range.to}: Fewer than 2 validated figures found — cannot summarize a trend.`)
         }
@@ -898,7 +1020,17 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           if (forecast) {
             const ns = forecast.facts.map(f => citeFact(f))
             analysisLines.push(`PRE-COMPUTED FORECAST FROM VALIDATED FACTS — ${canonicalizeEntity(found.entity)} allocation:`)
-            analysisLines.push(`- Based on ${forecast.baseYears.join(', ')} (${forecast.baseValues.join(', ')} GH¢ million), projected ${forecast.forecastYear}: ~${forecast.forecastValue} GH¢ million ${ns.map(n => `[${n}]`).join('')}`)
+            analysisLines.push(`- Based on ${forecast.baseYears.join(', ')} (${forecast.baseValues.join(', ')} GH¢ million), projected ${forecast.forecastYears[0]}: ~${forecast.forecastValues[0]} GH¢ million ${ns.map(n => `[${n}]`).join('')}`)
+            analysisLines.push(`- Multi-year outlook (ESTIMATES): ${forecast.forecastYears.map((y, i) => `${y} ~${forecast.forecastValues[i]}`).join(', ')} GH¢ million`)
+
+            chartData = {
+              title: `${canonicalizeEntity(found.entity)} allocation — historical & projected`,
+              unit: 'GH¢ million',
+              series: [
+                ...forecast.baseYears.map((y, i) => ({ year: y, value: forecast.baseValues[i] })),
+                ...forecast.forecastYears.map((y, i) => ({ year: y, value: forecast.forecastValues[i], projected: true })),
+              ],
+            }
           }
         }
       }
@@ -914,23 +1046,53 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
     /* ── 4. Pre-generate conversation ID so we can include in done event ── */
     const title  = makeTitle(query)
 
-    /* ── 5. Stream from gpt-4o-mini ─────────────────────────── */
-    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST', headers: OPENAI_HEADERS,
-      body: JSON.stringify({
-        model: 'gpt-4o-mini', temperature: 0.2, max_tokens: isDeepSearch ? 1600 : 800, stream: true,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          ...historyMsgs,
-          { role: 'user',   content: `${inventoryText}\n\nDOCUMENT EXCERPTS FROM SEARCH:\n${context}${calcBlock}${factsBlock}${guidanceBlock}\n\nQuestion: ${query}` },
-        ],
-      }),
-      signal: request.signal,
+    // Only attach the financial-rules addendum when there's actually
+    // PRE-COMPUTED/VALIDATED FACTS content in the prompt for it to govern —
+    // keeps the prompt lean (faster, fewer tokens) for general documents.
+    const hasFinancialContext = calcBlock.length > 0 || factsBlock.length > 0
+    const systemPrompt = CORE_SYSTEM_PROMPT + (hasFinancialContext ? FINANCIAL_SYSTEM_PROMPT_ADDENDUM : '')
+
+    /* ── 5. Stream from Claude ──────────────────────────────── */
+    // Large multi-document ("deep search") prompts can push this single
+    // request's input tokens close to the org's 10,000 input-tokens/min
+    // limit — combined with prior turns in the same minute, this can trip a
+    // transient 429 even though the account has plenty of credit (rate
+    // limits are a per-minute throughput cap, independent of balance).
+    // Retry a couple of times with backoff before giving up.
+    const claudeBody = JSON.stringify({
+      model: CLAUDE_MODEL, temperature: 0.2, max_tokens: isDeepSearch ? 1600 : 800, stream: true,
+      system: systemPrompt,
+      messages: [
+        ...historyMsgs,
+        { role: 'user', content: `${inventoryText}\n\nDOCUMENT EXCERPTS FROM SEARCH:\n${context}${calcBlock}${factsBlock}${guidanceBlock}\n\nQuestion: ${query}` },
+      ],
     })
+
+    let claudeRes: Response
+    let claudeErrText = ''
+    const MAX_CLAUDE_ATTEMPTS = 3
+    for (let attempt = 1; attempt <= MAX_CLAUDE_ATTEMPTS; attempt++) {
+      claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST', headers: getAnthropicHeaders(), body: claudeBody, signal: request.signal,
+      })
+      if (claudeRes.ok && claudeRes.body) break
+      claudeErrText = await claudeRes.text().catch(() => '')
+      console.error('[RAG] Claude API error:', claudeRes.status, claudeErrText, `(attempt ${attempt}/${MAX_CLAUDE_ATTEMPTS})`)
+      if (claudeRes.status !== 429 || attempt === MAX_CLAUDE_ATTEMPTS) break
+      const retryAfter = Number(claudeRes.headers.get('retry-after'))
+      await new Promise(r => setTimeout(r, (Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : attempt) * 1000))
+    }
+
+    if (!claudeRes!.ok || !claudeRes!.body) {
+      const msg = claudeRes!.status === 429
+        ? 'The AI service is temporarily busy (rate limit reached). Please wait a few seconds and try again.'
+        : 'Failed to generate a response. Please try again.'
+      return new Response(msg, { status: 502 })
+    }
 
     const stream = new ReadableStream({
       async start(controller) {
-        const reader  = openaiRes.body!.getReader()
+        const reader  = claudeRes.body!.getReader()
         const decoder = new TextDecoder()
         let fullText  = ''
         let buf       = ''
@@ -947,10 +1109,11 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
             for (const line of lines) {
               if (!line.startsWith('data: ')) continue
               const raw = line.slice(6).trim()
-              if (raw === '[DONE]') continue
-              let parsed: { choices?: { delta?: { content?: string } }[] }
+              if (!raw) continue
+              let parsed: { type?: string; delta?: { type?: string; text?: string } }
               try { parsed = JSON.parse(raw) } catch { continue }
-              const token = parsed.choices?.[0]?.delta?.content ?? ''
+              if (parsed.type !== 'content_block_delta' || parsed.delta?.type !== 'text_delta') continue
+              const token = parsed.delta.text ?? ''
               if (!token) continue
               fullText += token
               controller.enqueue(enc.encode(`data: ${JSON.stringify({ t: token })}\n\n`))
@@ -967,6 +1130,28 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
              the old hardcoded 0.85 confidence score. */
           const retrievalScores = chunks.map(c => c.rerank_score ?? c.similarity ?? c.rrf_score ?? 0)
           const verification = verifyAnswer(answer, chunks, retrievalScores, validatedFactsForVerification)
+
+          // The answer itself explicitly says the literal question can't be
+          // fully answered from the available evidence (e.g. "does not
+          // contain a consolidated...", "cannot be reliably produced", "No
+          // validated facts found") and offers supplementary data instead.
+          // Per the "Insufficient context" rule, this is the CORRECT, honest
+          // response — don't pile the harsh AI-verifier penalty or the
+          // "treat as unreliable" banner on top of an answer that already
+          // disclosed its own limits.
+          const isHonestInsufficiency = /\b(insufficient evidence|cannot (?:be )?(?:reliably |responsibly )?(?:computed|produced|determined|calculated|constructed|derived|established|summarized|compute|produce|determine|calculate|construct|derive|establish|summarize)|no validated [\w\s/-]{0,40}?(?:facts|figures|allocations?|data)|does not contain (?:a )?(?:consolidated|sufficient)|not (?:enough|sufficient) (?:data|information|evidence))\b/i.test(answer)
+          if (isHonestInsufficiency) {
+            // An answer that admits the requested figure/trend/computation
+            // couldn't be validated is by definition partial/hedged — per the
+            // HONEST INSUFFICIENCY invariant such answers get Medium
+            // confidence, even if the supplementary figures it DID cite are
+            // all well-supported (which would otherwise push the score into
+            // "High"). Floor of 20 keeps it out of the "very low" no-answer
+            // tier; cap of 74 keeps it out of "High".
+            verification.confidenceScore = Math.max(20, Math.min(74, verification.confidenceScore))
+            verification.confidenceLevel =
+              verification.confidenceScore >= 75 ? 'High' : verification.confidenceScore >= 50 ? 'Medium' : 'Low'
+          }
           if (verification.unsupported.length) {
             console.log('[RAG] unsupported figures in answer:', verification.unsupported)
           }
@@ -975,24 +1160,31 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           }
 
           /* ── AI second-pass verification ───────────────────────
-             For fact-bearing query types, ask gpt-4o-mini to check the
-             answer's claims against VALIDATED FACTS + the excerpts. Any
-             issues are surfaced as risks and reduce the confidence score. */
-          if (FACTS_QUERY_TYPES.includes(queryType)) {
-            try {
-              const { issues } = await verifyAnswerWithAI({
-                query, answer, factsBlock, context, signal: request.signal,
-              })
-              if (issues.length) {
-                console.log('[RAG] AI verifier issues:', issues)
-                risks.push(...issues)
-                verification.confidenceScore = Math.max(1, verification.confidenceScore - 15 * issues.length)
-                verification.confidenceLevel =
-                  verification.confidenceScore >= 75 ? 'High' : verification.confidenceScore >= 50 ? 'Medium' : 'Low'
-              }
-            } catch (e) {
-              if (e instanceof Error && e.name === 'AbortError') throw e
+             Ask gpt-4o-mini to check the answer's claims against VALIDATED
+             FACTS (if any) + the excerpts. Any issues are surfaced as risks
+             and reduce the confidence score. Runs for all query types so
+             non-financial answers also get this check. */
+          try {
+            const { issues } = await verifyAnswerWithAI({
+              query, answer, factsBlock, context, signal: request.signal,
+            })
+            if (issues.length) {
+              console.log('[RAG] AI verifier issues:', issues)
+              risks.push(...issues)
+              // Cap the total deduction so a handful of minor issues can't
+              // crater the score to near-zero on an otherwise well-supported
+              // answer — each issue still costs 15 points, up to 2 issues' worth.
+              // An answer that already admits it couldn't fully answer the
+              // question gets a much lighter penalty — verifier nitpicks on
+              // its supplementary data aren't the headline concern.
+              const penalty = isHonestInsufficiency ? Math.min(10, 5 * issues.length) : Math.min(30, 15 * issues.length)
+              const floor = isHonestInsufficiency ? 20 : 1
+              verification.confidenceScore = Math.max(floor, verification.confidenceScore - penalty)
+              verification.confidenceLevel =
+                verification.confidenceScore >= 75 ? 'High' : verification.confidenceScore >= 50 ? 'Medium' : 'Low'
             }
+          } catch (e) {
+            if (e instanceof Error && e.name === 'AbortError') throw e
           }
 
           /* ── Inventory-question confidence override ────────────
@@ -1015,6 +1207,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
              apparently normal answer with a quietly poor score. */
           if (
             !INVENTORY_QUERY_RX.test(query) &&
+            !isHonestInsufficiency &&
             verification.totalNumbers > 0 &&
             verification.confidenceScore < 25
           ) {
@@ -1043,20 +1236,37 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
               if (convErr) console.error('Conv save error:', convErr.message)
               convId = conv?.id ?? null
               if (convId && chunks.length) {
-                await supabase.from('citations').insert(
+                const { error: citationsErr } = await svc.from('citations').insert(
                   chunks.map(c => ({
                     conversation_id: convId, document_chunk_id: c.id, relevance_score: c.similarity,
+                    message_index: rawHistoryLength + 1,
                   }))
                 )
+                if (citationsErr) console.error('[RAG] citations insert failed:', citationsErr)
               }
             } catch (e) { console.error('Save failed:', e) }
           } else if (existingConvId) {
             convId = existingConvId
             await appendConv(existingConvId, answer, risks, recommendations)
+            if (chunks.length) {
+              const { error: citationsErr } = await svc.from('citations').insert(
+                chunks.map(c => ({
+                  conversation_id: convId, document_chunk_id: c.id, relevance_score: c.similarity,
+                  message_index: rawHistoryLength + 1,
+                }))
+              )
+              if (citationsErr) console.error('[RAG] citations insert failed:', citationsErr)
+            }
           }
 
           // Build citation objects with the real DB-generated convId
-          const { data: chunkDetails } = await chunkDetailsPromise
+          const [{ data: chunkDetails }, { data: factDocs }] = await Promise.all([chunkDetailsPromise, factDocsPromise])
+          if (factCitations.length) {
+            const docTitleById = new Map((factDocs ?? []).map(d => [d.id, d.title]))
+            for (const fc of factCitations) {
+              fc.document_title = docTitleById.get(fc.document_id) ?? 'Document'
+            }
+          }
           const chunkCitations = chunks.map(c => {
             const detail  = chunkDetails?.find(d => d.id === c.id)
             const rawDocs = detail?.documents as { title: string } | { title: string }[] | null
@@ -1084,7 +1294,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
 
           controller.enqueue(enc.encode(
             `data: ${JSON.stringify({
-              done: true, answer, risks, recommendations, citations,
+              done: true, answer, risks, recommendations, citations, chart: chartData,
               confidence_score: verification.confidenceScore,
               confidence_level: verification.confidenceLevel,
               convId, title,

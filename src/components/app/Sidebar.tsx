@@ -142,13 +142,15 @@ export default function AppSidebar({ role, collapsed, mobileOpen, onClose, onTog
     }
   }
 
-  // Group history by date — memoised so Date.now() isn't called on every render
+  // Group history by date — recomputed whenever history changes so a tab left
+  // open across midnight doesn't keep grouping new conversations under
+  // "Yesterday" (Date.now() at mount time would otherwise go stale).
   const { today, yesterday } = useMemo(() => {
     const now  = new Date()
     const prev = new Date(now)
     prev.setDate(prev.getDate() - 1)
     return { today: now.toDateString(), yesterday: prev.toDateString() }
-  }, [])
+  }, [history])
   const groups: { label: string; items: HistoryItem[] }[] = []
   const todays    = history.filter(i => new Date(i.created_at).toDateString() === today)
   const yesterdays = history.filter(i => new Date(i.created_at).toDateString() === yesterday)

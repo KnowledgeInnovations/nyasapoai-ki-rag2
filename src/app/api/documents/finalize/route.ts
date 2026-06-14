@@ -25,6 +25,10 @@ interface FinalizeBody {
   mimeType?:         string
 }
 
+function sseHeaders() {
+  return { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' }
+}
+
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -80,101 +84,123 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Failed to create document record: ${docError?.message}` }, { status: 500 })
   }
 
-  try {
-    // Retry the download up to 3 times — transient ECONNRESET on Supabase
-    // Storage is common on first request after a new connection is established.
-    let blob: Blob | null = null
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const { data, error: dlErr } = await serviceClient.storage.from('documents').download(path)
-      if (data) { blob = data; break }
-      if (attempt === 3) throw new Error(`Could not read uploaded file: ${dlErr?.message ?? 'unknown error'}`)
-      await new Promise(r => setTimeout(r, attempt * 1000))
-    }
-    const buffer = Buffer.from(await blob!.arrayBuffer())
+  const enc = new TextEncoder()
 
-    // Step 1: extract text (page-aware where the format supports it)
-    let pages: Awaited<ReturnType<typeof extractStructuredText>>
-    try {
-      pages = await extractStructuredText(buffer, originalFilename)
-    } catch (extractErr) {
-      console.error('Text extraction error:', extractErr)
-      await serviceClient.from('documents').update({ status: 'failed' }).eq('id', document.id)
-      return NextResponse.json(
-        { error: `Text extraction failed: ${(extractErr as Error).message}` },
-        { status: 500 }
-      )
-    }
+  const stream = new ReadableStream({
+    async start(controller) {
+      const emit = (event: Record<string, unknown>) =>
+        controller.enqueue(enc.encode(`data: ${JSON.stringify(event)}\n\n`))
 
-    if (!pages.some(p => p.text.trim())) {
-      await serviceClient.from('documents').update({ status: 'failed' }).eq('id', document.id)
-      return NextResponse.json(
-        { error: 'No text could be extracted. The file may be image-based, password-protected, or corrupted.' },
-        { status: 422 }
-      )
-    }
-
-    // Step 2: structure-aware chunking + batch embedding
-    // Prepend document title to every chunk so filename searches work via vector search
-    const titleLabel = `[Document: ${docTitle}]\n`
-    const rawChunks  = chunkPages(pages, docTitle)
-    const chunks     = rawChunks.map(c => ({ ...c, text: titleLabel + c.text }))
-
-    const allFacts: FinancialFact[] = []
-
-    for (let start = 0; start < chunks.length; start += EMBED_BATCH) {
-      const batch = chunks.slice(start, start + EMBED_BATCH)
-      let embeddings: number[][]
-      try {
-        embeddings = await embedBatch(batch.map(c => c.text))
-      } catch (embedErr) {
-        console.error('Embedding error at batch', start, embedErr)
+      const fail = async (error: string, status = 500) => {
         await serviceClient.from('documents').update({ status: 'failed' }).eq('id', document.id)
-        return NextResponse.json(
-          { error: `Embedding failed: ${(embedErr as Error).message}` },
-          { status: 500 }
-        )
+        emit({ stage: 'error', error, status })
+        controller.close()
       }
-      const { data: inserted } = await serviceClient.from('document_chunks').insert(
-        batch.map((c, j) => ({
-          document_id: document.id,
-          tenant_id:   membership.tenant_id,
-          chunk_text:  c.text,
-          chunk_index: start + j,
-          embedding:   embeddings[j],
-          metadata: {
-            source: originalFilename,
-            chunk_index: start + j,
-            total_chunks: chunks.length,
-            page_number: c.page_number,
-            section_title: c.section_title,
-            fiscal_year: c.fiscal_year,
-            ministry: c.ministry,
-            sector: c.sector,
-            is_table: c.is_table,
-          },
-        }))
-      ).select('id, document_id, tenant_id, chunk_text, metadata')
 
-      for (const row of inserted ?? []) {
-        allFacts.push(...extractFactsFromChunk(row as {
-          id: string; document_id: string; tenant_id: string; chunk_text: string; metadata: Record<string, unknown>
-        }))
+      try {
+        emit({ stage: 'downloading' })
+
+        // Retry the download up to 3 times — transient ECONNRESET on Supabase
+        // Storage is common on first request after a new connection is established.
+        let blob: Blob | null = null
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          const { data, error: dlErr } = await serviceClient.storage.from('documents').download(path)
+          if (data) { blob = data; break }
+          if (attempt === 3) throw new Error(`Could not read uploaded file: ${dlErr?.message ?? 'unknown error'}`)
+          await new Promise(r => setTimeout(r, attempt * 1000))
+        }
+        const buffer = Buffer.from(await blob!.arrayBuffer())
+
+        // Step 1: extract text (page-aware where the format supports it)
+        emit({ stage: 'extracting' })
+        let pages: Awaited<ReturnType<typeof extractStructuredText>>
+        try {
+          pages = await extractStructuredText(buffer, originalFilename)
+        } catch (extractErr) {
+          console.error('Text extraction error:', extractErr)
+          return fail(`Text extraction failed: ${(extractErr as Error).message}`)
+        }
+
+        if (!pages.some(p => p.text.trim())) {
+          return fail('No text could be extracted. The file may be image-based, password-protected, or corrupted.', 422)
+        }
+
+        const tableCount = pages.reduce((n, p) => n + (p.tables?.length ?? 0), 0)
+        emit({
+          stage: 'extracted',
+          pages: pages.length,
+          pageNumbers: pages.map(p => p.page_number),
+          tables: tableCount,
+        })
+
+        // Step 2: structure-aware chunking + batch embedding
+        // Prepend document title to every chunk so filename searches work via vector search
+        emit({ stage: 'chunking' })
+        const titleLabel = `[Document: ${docTitle}]\n`
+        const rawChunks  = chunkPages(pages, docTitle)
+        const chunks     = rawChunks.map(c => ({ ...c, text: titleLabel + c.text }))
+        const totalBatches = Math.ceil(chunks.length / EMBED_BATCH)
+        emit({ stage: 'chunked', chunks: chunks.length, totalBatches })
+
+        const allFacts: FinancialFact[] = []
+
+        for (let start = 0; start < chunks.length; start += EMBED_BATCH) {
+          const batchNum = start / EMBED_BATCH + 1
+          emit({ stage: 'embedding', batch: batchNum, totalBatches })
+
+          const batch = chunks.slice(start, start + EMBED_BATCH)
+          let embeddings: number[][]
+          try {
+            embeddings = await embedBatch(batch.map(c => c.text))
+          } catch (embedErr) {
+            console.error('Embedding error at batch', start, embedErr)
+            return fail(`Embedding failed: ${(embedErr as Error).message}`)
+          }
+          const { data: inserted } = await serviceClient.from('document_chunks').insert(
+            batch.map((c, j) => ({
+              document_id: document.id,
+              tenant_id:   membership.tenant_id,
+              chunk_text:  c.text,
+              chunk_index: start + j,
+              embedding:   embeddings[j],
+              metadata: {
+                source: originalFilename,
+                chunk_index: start + j,
+                total_chunks: chunks.length,
+                page_number: c.page_number,
+                section_title: c.section_title,
+                fiscal_year: c.fiscal_year,
+                ministry: c.ministry,
+                sector: c.sector,
+                is_table: c.is_table,
+              },
+            }))
+          ).select('id, document_id, tenant_id, chunk_text, metadata')
+
+          for (const row of inserted ?? []) {
+            allFacts.push(...extractFactsFromChunk(row as {
+              id: string; document_id: string; tenant_id: string; chunk_text: string; metadata: Record<string, unknown>
+            }))
+          }
+
+          emit({ stage: 'embedded', batch: batchNum, totalBatches })
+        }
+
+        emit({ stage: 'facts', count: allFacts.length })
+        runSanityChecks(allFacts)
+        if (allFacts.length) {
+          await serviceClient.from('financial_facts').insert(allFacts)
+        }
+
+        await serviceClient.from('documents').update({ status: 'ready' }).eq('id', document.id)
+        emit({ stage: 'done', document: { ...document, status: 'ready' } })
+        controller.close()
+      } catch (err) {
+        console.error('Processing error:', err)
+        await fail(`Document processing failed: ${(err as Error).message}`)
       }
-    }
+    },
+  })
 
-    runSanityChecks(allFacts)
-    if (allFacts.length) {
-      await serviceClient.from('financial_facts').insert(allFacts)
-    }
-
-    await serviceClient.from('documents').update({ status: 'ready' }).eq('id', document.id)
-    return NextResponse.json({ document: { ...document, status: 'ready' } })
-  } catch (err) {
-    console.error('Processing error:', err)
-    await serviceClient.from('documents').update({ status: 'failed' }).eq('id', document.id)
-    return NextResponse.json(
-      { error: `Document processing failed: ${(err as Error).message}` },
-      { status: 500 }
-    )
-  }
+  return new Response(stream, { headers: sseHeaders() })
 }

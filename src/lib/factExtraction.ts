@@ -48,7 +48,11 @@ export interface FactSourceChunk {
 }
 
 const METRIC_PATTERNS: { metric: string; rx: RegExp }[] = [
-  { metric: 'total_budget', rx: /total\s+(national\s+)?budget|total\s+(government\s+)?expenditure/i },
+  // "Govt"/"Gov't" is the common abbreviation for "Government" in older
+  // (pre-2007) MTEF appendix tables, e.g. "Total Govt Expenditure". "Total
+  // Payments" is the headline aggregate label used throughout pre-2007
+  // budget narratives (e.g. "Total payments for 2002 amounted to ...").
+  { metric: 'total_budget', rx: /total\s+(national\s+)?budget|total\s+(gov(?:ernmen)?t'?\.?\s+)?expenditure|total\s+payments/i },
   { metric: 'capital_expenditure', rx: /capital\s+expenditure/i },
   { metric: 'recurrent_expenditure', rx: /recurrent\s+expenditure/i },
   { metric: 'revenue', rx: /(total\s+)?revenue/i },
@@ -73,6 +77,15 @@ const NATIONAL_AGGREGATE_METRICS = new Set([
 // the GHC 12,000 million figure as 'total_budget' purely because
 // 'total_budget' is checked before 'capital_expenditure', even though
 // "Capital expenditure" is the nearer (and correct) label for that figure.
+// 160 was tried (to recover far-but-real "total expenditure ... is estimated
+// at GH¢X million" labels separated by a long intervening clause) but
+// reverted: it also pulls in prior-year figures restated in narrative
+// (e.g. "Total expenditure for the 2009 fiscal year amounted to GH¢9,074.4
+// million" appearing in the 2011 budget, stored under fiscal_year=2011 from
+// doc metadata) and sub-component amounts (e.g. "Expenditure on Wages and
+// Salaries ... totaled GH¢5,883.9 million") as spurious total_budget
+// candidates, which pollute runSanityChecks' per-document national-group
+// medians and flip previously-clean table facts to alternate_estimate.
 function classifyMetric(text: string, index: number, window = 80): string {
   const start = Math.max(0, index - window)
   const end = Math.min(text.length, index + window)
@@ -114,6 +127,21 @@ function classifyEntity(
   return null
 }
 
+// Ghana budget statements routinely describe a sub-component figure right
+// after stating the real total, e.g. "...is estimated at GH¢30,544.3
+// million... Of this amount, GH¢2,070.2 million, equivalent to 2.3 per cent
+// of GDP and 6.8 per cent of total expenditure will be used for the
+// clearance of arrears...". The widened classifyMetric window (160) picks up
+// "total expenditure" from the earlier sentence and misclassifies 2070.2 as
+// total_budget too. "<N> per cent of total expenditure/revenue/budget"
+// immediately following a figure is a reliable signal that the figure is a
+// FRACTION of the aggregate, not the aggregate itself.
+const SUB_COMPONENT_RX = /(per\s*cent|percent|%)\s+of\s+total\s+(expenditure|revenue|budget|spending)\b/i
+
+function isSubComponentFraction(text: string, index: number, lookahead = 150): boolean {
+  return SUB_COMPONENT_RX.test(text.slice(index, index + lookahead))
+}
+
 function valueToMillions(f: Figure): number | null {
   if (f.unit === 'million') return f.value
   if (f.unit === 'billion') return f.value * 1000
@@ -145,7 +173,10 @@ export function extractFactsFromChunk(chunk: FactSourceChunk): FinancialFact[] {
   for (const f of figures) {
     if (f.value < 0) continue
 
-    const metric = classifyMetric(chunk.chunk_text, f.index)
+    let metric = classifyMetric(chunk.chunk_text, f.index)
+    if (NATIONAL_AGGREGATE_METRICS.has(metric) && isSubComponentFraction(chunk.chunk_text, f.index)) {
+      metric = 'other'
+    }
     if (metric === 'other') continue
 
     let entity: string
@@ -160,7 +191,35 @@ export function extractFactsFromChunk(chunk: FactSourceChunk): FinancialFact[] {
       continue
     }
 
-    const fiscalYear = metaFiscalYear ?? (f.year != null ? String(f.year) : null)
+    // Prefer the year stated NEXT TO the figure itself (e.g. "Total payments
+    // for 2002 amounted to ..." or "Total expenditure for the 2009 fiscal
+    // year amounted to ...") over the document's nominal fiscal_year (from
+    // its title). Budget narratives routinely restate a PRIOR year's actuals
+    // — without this, such a figure would be stored under the document's
+    // year and pollute that year's national-aggregate group with a
+    // mismatched value (e.g. a 2009 actual showing up as a 2011 candidate).
+    const fiscalYear = (f.year != null ? String(f.year) : null) ?? metaFiscalYear
+
+    // Same plausibility floor/ceiling applied to table records (see
+    // PLAUSIBLE_VALUE_MILLIONS below) — a regex match like "...expenditure
+    // ... 4" is almost always a footnote/section number caught by the 80-char
+    // window, not a real fiscal aggregate, and would otherwise pollute
+    // runSanityChecks' national-group/growth comparisons for the real value.
+    let valueMillions = valueToMillions(f)
+    // Pre-2007 budget narratives state figures in OLD cedis (redenominated
+    // 10,000:1 to the Ghana Cedi in July 2007) — "X billion"/"X million" old
+    // cedis = X/10 / X/10000 million new GHS respectively. tableExtraction.ts
+    // already applies this for table records; regex facts need it too, or a
+    // genuinely-plausible figure like "total payments for 2002 amounted to
+    // ¢15,447.0 billion" (= GH¢1,544.7 million) is read as 15,447,000
+    // "million" and dropped by the plausibility filter below.
+    if (valueMillions != null && fiscalYear && Number(fiscalYear) < 2007 && (f.unit === 'million' || f.unit === 'billion')) {
+      valueMillions = f.unit === 'billion' ? f.value / 10 : f.value / 10000
+    }
+    if (valueMillions != null) {
+      const [min, max] = PLAUSIBLE_VALUE_MILLIONS[entityType]
+      if (valueMillions < min || valueMillions > max) continue
+    }
 
     let confidence = 30
     if (isTable) confidence += 20
@@ -179,6 +238,18 @@ export function extractFactsFromChunk(chunk: FactSourceChunk): FinancialFact[] {
     // only extraction_method='table' facts (read from real table structure
     // via tableRecordToFact, base confidence 70+) should reach it.
     confidence = Math.min(60, confidence)
+    // A figure with an explicit year stated right next to it (e.g. "Total
+    // payments for 2002 amounted to ¢15,447.0 billion", "Total expenditure
+    // for the 2009 fiscal year amounted to GH¢9,074.4 million") carries the
+    // same year-attribution confidence as a table cell — the ambiguity that
+    // justifies the 60 cap (regex grabbing the wrong column/value near a
+    // metric keyword) doesn't apply when the year came from beside the
+    // figure itself rather than the document's nominal fiscal_year. Let these
+    // reach the validated-facts (>=70) gate; runSanityChecks still flags them
+    // as alternate_estimate if they conflict with another candidate.
+    if (metric === 'total_budget' && f.year != null) {
+      confidence = Math.min(75, confidence + 15)
+    }
 
     facts.push({
       tenant_id: chunk.tenant_id,
@@ -190,7 +261,7 @@ export function extractFactsFromChunk(chunk: FactSourceChunk): FinancialFact[] {
       metric,
       value: f.value,
       unit: f.unit!,
-      value_millions: valueToMillions(f),
+      value_millions: valueMillions,
       page_number: pageNumber,
       section_title: sectionTitle,
       is_table: isTable,
@@ -229,7 +300,11 @@ function tableValueToMillions(value: number, unit: string, entityType: TableFact
 
   const [min, max] = PLAUSIBLE_VALUE_MILLIONS[entityType]
   if (base >= min && base <= max) return base
-  if (unit === 'million' && base / 1e6 >= min && base / 1e6 <= max) return base / 1e6
+  // Raw cedi amount mislabeled as million/billion/thousand — the true value
+  // in millions is always value / 1e6 regardless of the (incorrect) unit
+  // label, since the label only affects how `base` above was derived.
+  const salvaged = value / 1e6
+  if (salvaged >= min && salvaged <= max) return salvaged
   return null
 }
 
@@ -375,7 +450,32 @@ export function runSanityChecks(facts: FinancialFact[]): FinancialFact[] {
     const distinctValues = [...new Set(group.map(f => f.value_millions!))].sort((a, b) => a - b)
     if (distinctValues.length <= 1) continue
 
-    const median = distinctValues[Math.floor(distinctValues.length / 2)]
+    // Two values within ~1% of each other (e.g. 3580.13 vs 3567.25) are
+    // almost certainly the SAME underlying figure restated with minor
+    // OCR/decimal noise, not two genuinely different budget-cycle estimates
+    // (real "budget vs revised vs outturn" figures in this corpus differ by
+    // several percent or more). Treat the lower-confidence one as a
+    // duplicate instead of flagging both as alternate_estimate.
+    if (distinctValues.length === 2 && distinctValues[1] / distinctValues[0] <= 1.01) {
+      const maxConf = (v: number) => Math.max(...group.filter(f => f.value_millions === v).map(f => f.confidence))
+      const primary = maxConf(distinctValues[1]) >= maxConf(distinctValues[0]) ? distinctValues[1] : distinctValues[0]
+      for (const f of group) {
+        if (f.value_millions !== primary) {
+          f.flags.push('duplicate_extraction')
+          f.confidence = Math.min(f.confidence, 50)
+        }
+      }
+      continue
+    }
+
+    // True median (average of the two middle values for an even-length
+    // array) — for exactly 2 distinct values this is their midpoint, so
+    // BOTH are compared against it symmetrically rather than the larger
+    // one always being picked as "median" and never flagged.
+    const mid = distinctValues.length / 2
+    const median = distinctValues.length % 2 === 0
+      ? (distinctValues[mid - 1] + distinctValues[mid]) / 2
+      : distinctValues[Math.floor(mid)]
 
     for (const f of group) {
       const v = f.value_millions!
@@ -456,6 +556,47 @@ export function runSanityChecks(facts: FinancialFact[]): FinancialFact[] {
   }
 
   return facts
+}
+
+// runSanityChecks operates per-document, so it can't see that a figure it
+// flagged as alternate_estimate (conflicting with another candidate in the
+// SAME document) is independently corroborated by a DIFFERENT document. An
+// EXACT value match (to the stored precision) across two distinct
+// document_ids for the same national total_budget/fiscal_year is strong,
+// genuine evidence — e.g. a budget statement and the FOLLOWING year's budget
+// statement both reporting GH¢226,680.9 million for the same year's outturn.
+// This is deliberately stricter than "numerically close" (which could
+// coincidentally bracket genuinely-different revision figures): an exact
+// multi-decimal match across independent documents is essentially never a
+// coincidence. Only facts whose ONLY flag is alternate_estimate are
+// promoted — anything also flagged duplicate_extraction/conflicting_national_value/
+// unit_outlier_in_series etc. is left alone.
+export function runCrossDocumentCorroboration<T extends FinancialFact & { id: string }>(facts: T[]): T[] {
+  const changed: T[] = []
+  const byYear = new Map<string, T[]>()
+  for (const f of facts) {
+    if (f.entity_type !== 'national' || f.metric !== 'total_budget' || !f.fiscal_year || f.value_millions == null) continue
+    if (!byYear.has(f.fiscal_year)) byYear.set(f.fiscal_year, [])
+    byYear.get(f.fiscal_year)!.push(f)
+  }
+  for (const group of byYear.values()) {
+    const byValue = new Map<number, T[]>()
+    for (const f of group) {
+      if (!byValue.has(f.value_millions!)) byValue.set(f.value_millions!, [])
+      byValue.get(f.value_millions!)!.push(f)
+    }
+    for (const sameValue of byValue.values()) {
+      if (new Set(sameValue.map(f => f.document_id)).size < 2) continue
+      for (const f of sameValue) {
+        if (f.flags.length === 1 && f.flags[0] === 'alternate_estimate') {
+          f.flags = []
+          f.confidence = Math.max(f.confidence, 85)
+          changed.push(f)
+        }
+      }
+    }
+  }
+  return changed
 }
 
 // ── Query-side filter helpers ───────────────────────────────────────

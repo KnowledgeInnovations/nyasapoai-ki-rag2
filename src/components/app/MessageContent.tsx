@@ -32,12 +32,16 @@ function renderInline(
     if (citeMatch) {
       const idx = parseInt(citeMatch[1]) - 1
       const citation = citations[idx]
-      const label = citation ? shortTitle(citation.document_title) : ''
+      // Citation index has no corresponding entry (e.g. the model cited a
+      // number beyond the actual citations list) — render as plain text
+      // rather than a dead, unstyled pill.
+      if (!citation) return <span key={i}>{part}</span>
+      const label = shortTitle(citation.document_title)
       return (
         <button
           key={i}
-          onClick={() => citation && onCiteClick(citation)}
-          title={citation ? citation.document_title : undefined}
+          onClick={() => onCiteClick(citation)}
+          title={citation.document_title}
           className="inline-flex items-center gap-1 rounded-full border border-brand/25 bg-brand-light px-2 py-0.5 mx-0.5 text-[11px] font-semibold text-brand hover:bg-brand hover:text-white hover:border-brand transition cursor-pointer align-middle leading-none"
         >
           <FileText className="h-2.5 w-2.5 shrink-0" />
@@ -81,6 +85,38 @@ function splitInlineNumbered(line: string): string[] {
 // Same idea for bullet lists run together with "•" markers
 function splitInlineBullets(line: string): string[] {
   return line.split(/\s+(?=•\s)/).map(s => s.trim()).filter(Boolean)
+}
+
+// The model often emits each numbered item as its own paragraph (separated
+// by blank lines), e.g. "1. Early stability...\n\n1. Acceleration...\n\n1. ...".
+// Detects whether a block IS (or ends in, after an optional lead-in line) a
+// numbered list, returning its items with the "N." prefix stripped — so
+// consecutive blocks like this can be merged into one continuously-numbered
+// <ol> instead of each restarting at "1".
+function parseNumberedBlock(raw: string): { leadIn: string | null; items: string[] } | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+
+  let lines = trimmed.split('\n').map(l => l.trim()).filter(Boolean)
+
+  if (lines.length === 1) {
+    const numbered = splitInlineNumbered(lines[0])
+    if (numbered.length > 1) lines = numbered
+  }
+
+  let leadIn: string | null = null
+  if (lines.length > 1) {
+    const rest = lines.slice(1)
+    if (!/^\d+[.)]\s/.test(lines[0]) && rest.every(l => /^\d+[.)]\s/.test(l))) {
+      leadIn = lines[0]
+      lines = rest
+    }
+  }
+
+  if (lines.length > 0 && lines.every(l => /^\d+[.)]\s/.test(l))) {
+    return { leadIn, items: lines.map(l => l.replace(/^\d+[.)]\s/, '')) }
+  }
+  return null
 }
 
 // Block renderer: paragraphs, bullet lists, numbered lists, headings, tables
@@ -247,11 +283,46 @@ export default function MessageContent({ text, citations, onCiteClick }: Props) 
     .split('\n[RECS]')[0]
     .trim()
 
-  const blocks = clean.split(/\n{2,}/)
+  const rawBlocks = clean.split(/\n{2,}/)
+
+  // Merge consecutive numbered-list blocks into one continuously-numbered <ol>.
+  type Segment =
+    | { type: 'list'; leadIn: string | null; items: string[] }
+    | { type: 'raw'; raw: string }
+
+  const segments: Segment[] = []
+  for (const raw of rawBlocks) {
+    const parsed = parseNumberedBlock(raw)
+    if (parsed) {
+      const last = segments[segments.length - 1]
+      if (last?.type === 'list' && parsed.leadIn === null) {
+        last.items.push(...parsed.items)
+        continue
+      }
+      segments.push({ type: 'list', leadIn: parsed.leadIn, items: parsed.items })
+    } else {
+      segments.push({ type: 'raw', raw })
+    }
+  }
 
   return (
     <div className="space-y-0.5">
-      {blocks.map((block, i) => renderBlock(block, citations, onCiteClick, i))}
+      {segments.map((seg, i) => {
+        if (seg.type === 'raw') return renderBlock(seg.raw, citations, onCiteClick, i)
+        return (
+          <div key={i}>
+            {seg.leadIn && renderBlock(seg.leadIn, citations, onCiteClick, i)}
+            <ol className="my-2 space-y-1.5 pl-1">
+              {seg.items.map((item, li) => (
+                <li key={li} className="flex items-start gap-2.5 text-sm leading-relaxed text-gray-700">
+                  <span className="shrink-0 mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-brand/10 text-[10px] font-bold text-brand">{li + 1}</span>
+                  <span>{renderInline(item, citations, onCiteClick)}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )
+      })}
     </div>
   )
 }

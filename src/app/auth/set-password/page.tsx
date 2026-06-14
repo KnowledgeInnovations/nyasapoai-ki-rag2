@@ -20,10 +20,19 @@ export default function SetPasswordPage() {
   const [loading, setLoading]     = useState(false)
 
   useEffect(() => {
+    // Invite/recovery links exchange the URL token for a session via
+    // detectSessionInUrl, which may still be in flight on first mount —
+    // a one-shot getSession() can return null for a valid link. Listen for
+    // the auth state change too, so we don't show "invite expired" prematurely.
     supabase.auth.getSession().then(({ data }) => {
-      setValidSession(!!data.session)
+      if (data.session) { setValidSession(true); setChecking(false) }
+    })
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setValidSession(!!session)
       setChecking(false)
     })
+    const timeout = setTimeout(() => setChecking(false), 3000)
+    return () => { sub.subscription.unsubscribe(); clearTimeout(timeout) }
   }, [supabase])
 
   async function handleSubmit(e: React.FormEvent) {
@@ -40,13 +49,15 @@ export default function SetPasswordPage() {
     }
 
     setLoading(true)
-    const { error: err } = await supabase.auth.updateUser({ password })
-    if (err) {
-      setError(err.message)
+    try {
+      const { error: err } = await supabase.auth.updateUser({ password })
+      if (err) { setError(err.message); return }
+      router.push('/ask')
+    } catch {
+      setError('Something went wrong. Please try again.')
+    } finally {
       setLoading(false)
-      return
     }
-    router.push('/ask')
   }
 
   return (

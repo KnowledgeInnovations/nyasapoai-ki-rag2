@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
   const review = await reviewSearchResult(question, facts, results)
   if (review) {
     const user = await getUser()
-    await svc.from('search_reviews').insert({
+    const { error: reviewInsertError } = await svc.from('search_reviews').insert({
       tenant_id: tenantId,
       reviewed_by: user?.id ?? null,
       document_id: documentId,
@@ -167,6 +167,7 @@ export async function POST(request: NextRequest) {
       reasoning: review.reasoning,
       reviewer: 'ai',
     })
+    if (reviewInsertError) console.error('[Training] Failed to record search review:', reviewInsertError)
   }
 
   return NextResponse.json({ question, keywords, facts, documents: results, review })
@@ -225,10 +226,9 @@ async function reviewSearchResult(
         ],
       }),
     })
-
-    if (!res.ok) return null
+    if (!res.ok) throw new Error(`OpenAI API error ${res.status}: ${await res.text()}`)
     const data = await res.json()
-    const raw = data.choices?.[0]?.message?.content
+    const raw = data.choices?.[0]?.message?.content ?? ''
     if (!raw) return null
 
     const parsed = JSON.parse(raw)

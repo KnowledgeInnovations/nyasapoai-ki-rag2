@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { FileText, Clock, CheckCircle2, XCircle, Lock, Pencil, Plus, Trash2 } from 'lucide-react'
+import { FileText, Clock, CheckCircle2, XCircle, Lock, Pencil, Plus, Trash2, X, CheckSquare } from 'lucide-react'
 import type { Document } from '@/types'
 import { formatDate } from '@/lib/utils'
 import { CATEGORIES, buildCategory } from '@/lib/documentCategories'
@@ -43,6 +43,11 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
   // document delete state
   const [deleteTarget,   setDeleteTarget]  = useState<{ id: string; title: string } | null>(null)
   const [deleting,       setDeleting]      = useState(false)
+  // multi-select / bulk delete state
+  const [selectMode,     setSelectMode]    = useState(false)
+  const [selectedIds,    setSelectedIds]   = useState<Set<string>>(new Set())
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkDeleting,   setBulkDeleting]  = useState(false)
   // category delete state
   const [catDeleteTarget, setCatDeleteTarget] = useState<Category | null>(null)
   const [catDeleting,     setCatDeleting]     = useState(false)
@@ -90,6 +95,48 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
     } finally {
       setDeleting(false)
       setDeleteTarget(null)
+    }
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds(prev =>
+      prev.size === filtered.length ? new Set() : new Set(filtered.map(d => d.id))
+    )
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false)
+    setSelectedIds(new Set())
+  }
+
+  async function handleBulkDeleteConfirm() {
+    const ids = [...selectedIds]
+    if (!ids.length) return
+    setBulkDeleting(true)
+    try {
+      const results = await Promise.all(
+        ids.map(id => fetch(`/api/documents/${id}`, { method: 'DELETE' }).then(r => ({ id, ok: r.ok })))
+      )
+      const deletedIds = new Set(results.filter(r => r.ok).map(r => r.id))
+      const failedCount = results.length - deletedIds.size
+      setDocuments(prev => prev.filter(d => !deletedIds.has(d.id)))
+      if (previewDocId && deletedIds.has(previewDocId)) setPreviewDocId(null)
+      if (failedCount > 0) alert(`${failedCount} document${failedCount !== 1 ? 's' : ''} could not be deleted.`)
+    } catch {
+      alert('Bulk delete failed — please try again')
+    } finally {
+      setBulkDeleting(false)
+      setBulkDeleteOpen(false)
+      exitSelectMode()
     }
   }
 
@@ -159,17 +206,35 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
           </p>
         </div>
 
-        {canUpload ? (
-          <button onClick={() => setShowUpload(true)}
-            className="flex shrink-0 items-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand/20 transition hover:bg-brand-dark">
-            <Plus className="h-4 w-4" />
-            Upload
-          </button>
-        ) : (
-          <div className="flex shrink-0 items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-400">
-            <Lock className="h-4 w-4" /> View only
-          </div>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {canDelete && documents.length > 0 && (
+            selectMode ? (
+              <button onClick={exitSelectMode}
+                className="flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50">
+                <X className="h-4 w-4" />
+                Cancel
+              </button>
+            ) : (
+              <button onClick={() => setSelectMode(true)}
+                className="flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50">
+                <CheckSquare className="h-4 w-4" />
+                Select
+              </button>
+            )
+          )}
+
+          {canUpload ? (
+            <button onClick={() => setShowUpload(true)}
+              className="flex items-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand/20 transition hover:bg-brand-dark">
+              <Plus className="h-4 w-4" />
+              Upload
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-400">
+              <Lock className="h-4 w-4" /> View only
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Category overview cards ─────────────────────────── */}
@@ -263,6 +328,28 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
         )}
       </div>
 
+      {/* ── Selection toolbar ────────────────────────────────── */}
+      {selectMode && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand/20 bg-brand-light px-4 py-3">
+          <div className="flex items-center gap-3">
+            <button onClick={toggleSelectAll}
+              className="rounded-lg border border-brand/30 bg-white px-3 py-1.5 text-xs font-semibold text-brand transition hover:bg-brand hover:text-white">
+              {selectedIds.size === filtered.length ? 'Deselect all' : 'Select all'}
+            </button>
+            <p className="text-sm font-medium text-gray-700">
+              {selectedIds.size} of {filtered.length} selected
+            </p>
+          </div>
+          <button
+            onClick={() => setBulkDeleteOpen(true)}
+            disabled={selectedIds.size === 0}
+            className="flex items-center gap-2 rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-40">
+            <Trash2 className="h-4 w-4" />
+            Delete selected
+          </button>
+        </div>
+      )}
+
       {/* ── Documents table / empty state ───────────────────── */}
       {documents.length === 0 ? (
         <div
@@ -300,11 +387,22 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
               return (
                 <div
                   key={doc.id}
-                  onClick={() => setPreviewDocId(doc.id)}
+                  onClick={() => selectMode ? toggleSelect(doc.id) : setPreviewDocId(doc.id)}
                   className={cn(
                     'flex cursor-pointer items-start gap-3 rounded-2xl border bg-white p-3.5 shadow-sm transition active:scale-[0.99]',
-                    previewDocId === doc.id ? 'border-brand/30 bg-brand-light/30' : 'border-gray-200',
+                    selectedIds.has(doc.id) ? 'border-brand/30 bg-brand-light/30' : previewDocId === doc.id ? 'border-brand/30 bg-brand-light/30' : 'border-gray-200',
                   )}>
+                  {/* Checkbox */}
+                  {selectMode && (
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(doc.id)}
+                      onChange={() => toggleSelect(doc.id)}
+                      onClick={e => e.stopPropagation()}
+                      className="mt-1 h-4 w-4 shrink-0 rounded border-gray-300 text-brand focus:ring-brand"
+                    />
+                  )}
+
                   {/* Icon */}
                   <div className={cn(
                     'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border',
@@ -338,7 +436,7 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
                   </div>
 
                   {/* Delete button */}
-                  {canDelete && (
+                  {canDelete && !selectMode && (
                     <button
                       onClick={e => { e.stopPropagation(); setDeleteTarget({ id: doc.id, title: doc.title }) }}
                       className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-300 transition hover:bg-red-50 hover:text-red-500">
@@ -355,12 +453,22 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50/80 text-left">
+                  {selectMode && (
+                    <th className="w-10 px-3 py-3">
+                      <input
+                        type="checkbox"
+                        checked={filtered.length > 0 && selectedIds.size === filtered.length}
+                        onChange={toggleSelectAll}
+                        className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                      />
+                    </th>
+                  )}
                   <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400">Document</th>
                   <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400">Category</th>
                   <th className="hidden px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400 sm:table-cell">Access</th>
                   <th className="px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400">Status</th>
                   <th className="hidden px-5 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-400 lg:table-cell">Added</th>
-                  {canDelete && <th className="w-10 px-3 py-3" />}
+                  {canDelete && !selectMode && <th className="w-10 px-3 py-3" />}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -369,11 +477,21 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
                   const cat = getCat(doc.department)
                   return (
                     <tr key={doc.id}
-                      onClick={() => setPreviewDocId(doc.id)}
+                      onClick={() => selectMode ? toggleSelect(doc.id) : setPreviewDocId(doc.id)}
                       className={cn(
                         'cursor-pointer transition-colors',
-                        previewDocId === doc.id ? 'bg-brand-light' : 'hover:bg-gray-50/80',
+                        selectedIds.has(doc.id) ? 'bg-brand-light' : previewDocId === doc.id ? 'bg-brand-light' : 'hover:bg-gray-50/80',
                       )}>
+                      {selectMode && (
+                        <td className="px-3 py-3.5" onClick={e => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(doc.id)}
+                            onChange={() => toggleSelect(doc.id)}
+                            className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                          />
+                        </td>
+                      )}
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-2.5">
                           <div className={cn(
@@ -504,6 +622,37 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
                 disabled={deleting}
                 className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:opacity-50">
                 {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Bulk delete confirmation ─────────────────────────── */}
+      {bulkDeleteOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+          <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 border border-red-200">
+              <Trash2 className="h-5 w-5 text-red-500" />
+            </div>
+            <h3 className="mt-4 text-base font-bold text-gray-900">
+              Delete {selectedIds.size} document{selectedIds.size !== 1 ? 's' : ''}?
+            </h3>
+            <p className="mt-1.5 text-sm text-gray-500 leading-relaxed">
+              The selected documents will be permanently removed including all AI knowledge chunks. This cannot be undone.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setBulkDeleteOpen(false)}
+                disabled={bulkDeleting}
+                className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50">
+                Cancel
+              </button>
+              <button
+                onClick={handleBulkDeleteConfirm}
+                disabled={bulkDeleting}
+                className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:opacity-50">
+                {bulkDeleting ? 'Deleting…' : 'Delete'}
               </button>
             </div>
           </div>

@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { claudeComplete } from '@/lib/claude'
 
-const OPENAI_HEADERS = {
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+// A function, not a module-level constant — see getAnthropicHeaders() in
+// claude.ts for why: Next.js dev-server env reloads can bake a stale/undefined
+// key into a constant captured at import time.
+function getOpenAIHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+  }
 }
 
 export const maxDuration = 30
@@ -21,7 +27,8 @@ export async function POST(request: NextRequest) {
   const membership = await getMembership()
   if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { question, label } = await request.json() as { question: string; label: string }
+  const body = await request.json().catch(() => null) as { question?: string; label?: string } | null
+  const { question, label } = body ?? {}
   if (!question) return NextResponse.json({ error: 'question required' }, { status: 400 })
 
   const service = svc()
@@ -29,11 +36,17 @@ export async function POST(request: NextRequest) {
   // Embed the question
   const embRes = await fetch('https://api.openai.com/v1/embeddings', {
     method: 'POST',
-    headers: OPENAI_HEADERS,
+    headers: getOpenAIHeaders(),
     body: JSON.stringify({ model: 'text-embedding-3-small', input: question }),
   })
+  if (!embRes.ok) {
+    return NextResponse.json({ insight: 'Insight temporarily unavailable.', sentiment: 'neutral' as const, sources: [], noData: true, label })
+  }
   const embData = await embRes.json()
-  const embedding: number[] = embData.data[0].embedding
+  const embedding: number[] | undefined = embData?.data?.[0]?.embedding
+  if (!embedding) {
+    return NextResponse.json({ insight: 'Insight temporarily unavailable.', sentiment: 'neutral' as const, sources: [], noData: true, label })
+  }
 
   // Vector search — same RPC as the Ask AI chat
   const { data: chunks } = await service.rpc('match_document_chunks', {
@@ -57,32 +70,22 @@ export async function POST(request: NextRequest) {
     .map((c, i) => `[${i + 1}] ${c.chunk_text}`)
     .join('\n\n')
 
-  // GPT generates a business insight + sentiment rating
-  const gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: OPENAI_HEADERS,
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      temperature: 0.3,
-      max_tokens: 250,
-      messages: [
-        {
-          role: 'system',
-          content: `You are a sharp business analyst for Knowledge Innovations, a Ghanaian AI strategy, FinTech, and digital transformation consultancy.
+  // Claude generates a business insight + sentiment rating
+  const raw = await claudeComplete({
+    temperature: 0.3,
+    maxTokens: 250,
+    system: `You are a sharp business analyst for Knowledge Innovations, a Ghanaian AI strategy, FinTech, and digital transformation consultancy.
 Analyse the document excerpts and answer the question directly and concisely (2–4 sentences max).
 Focus on real numbers, dates, names, and facts you can see.
 Be honest: flag problems clearly. Praise progress where real.
 After your answer, on a new line write exactly: SENTIMENT:positive OR SENTIMENT:negative OR SENTIMENT:caution OR SENTIMENT:neutral`,
-        },
-        {
-          role: 'user',
-          content: `Context from company documents:\n${context}\n\nQuestion: ${question}`,
-        },
-      ],
-    }),
-  })
-  const gptData = await gptRes.json()
-  const raw: string = gptData.choices?.[0]?.message?.content ?? ''
+    messages: [
+      {
+        role: 'user',
+        content: `Context from company documents:\n${context}\n\nQuestion: ${question}`,
+      },
+    ],
+  }).catch(() => '')
 
   const sentimentMatch = raw.match(/SENTIMENT:(positive|negative|caution|neutral)/i)
   const sentiment = (sentimentMatch?.[1]?.toLowerCase() ?? 'neutral') as 'positive' | 'negative' | 'caution' | 'neutral'

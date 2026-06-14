@@ -85,9 +85,12 @@ export default function DocumentPreview({ docId, onClose }: Props) {
 
   const doc = data?.document
   const cat = getCategoryByValue(doc?.department)
+  // Every chunk is stored with a "[Document: <title>]" prefix (so vector
+  // search can match on filename) — strip it here so the preview doesn't
+  // repeat the title before every chunk.
   const fullText = data?.chunks
     .sort((a, b) => a.chunk_index - b.chunk_index)
-    .map(c => c.chunk_text)
+    .map(c => c.chunk_text.replace(/^\[Document:[^\]]*\]\n?/, ''))
     .join('\n\n') ?? ''
 
   const size = formatBytes(doc?.file_size as number | undefined)

@@ -1,13 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { claudeComplete } from '@/lib/claude'
 
 export const maxDuration = 30
 
-const OPENAI_HEADERS = {
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+// A function, not a module-level constant — see getAnthropicHeaders() in
+// claude.ts for why: Next.js dev-server env reloads can bake a stale/undefined
+// key into a constant captured at import time.
+function getOpenAIHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+  }
 }
+
+// Caps fan-out to embeddings/Supabase RPC/Claude calls — each question
+// triggers one of each, so an unbounded array could blow the Claude org's
+// 10k input-tokens/min limit (same class as MAX_CONTEXT_CHUNKS in chat/route.ts).
+const MAX_QUESTIONS = 8
 
 function svc() {
   return createServiceClient(
@@ -24,8 +35,9 @@ export async function POST(request: NextRequest) {
   const membership = await getMembership()
   if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { questions } = await request.json() as { questions: InsightQuestion[] }
-  if (!questions?.length) return NextResponse.json({ insights: [] })
+  const body = await request.json().catch(() => null) as { questions?: InsightQuestion[] } | null
+  const questions = (body?.questions ?? []).slice(0, MAX_QUESTIONS)
+  if (!questions.length) return NextResponse.json({ insights: [] })
 
   const service = svc()
   const tid = membership.tenant_id
@@ -33,12 +45,17 @@ export async function POST(request: NextRequest) {
   // ── 1. Embed ALL questions in one batch call ───────────────
   const embRes = await fetch('https://api.openai.com/v1/embeddings', {
     method: 'POST',
-    headers: OPENAI_HEADERS,
+    headers: getOpenAIHeaders(),
     body: JSON.stringify({
       model: 'text-embedding-3-small',
       input: questions.map(q => q.question),
     }),
   })
+  if (!embRes.ok) {
+    return NextResponse.json({
+      insights: questions.map(q => ({ label: q.label, insight: 'Insight temporarily unavailable.', sentiment: 'neutral' as Sentiment, sources: [], noData: true })),
+    })
+  }
   const embData = await embRes.json()
   const embeddings: number[][] = (embData.data as { index: number; embedding: number[] }[])
     .sort((a, b) => a.index - b.index)
@@ -72,27 +89,17 @@ export async function POST(request: NextRequest) {
 
       const context = chunks.map((c, j) => `[${j + 1}] ${c.chunk_text}`).join('\n\n')
 
-      const gptRes = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: OPENAI_HEADERS,
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          temperature: 0.3,
-          max_tokens: 150,
-          messages: [
-            {
-              role: 'system',
-              content: `You are a business analyst for Knowledge Innovations, a Ghanaian AI strategy, FinTech, and digital transformation consultancy. Answer in 2-3 sentences with specific facts, figures, and names from the documents. End with: SENTIMENT:positive OR SENTIMENT:negative OR SENTIMENT:caution OR SENTIMENT:neutral`,
-            },
-            {
-              role: 'user',
-              content: `${inventoryText}\n\nDocument excerpts:\n${context}\n\nQuestion: ${q.question}`,
-            },
-          ],
-        }),
-      })
-      const gptData = await gptRes.json()
-      const raw: string = gptData.choices?.[0]?.message?.content ?? ''
+      const raw = await claudeComplete({
+        temperature: 0.3,
+        maxTokens: 150,
+        system: `You are a business analyst for Knowledge Innovations, a Ghanaian AI strategy, FinTech, and digital transformation consultancy. Answer in 2-3 sentences with specific facts, figures, and names from the documents. End with: SENTIMENT:positive OR SENTIMENT:negative OR SENTIMENT:caution OR SENTIMENT:neutral`,
+        messages: [
+          {
+            role: 'user',
+            content: `${inventoryText}\n\nDocument excerpts:\n${context}\n\nQuestion: ${q.question}`,
+          },
+        ],
+      }).catch(() => '')
       const sentimentMatch = raw.match(/SENTIMENT:(positive|negative|caution|neutral)/i)
       const sentiment = (sentimentMatch?.[1]?.toLowerCase() ?? 'neutral') as Sentiment
       const insight = raw.replace(/\s*SENTIMENT:\w+\s*$/i, '').trim()

@@ -102,12 +102,45 @@ export default async function TrainingPage() {
     ? { total: reviewTotal, correct: reviewCorrect, accuracy: Math.round((reviewCorrect / reviewTotal) * 10000) / 100 }
     : null
 
+  // Most recent regression-suite (self-assessment) run, if any.
+  const { data: lastRun } = await service
+    .from('self_assessments')
+    .select('id, total_questions, passed, accuracy, avg_confidence, results, created_at')
+    .eq('tenant_id', tid)
+    .is('document_id', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
   return (
     <TrainingClient
       docs={trainingDocs}
       trainedCount={trainedCount}
       untrainedCount={untrainedCount}
       performance={performance}
+      lastRun={lastRun ?? null}
     />
   )
+}
+
+export interface SelfAssessmentRun {
+  id:              string
+  total_questions: number
+  passed:          number
+  accuracy:        number
+  avg_confidence:  number
+  results:         RegressionResultRow[]
+  created_at:      string
+}
+
+export interface RegressionResultRow {
+  id:               string
+  category:         string
+  query:            string
+  answer:           string
+  confidenceScore:  number
+  confidenceLevel:  string
+  citationCount:    number
+  passed:           boolean
+  reason:           string
 }

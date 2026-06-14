@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils'
 import { uploadDocument } from '@/lib/uploadDocument'
 import type { RAGResponse, Citation } from '@/types'
 import MessageContent from './MessageContent'
+import AnswerChart from './AnswerChart'
 import SourceViewer, { fetchSourceDownloadUrl } from './SourceViewer'
 
 /* ── Types ────────────────────────────────────────────────── */
@@ -160,6 +161,11 @@ function MessageBubble({
           )}
         </div>
 
+        {/* Chart */}
+        {!msg.streaming && msg.response?.chart && (
+          <AnswerChart data={msg.response.chart} />
+        )}
+
         {/* Risks */}
         {msg.response?.risks && msg.response.risks.length > 0 && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5">
@@ -245,6 +251,14 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
   // null = new session (next message will create a sidebar entry).
   // set  = active session (subsequent messages won't add new sidebar entries).
   const [sessionConvId, setSessionConvId] = useState<string | null>(null)
+  const sessionConvIdRef = useRef(sessionConvId)
+  useEffect(() => { sessionConvIdRef.current = sessionConvId }, [sessionConvId])
+  // Bumped whenever the user switches sessions (new chat / open another
+  // conversation) while a response is still streaming. submit() captures the
+  // value at start and checks it before every setMessages/setSessionConvId
+  // call, so a reply that finishes after the user has navigated away doesn't
+  // get applied to (and corrupt) the now-active conversation's messages.
+  const streamGuardRef = useRef(0)
   const [activeSource,  setActiveSource]  = useState<Citation | null>(null)
 
   const bottomRef    = useRef<HTMLDivElement>(null)
@@ -300,14 +314,30 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
   // changes.
   useEffect(() => {
     if (!sessionConvId) return
-    fetch(`/api/chat?citations=${sessionConvId}`)
+    const convId = sessionConvId
+    fetch(`/api/chat?citations=${convId}`)
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(d => {
+        // If the user switched conversations before this resolved, don't
+        // apply these citations to the now-active conversation's messages.
+        if (convId !== sessionConvIdRef.current) return
         const citations: RAGResponse['citations'] = d.citations ?? []
         if (!citations.length) return
-        setMessages(prev => prev.map(m =>
-          m.role === 'ai' && m.response && m.response.citations.length === 0
-            ? { ...m, response: { ...m.response, citations } }
+
+        // Group by the AI message that originally cited each chunk —
+        // legacy rows (inserted before message_index existed) all belonged
+        // to the first AI message (index 1).
+        const byIndex = new Map<number, RAGResponse['citations']>()
+        for (const c of citations) {
+          const idx = c.message_index ?? 1
+          const list = byIndex.get(idx)
+          if (list) list.push(c)
+          else byIndex.set(idx, [c])
+        }
+
+        setMessages(prev => prev.map((m, i) =>
+          m.role === 'ai' && m.response && m.response.citations.length === 0 && byIndex.has(i)
+            ? { ...m, response: { ...m.response, citations: byIndex.get(i)! } }
             : m
         ))
         for (const docId of new Set(citations.map(c => c.document_id))) {
@@ -339,6 +369,7 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
   // Listen for sidebar "New Chat"
   useEffect(() => {
     const handler = () => {
+      streamGuardRef.current++
       setMessages([])
       setSessionConvId(null)
       try { localStorage.removeItem('ki_last_session') } catch {}
@@ -352,6 +383,7 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
   useEffect(() => {
     const handler = (e: Event) => {
       const item = (e as CustomEvent<HistoryItem>).detail
+      streamGuardRef.current++
       setSessionConvId(item.id)
 
       if (item.messages && item.messages.length > 0) {
@@ -436,6 +468,10 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
   async function submit(query: string) {
     const q = query.trim()
     if (!q || loading || uploading) return
+    // Snapshot the session token — if the user switches to another chat (or
+    // starts a new one) before this response finishes, streamGuardRef will
+    // have moved on and we skip applying further updates to `messages`.
+    const myGuard = streamGuardRef.current
     setInput('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setMessages(prev => [...prev, { role: 'user', text: q }])
@@ -458,7 +494,12 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: q, newSession: isNewSession, history, convId: sessionConvId }),
       })
-      if (!res.ok || !res.body) throw new Error('Request failed')
+      if (!res.ok || !res.body) {
+        // Surface the server's specific message (e.g. rate-limit notice)
+        // instead of a generic failure when one was provided.
+        const text = await res.text().catch(() => '')
+        throw new Error(text || 'Request failed')
+      }
 
       const reader  = res.body.getReader()
       const decoder = new TextDecoder()
@@ -466,6 +507,74 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
       let streamText = ''
       let aiMsgAdded = false
       let receivedDone = false
+
+      function processLine(line: string) {
+        if (!line.startsWith('data: ')) return
+        let event: { t?: string; done?: boolean; answer?: string; risks?: string[]; recommendations?: string[]; citations?: RAGResponse['citations']; chart?: RAGResponse['chart']; confidence_score?: number; confidence_level?: RAGResponse['confidence_level']; convId?: string | null; title?: string }
+        try { event = JSON.parse(line.slice(6)) } catch { return }
+
+        // The user has switched to a different chat (or started a new one)
+        // since this request was sent — the answer is still being persisted
+        // server-side, but don't touch this component's `messages` state
+        // (it now belongs to a different conversation).
+        const stale = streamGuardRef.current !== myGuard
+
+        if (event.t) {
+          streamText += event.t
+          if (!stale) {
+            if (!aiMsgAdded) {
+              // First token — add the streaming message, hide the skeleton
+              setMessages(prev => [...prev, { role: 'ai', text: streamText, streaming: true }])
+              setLoading(false)
+            } else {
+              setMessages(prev => [
+                ...prev.slice(0, -1),
+                { role: 'ai', text: streamText, streaming: true },
+              ])
+            }
+          }
+          if (!aiMsgAdded) aiMsgAdded = true
+        }
+
+        if (event.done) {
+          receivedDone = true
+          const finalMsg: Message = {
+            role: 'ai',
+            text: event.answer ?? '',
+            streaming: false,
+            response: {
+              answer:           event.answer ?? '',
+              citations:        event.citations ?? [],
+              risks:            event.risks ?? [],
+              recommendations:  event.recommendations ?? [],
+              confidence_score: event.confidence_score ?? 85,
+              confidence_level: event.confidence_level,
+              chart:            event.chart ?? null,
+            },
+          }
+          if (!stale) {
+            if (aiMsgAdded) {
+              setMessages(prev => [...prev.slice(0, -1), finalMsg])
+            } else {
+              // No tokens were streamed before "done" — append rather than
+              // replace, so we don't clobber the user's just-submitted message.
+              setMessages(prev => [...prev, finalMsg])
+              setLoading(false)
+            }
+            for (const docId of new Set((event.citations ?? []).map(c => c.document_id))) {
+              fetchSourceDownloadUrl(docId)
+            }
+            if (isNewSession && event.convId) {
+              setSessionConvId(event.convId)
+            }
+          }
+          if (!aiMsgAdded) aiMsgAdded = true
+          // Keep the sidebar's cached conversation list (titles + saved
+          // `messages`) in sync even if the user navigated away — so
+          // reopening this conversation later shows the new answer.
+          window.dispatchEvent(new CustomEvent('refresh-chat-history'))
+        }
+      }
 
       while (true) {
         const { done, value } = await reader.read()
@@ -475,69 +584,33 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
         const lines = buf.split('\n')
         buf = lines.pop() ?? ''
 
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          let event: { t?: string; done?: boolean; answer?: string; risks?: string[]; recommendations?: string[]; citations?: RAGResponse['citations']; confidence_score?: number; confidence_level?: RAGResponse['confidence_level']; convId?: string | null; title?: string }
-          try { event = JSON.parse(line.slice(6)) } catch { continue }
-
-          if (event.t) {
-            streamText += event.t
-            if (!aiMsgAdded) {
-              // First token — add the streaming message, hide the skeleton
-              setMessages(prev => [...prev, { role: 'ai', text: streamText, streaming: true }])
-              setLoading(false)
-              aiMsgAdded = true
-            } else {
-              setMessages(prev => [
-                ...prev.slice(0, -1),
-                { role: 'ai', text: streamText, streaming: true },
-              ])
-            }
-          }
-
-          if (event.done) {
-            receivedDone = true
-            const finalMsg: Message = {
-              role: 'ai',
-              text: event.answer ?? '',
-              streaming: false,
-              response: {
-                answer:           event.answer ?? '',
-                citations:        event.citations ?? [],
-                risks:            event.risks ?? [],
-                recommendations:  event.recommendations ?? [],
-                confidence_score: event.confidence_score ?? 85,
-                confidence_level: event.confidence_level,
-              },
-            }
-            setMessages(prev => [...prev.slice(0, -1), finalMsg])
-            for (const docId of new Set((event.citations ?? []).map(c => c.document_id))) {
-              fetchSourceDownloadUrl(docId)
-            }
-            if (isNewSession && event.convId) {
-              setSessionConvId(event.convId)
-              window.dispatchEvent(new CustomEvent('refresh-chat-history'))
-            }
-          }
-        }
+        for (const line of lines) processLine(line)
       }
+
+      // Flush any complete event left in the buffer after the stream ends
+      // (e.g. the final "done" event with no trailing newline).
+      if (buf.startsWith('data: ')) processLine(buf)
 
       // Stream ended without a [done] event (e.g. connection cut short) —
       // finalize whatever text arrived so the message isn't stuck in a
       // permanent "streaming" state and silently dropped on next refresh.
-      if (aiMsgAdded && !receivedDone) {
+      if (aiMsgAdded && !receivedDone && streamGuardRef.current === myGuard) {
         setMessages(prev => [
           ...prev.slice(0, -1),
           { role: 'ai', text: streamText, streaming: false },
         ])
       }
-    } catch {
-      setMessages(prev => [...prev, {
-        role: 'ai',
-        text: "I'm sorry, something didn't go quite right. Please try again and I'll do my best to help.",
-      }])
+    } catch (e) {
+      if (streamGuardRef.current === myGuard) {
+        // Show a rate-limit notice verbatim (it tells the user what to do);
+        // fall back to a generic message for anything else.
+        const text = e instanceof Error && /rate limit/i.test(e.message)
+          ? e.message
+          : "I'm sorry, something didn't go quite right. Please try again and I'll do my best to help."
+        setMessages(prev => [...prev, { role: 'ai', text }])
+      }
     } finally {
-      setLoading(false)
+      if (streamGuardRef.current === myGuard) setLoading(false)
     }
   }
 

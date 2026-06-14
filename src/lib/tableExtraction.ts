@@ -35,7 +35,9 @@ const STANDARD_FONT_DATA_URL =
 // ── Classification rules (ported from python/extract_tables.py) ─────────
 
 const NATIONAL_ROW_METRICS: { rx: RegExp; metric: string }[] = [
-  { rx: /total\s+expenditure|total\s+government\s+expenditure/i, metric: 'total_budget' },
+  // "Govt"/"Gov't" is the common abbreviation for "Government" in older
+  // (pre-2007) MTEF appendix tables, e.g. "Total Govt Expenditure".
+  { rx: /total\s+(gov(?:ernmen)?t'?\.?\s+)?expenditure/i, metric: 'total_budget' },
   { rx: /total\s+revenue(\s+and\s+grants)?/i, metric: 'revenue' },
   { rx: /domestic\s+revenue/i, metric: 'revenue' },
   { rx: /total\s+public\s+debt|public\s+debt\s+stock/i, metric: 'debt' },

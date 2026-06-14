@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { X, Upload, FileText, CheckCircle2, AlertCircle, Loader2, Paperclip } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { uploadDocument } from '@/lib/uploadDocument'
+import { uploadDocument, type ExtractionProgress } from '@/lib/uploadDocument'
 import { SENSITIVITIES } from '@/lib/documentCategories'
 import type { Category } from '@/lib/documentCategories'
 import type { Document } from '@/types'
@@ -13,6 +13,22 @@ interface FileItem {
   title: string
   status: 'pending' | 'uploading' | 'done' | 'error'
   error?: string
+  progress?: string
+}
+
+// Turns a raw extraction-progress event into a short human-readable label
+function describeProgress(p: ExtractionProgress): string {
+  switch (p.stage) {
+    case 'downloading': return 'Reading uploaded file…'
+    case 'extracting':  return 'Extracting text…'
+    case 'extracted':   return `Extracted ${p.pages} page${p.pages === 1 ? '' : 's'}${(p.tables as number) > 0 ? ` (${p.tables} table${p.tables === 1 ? '' : 's'})` : ''}`
+    case 'chunking':    return 'Splitting into sections…'
+    case 'chunked':     return `Split into ${p.chunks} chunks`
+    case 'embedding':   return `Embedding batch ${p.batch}/${p.totalBatches}…`
+    case 'embedded':    return `Embedded batch ${p.batch}/${p.totalBatches}`
+    case 'facts':       return `Extracted ${p.count} financial fact${p.count === 1 ? '' : 's'}`
+    default:            return String(p.stage)
+  }
 }
 
 interface Props {
@@ -60,6 +76,10 @@ export default function UploadModal({ onClose, onUploaded, categories }: Props) 
     setFiles(prev => prev.filter((_, idx) => idx !== i))
   }
 
+  function retryFile(i: number) {
+    setFiles(prev => prev.map((f, idx) => idx === i ? { ...f, status: 'pending', error: undefined } : f))
+  }
+
   function updateTitle(i: number, title: string) {
     setFiles(prev => prev.map((f, idx) => idx === i ? { ...f, title } : f))
   }
@@ -74,13 +94,15 @@ export default function UploadModal({ onClose, onUploaded, categories }: Props) 
       const item = files[i]
       if (item.status === 'done') continue
 
-      setFiles(prev => prev.map((f, idx) => idx === i ? { ...f, status: 'uploading' } : f))
+      setFiles(prev => prev.map((f, idx) => idx === i ? { ...f, status: 'uploading', progress: 'Uploading file…' } : f))
 
       try {
         const { document, error } = await uploadDocument(item.file, {
           title: item.title,
           department: category,
           sensitivity,
+        }, p => {
+          setFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: describeProgress(p) } : f))
         })
         if (document) {
           setFiles(prev => prev.map((f, idx) => idx === i ? { ...f, status: 'done' } : f))
@@ -225,14 +247,29 @@ export default function UploadModal({ onClose, onUploaded, categories }: Props) 
                         {item.file.name} · {formatBytes(item.file.size)}
                         {item.error && <span className="ml-2 text-red-500">{item.error}</span>}
                       </p>
+                      {item.status === 'uploading' && item.progress && (
+                        <p className="mt-0.5 text-[11px] font-medium text-brand">{item.progress}</p>
+                      )}
                     </div>
 
-                    {/* Remove */}
+                    {/* Remove / retry */}
                     {item.status === 'pending' && (
                       <button onClick={() => removeFile(i)}
                         className="shrink-0 text-gray-400 hover:text-red-500 transition">
                         <X className="h-4 w-4" />
                       </button>
+                    )}
+                    {item.status === 'error' && (
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button onClick={() => retryFile(i)}
+                          className="rounded-lg px-2 py-1 text-[11px] font-semibold text-brand hover:bg-brand-light transition">
+                          Retry
+                        </button>
+                        <button onClick={() => removeFile(i)}
+                          className="text-gray-400 hover:text-red-500 transition">
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
                     )}
                   </div>
                 ))}

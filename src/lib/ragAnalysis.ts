@@ -37,12 +37,23 @@ export interface Figure {
   unit: string | null   // 'million' | 'billion' | '%' | 'cedis' | null
   year: number | null
   index: number          // character offset in the source text
+  label: string          // text immediately preceding the figure on its line
+                          // (e.g. "Total Expenditure", "Net Domestic Financing")
+                          // — used to avoid mixing different metrics together
 }
 
-const NUM = String.raw`\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+\.\d+`
+// PDF text extraction frequently inserts a stray space between the decimal
+// point and the following digit(s) — e.g. "GH¢46,445. 7 million" for
+// 46,445.7 — a kerning artifact, not a real space in the source document.
+// Tolerate an optional space there so the decimal portion (and the unit word
+// that follows it) aren't lost.
+const NUM = String.raw`\d{1,3}(?:,\d{3})*(?:\.\s?\d+)?|\d+\.\s?\d+`
+// Unit words (million/billion/etc.) are often wrapped onto the next line by
+// PDF text extraction, e.g. "GH¢46,445. 7\n million" — `\s*` tolerates the
+// newline+indentation gap between the number and its unit.
 const FIGURE_RX = new RegExp(
-  String.raw`(GH¢|GHS|US\$|\$|₵)\s?(${NUM})(?:\s?(billion|bn|million|m|%|percent|cedis))?` +
-  String.raw`|(${NUM})\s?(billion|bn|million|m|%|percent|cedis)\b`,
+  String.raw`(GH¢|GHS|US\$|\$|₵)\s?(${NUM})(?:\s*(billion|bn|million|m|%|percent|cedis))?` +
+  String.raw`|(${NUM})\s*(billion|bn|million|m|%|percent|cedis)\b`,
   'gi',
 )
 const YEAR_RX = /\b(19|20)\d{2}\b/g
@@ -57,9 +68,27 @@ function normalizeUnit(u: string | undefined | null): string | null {
 }
 
 // Finds the nearest 4-digit year (1900-2099) to a given character offset
-// within `text`, searching up to `window` chars on either side.
+// within `text`, searching up to `window` chars on either side. Budget
+// tables typically put the year as the first token on a row (e.g.
+// "1999  Total Expenditure  6,744.0 million"), so a year on the SAME LINE
+// as the figure is always preferred — otherwise a long row label can put
+// the figure's offset closer (by raw character distance) to the year on an
+// adjacent row than to its own row's year.
 function nearestYear(text: string, offset: number, window = 120): number | null {
+  const lineStart = text.lastIndexOf('\n', offset - 1) + 1
+  let lineEnd = text.indexOf('\n', offset)
+  if (lineEnd === -1) lineEnd = text.length
+  const line = text.slice(lineStart, lineEnd)
+
   let best: { year: number; dist: number } | null = null
+  for (const m of line.matchAll(/\b(19|20)\d{2}\b/g)) {
+    const dist = Math.abs((m.index ?? 0) - (offset - lineStart))
+    if (!best || dist < best.dist) best = { year: parseInt(m[0], 10), dist }
+  }
+  if (best) return best.year
+
+  // Fall back to the nearest year anywhere within `window` chars (figure
+  // and its year label are on different lines).
   YEAR_RX.lastIndex = 0
   let m: RegExpExecArray | null
   while ((m = YEAR_RX.exec(text))) {
@@ -71,6 +100,16 @@ function nearestYear(text: string, offset: number, window = 120): number | null 
   return best?.year ?? null
 }
 
+// Grabs the text immediately preceding a figure on its own line (e.g. the
+// row label in a budget table: "Total Expenditure ... 6,744.0") so callers
+// can tell whether two figures represent the same kind of quantity before
+// comparing/combining them across years.
+function extractLabel(text: string, index: number, window = 60): string {
+  const lineStart = text.lastIndexOf('\n', index - 1) + 1
+  const start = Math.max(lineStart, index - window)
+  return text.slice(start, index).replace(/[|:\-–—.\s]+$/, ' ').trim()
+}
+
 // Extracts every currency/percentage/scaled figure from `text`, each tagged
 // with the nearest fiscal year mentioned nearby (if any).
 export function extractFigures(text: string): Figure[] {
@@ -80,7 +119,7 @@ export function extractFigures(text: string): Figure[] {
   while ((m = FIGURE_RX.exec(text))) {
     const numStr = m[2] ?? m[4]
     const unit = normalizeUnit(m[3] ?? m[5])
-    const value = parseFloat(numStr.replace(/,/g, ''))
+    const value = parseFloat(numStr.replace(/[,\s]/g, ''))
     if (Number.isNaN(value)) continue
     figures.push({
       raw: m[0].trim(),
@@ -88,21 +127,78 @@ export function extractFigures(text: string): Figure[] {
       unit,
       year: nearestYear(text, m.index),
       index: m.index,
+      label: extractLabel(text, m.index),
     })
   }
   return figures
 }
 
-// Converts a figure to a common "millions" scale, or null if its unit
-// can't be compared on that scale (percentages, plain cedis amounts, etc).
+// Converts a figure to a common "millions" scale, or null if its unit can't
+// be compared on that scale (percentages). Ghana's budget appendix tables
+// report figures as plain absolute cedi amounts (e.g. "GHS 1,107,132,235",
+// unit null/'cedis') rather than "X million" — without this branch those
+// figures were excluded from sourceMillions entirely, so verifyAnswer's
+// derived-sum/difference/ratio checks could never recognize a correct
+// calculation built from them (e.g. "GHS 1,287,609,665" = the sum of two
+// cited GHS figures), flagging genuinely correct arithmetic as unsupported.
 export function toMillions(f: Figure): number | null {
   if (f.unit === 'million') return f.value
   if (f.unit === 'billion') return f.value * 1000
+  if (f.unit === null || f.unit === 'cedis') return f.value / 1e6
   return null
 }
 
 export interface ExtractedFigureRef extends Figure {
   citationIndex: number  // 1-based [n] this figure was drawn from
+}
+
+// Matches row labels for headline expenditure/budget figures (totals,
+// appropriations, overall budgets) as opposed to sub-components or unrelated
+// series (net domestic financing, GDP, debt service, revenue, grants, etc.).
+// Used to avoid picking/comparing a sub-component figure as if it were the
+// total budget figure.
+const TOTALISH_RX = /\b(total|aggregate|overall|grand[\s-]?total|sum|expenditure|appropriation|allocation|budget|payments?|spending|outturn)\b/i
+
+// Labels matching this are excluded from "totalish" even if they also match
+// TOTALISH_RX — e.g. "Total Revenue and Grants" contains "total" but is a
+// revenue-side figure, not a total expenditure/budget figure, and shouldn't
+// be treated as the same kind of quantity as "Total Expenditure".
+const NON_EXPENDITURE_RX = /\b(revenue|receipts?|grants?|financing|loans?|borrowing|gdp|debt)\b/i
+
+function isHeadlineExpenditure(f: ExtractedFigureRef): boolean {
+  return TOTALISH_RX.test(f.label) && !NON_EXPENDITURE_RX.test(f.label)
+}
+
+// From a set of figures for the same year, picks the one most likely to be
+// the headline total-expenditure/budget figure: prefer figures whose row
+// label looks like a total/aggregate (and not a revenue/financing/GDP
+// figure), falling back to the largest value if none do.
+function pickBestFigure(figs: ExtractedFigureRef[]): ExtractedFigureRef {
+  const totalish = figs.filter(isHeadlineExpenditure)
+  const pool = totalish.length ? totalish : figs
+  return pool.reduce((a, b) => (b.value > a.value ? b : a))
+}
+
+// True if two figures appear to represent the same kind of quantity (both
+// look like headline total-expenditure/budget figures, or neither does) —
+// used to avoid computing growth/CAGR between e.g. a "Total Expenditure"
+// figure and a "Net Domestic Financing" or "Total Revenue and Grants" figure
+// just because they were each the best match per year.
+function sameMetricKind(a: ExtractedFigureRef, b: ExtractedFigureRef): boolean {
+  return isHeadlineExpenditure(a) === isHeadlineExpenditure(b)
+}
+
+// Ghana redenominated its currency in 2007 (10,000 old cedis = 1 new cedi).
+// Pre-2007 source documents state figures in old cedis, post-2007 documents
+// in new cedis (GH¢) — but extractFigures has no currency-symbol
+// information, so a figure's scale alone can't reliably distinguish them
+// (the 10,000x denomination shift is partially offset by genuine nominal
+// growth, landing anywhere from ~-90% to ~-99.99% "change" depending on the
+// pair). Rather than guess via a ratio threshold, treat 2007 as a hard
+// discontinuity: any pair straddling it is a unit mismatch, not a real
+// year-over-year change, regardless of magnitude.
+export function isRedenominationArtifact(fromYear: number, toYear: number): boolean {
+  return fromYear < 2007 && toYear >= 2007
 }
 
 // Pulls scale-comparable figures (millions/billions) out of the retrieved
@@ -112,7 +208,13 @@ export interface ExtractedFigureRef extends Figure {
 export function extractFiguresFromChunks(chunks: { chunk_text: string }[], maxPerChunk = 6): ExtractedFigureRef[] {
   const out: ExtractedFigureRef[] = []
   chunks.forEach((c, i) => {
-    const figs = extractFigures(c.chunk_text).filter(f => f.unit && f.unit !== '%')
+    // Includes unit === null (raw cedi amounts with a currency symbol but no
+    // "million"/"billion" suffix, e.g. "GH¢357,105,639,079.87") — toMillions
+    // converts these. Without this, headline totals stated as raw cedi
+    // figures were excluded here, leaving only smaller sub-line figures with
+    // explicit scale suffixes as candidates for pickBestFigure/computeForecast/
+    // computeCAGR/computeAggregate.
+    const figs = extractFigures(c.chunk_text).filter(f => f.unit !== '%')
     for (const f of figs.slice(0, maxPerChunk)) {
       out.push({ ...f, citationIndex: i + 1 })
     }
@@ -128,6 +230,7 @@ export interface GrowthCalculation {
   unit: string
   growthPct: number
   citations: number[]
+  label: string  // row label the figures were drawn from, e.g. "Total Expenditure"
 }
 
 // Deterministically computes year-over-year growth for every pair of
@@ -150,9 +253,21 @@ export function computeGrowthCalculations(chunks: { chunk_text: string }[], maxR
   for (let i = 0; i < years.length - 1; i++) {
     const fromYear = years[i]
     const toYear = years[i + 1]
-    const fromFig = byYear.get(fromYear)![0]
-    const toFig = byYear.get(toYear)![0]
+    // Prefer the figure whose row label looks like a total/aggregate —
+    // picking "largest figure" alone can pick a sub-component or unrelated
+    // series (e.g. net domestic financing) over the true total.
+    const fromFig = pickBestFigure(byYear.get(fromYear)!)
+    const toFig = pickBestFigure(byYear.get(toYear)!)
     if (!fromFig || !toFig || fromFig.value === 0) continue
+    // Don't compute "growth" between two figures that don't look like the
+    // same kind of quantity (e.g. one is a "Total Expenditure" line and the
+    // other is "Net Domestic Financing") — that's a metric mismatch, not a
+    // real year-over-year change.
+    if (!sameMetricKind(fromFig, toFig)) continue
+    // Skip pairs that straddle the 2007 cedi redenomination with an
+    // implausible >99% drop — almost certainly an old-cedi/new-cedi
+    // denomination mismatch, not a real collapse in spending.
+    if (isRedenominationArtifact(fromYear, toYear)) continue
     const growthPct = ((toFig.value - fromFig.value) / fromFig.value) * 100
     results.push({
       fromYear, toYear,
@@ -160,6 +275,7 @@ export function computeGrowthCalculations(chunks: { chunk_text: string }[], maxR
       unit: 'million',
       growthPct: Math.round(growthPct * 10) / 10,
       citations: [...new Set([fromFig.citationIndex, toFig.citationIndex])],
+      label: fromFig.label || toFig.label,
     })
     if (results.length >= maxResults) break
   }
@@ -174,6 +290,7 @@ export interface CAGRCalculation {
   unit: string
   cagrPct: number
   citations: number[]
+  label: string  // row label the figures were drawn from, e.g. "Total Expenditure"
 }
 
 // Builds a year -> first-figure-of-that-year map from the retrieved chunks,
@@ -181,13 +298,20 @@ export interface CAGRCalculation {
 // all see the same (year, value, citation) series.
 function figuresByYear(chunks: { chunk_text: string }[]): Map<number, ExtractedFigureRef> {
   const refs = extractFiguresFromChunks(chunks)
-  const byYear = new Map<number, ExtractedFigureRef>()
+  const byYearAll = new Map<number, ExtractedFigureRef[]>()
   for (const f of refs) {
     if (f.year == null) continue
     const ms = toMillions(f)
     if (ms == null) continue
-    if (!byYear.has(f.year)) byYear.set(f.year, { ...f, value: ms, unit: 'million' })
+    const arr = byYearAll.get(f.year) ?? []
+    arr.push({ ...f, value: ms, unit: 'million' })
+    byYearAll.set(f.year, arr)
   }
+  // Prefer the figure whose row label looks like a total/aggregate for each
+  // year (see pickBestFigure) — avoids picking a sub-component or unrelated
+  // series just because it happens to be the largest value found.
+  const byYear = new Map<number, ExtractedFigureRef>()
+  for (const [year, figs] of byYearAll) byYear.set(year, pickBestFigure(figs))
   return byYear
 }
 
@@ -206,6 +330,12 @@ export function computeCAGR(chunks: { chunk_text: string }[]): CAGRCalculation |
   const toFig = byYear.get(toYear)!
   const periods = toYear - fromYear
   if (fromFig.value <= 0 || toFig.value <= 0 || periods <= 0) return null
+  // Same metric-mismatch guard as computeGrowthCalculations — don't compute
+  // a CAGR between e.g. a "Total Expenditure" figure and a "Net Domestic
+  // Financing" figure just because they were each the best match per year.
+  if (!sameMetricKind(fromFig, toFig)) return null
+  // Same 2007 redenomination guard as computeGrowthCalculations.
+  if (isRedenominationArtifact(fromYear, toYear)) return null
 
   const cagrPct = (Math.pow(toFig.value / fromFig.value, 1 / periods) - 1) * 100
   return {
@@ -214,6 +344,7 @@ export function computeCAGR(chunks: { chunk_text: string }[]): CAGRCalculation |
     unit: 'million',
     cagrPct: Math.round(cagrPct * 10) / 10,
     citations: [...new Set([fromFig.citationIndex, toFig.citationIndex])],
+    label: fromFig.label || toFig.label,
   }
 }
 
@@ -252,20 +383,30 @@ export function computeAggregate(chunks: { chunk_text: string }[], targetYear?: 
 export interface ForecastCalculation {
   baseYears: number[]
   baseValues: number[]
-  forecastYear: number
-  forecastValue: number
+  forecastYears: number[]
+  forecastValues: number[]
   unit: string
   method: 'linear_trend'
   citations: number[]
 }
 
-// Projects the next year's value via simple linear regression over every
+// Projects future values via simple linear regression over every
 // (year, value) point found across the retrieved chunks — handed to the
 // model as a pre-computed forecast so "what might next year's X be" answers
-// don't rely on the model eyeballing a trend.
-export function computeForecast(chunks: { chunk_text: string }[]): ForecastCalculation | null {
+// don't rely on the model eyeballing a trend. Projects up to `periods` years
+// past the last base year, stopping early if a projected value would be <= 0.
+export function computeForecast(chunks: { chunk_text: string }[], periods = 5): ForecastCalculation | null {
   const byYear = figuresByYear(chunks)
-  const years = [...byYear.keys()].sort((a, b) => a - b)
+  let years = [...byYear.keys()].sort((a, b) => a - b)
+  if (years.length < 2) return null
+
+  // 2007 redenomination guard (see isRedenominationArtifact): pre-2007
+  // figures are in old cedis and would corrupt a linear trend mixed with
+  // post-2007 (new cedi) figures. If both exist, forecast from 2007 onward
+  // (recent data is more relevant to a forecast anyway).
+  const pre = years.filter(y => y < 2007)
+  const post = years.filter(y => y >= 2007)
+  if (pre.length && post.length) years = post
   if (years.length < 2) return null
 
   const points = years.map(y => byYear.get(y)!)
@@ -279,15 +420,24 @@ export function computeForecast(chunks: { chunk_text: string }[]): ForecastCalcu
 
   const slope = (n * sumXY - sumX * sumY) / denom
   const intercept = (sumY - slope * sumX) / n
-  const forecastYear = years[years.length - 1] + 1
-  const forecastValue = slope * forecastYear + intercept
-  if (forecastValue <= 0) return null
+  const lastYear = years[years.length - 1]
+
+  const forecastYears: number[] = []
+  const forecastValues: number[] = []
+  for (let i = 1; i <= periods; i++) {
+    const year = lastYear + i
+    const value = slope * year + intercept
+    if (value <= 0) break
+    forecastYears.push(year)
+    forecastValues.push(Math.round(value * 100) / 100)
+  }
+  if (!forecastYears.length) return null
 
   return {
     baseYears: years,
     baseValues: points.map(p => Math.round(p.value * 100) / 100),
-    forecastYear,
-    forecastValue: Math.round(forecastValue * 100) / 100,
+    forecastYears,
+    forecastValues,
     unit: 'million',
     method: 'linear_trend',
     citations: [...new Set(points.map(p => p.citationIndex))],
@@ -366,14 +516,30 @@ export function verifyAnswer(
         validatedFacts.some(vf => vf.value_millions != null && vf.value_millions !== 0 &&
           Math.abs(vf.value_millions - fMs) / Math.abs(vf.value_millions) <= 0.01)
 
-      if (exactMatch || roundedMatch || factMatch) {
+      // A figure equal to the sum or difference of two figures that ARE in
+      // the source (e.g. "revenue grew by ~GHS 1.17bn" derived from two
+      // cited revenue figures) is a correct calculation, not a hallucinated
+      // number — don't penalize the answer for showing its work.
+      const derivedMatch = !exactMatch && !roundedMatch && !factMatch && fMs != null &&
+        sourceMillions.some((a, i) => sourceMillions.some((b, j) => {
+          if (i === j) return false
+          const tol = Math.max(Math.abs(fMs) * 0.005, 0.01)
+          return Math.abs(a + b - fMs) <= tol || Math.abs(Math.abs(a - b) - fMs) <= tol
+        }))
+
+      if (exactMatch || roundedMatch || factMatch || derivedMatch) {
         supportedNumbers++
       } else {
         unsupported.push(f.raw)
       }
     }
 
-    if (percents.length === 1 && amounts.length === 2) {
+    // Only attempt the growth check when both figures have a detected year —
+    // otherwise the sort below is a no-op and "from"/"to" order is ambiguous,
+    // which can produce a false-positive "issue" against a correct answer.
+    const isGrowthSentence = percents.length === 1 && amounts.length === 2
+      && amounts[0].year != null && amounts[1].year != null
+    if (isGrowthSentence) {
       const [a, b] = amounts.sort((x, y) => (x.year ?? 0) - (y.year ?? 0))
       const aMs = toMillions(a)
       const bMs = toMillions(b)
@@ -382,6 +548,43 @@ export function verifyAnswer(
         const claimedPct = percents[0].value
         const ok = Math.abs(actualPct - claimedPct) <= Math.max(1, claimedPct * 0.05)
         growthChecks.push({ claimedPct, actualPct, ok, sentence: sentence.trim() })
+      }
+    }
+
+    // Verify percentage figures too (e.g. sectoral GDP growth rates quoted
+    // from a table) — except ones already covered by the growth-rate check
+    // above, which are computed values not expected to appear verbatim.
+    if (!isGrowthSentence) {
+      for (const f of percents) {
+        totalNumbers++
+        const match = sourceNorm.includes(normNum(f.raw))
+          || sourceText.includes(f.raw)
+          || sourceText.includes(f.value.toFixed(1))
+          || sourceText.includes(Math.abs(f.value).toFixed(1))
+
+        // A percentage equal to the growth rate between two figures that ARE
+        // in the source (e.g. "+9.9%" computed from two cited totals) is a
+        // correct calculation, not a hallucinated figure.
+        const derivedPctMatch = !match && sourceMillions.some((a, i) => sourceMillions.some((b, j) => {
+          if (i === j || a === 0) return false
+          const pct = ((b - a) / a) * 100
+          return Math.abs(pct - f.value) <= Math.max(Math.abs(f.value) * 0.05, 0.5)
+        }))
+
+        // A percentage equal to one source figure expressed as a share of
+        // another (e.g. "-4.0% of GDP" = fiscal balance / GDP * 100) is also
+        // a correct calculation, not a hallucinated figure.
+        const derivedRatioMatch = !match && !derivedPctMatch && sourceMillions.some((a, i) => sourceMillions.some((b, j) => {
+          if (i === j || b === 0) return false
+          const pct = (a / b) * 100
+          return Math.abs(pct - f.value) <= Math.max(Math.abs(f.value) * 0.05, 0.5)
+        }))
+
+        if (match || derivedPctMatch || derivedRatioMatch) {
+          supportedNumbers++
+        } else {
+          unsupported.push(f.raw)
+        }
       }
     }
   }
@@ -399,9 +602,17 @@ export function verifyAnswer(
   // Verification (whether the model's own numbers actually appear in the
   // sources/facts) now dominates the score — a well-retrieved chunk set
   // doesn't matter if the model fabricated the numbers it quoted from it.
-  let confidenceScore = Math.round(
-    0.25 * retrievalComponent + 0.55 * verificationRatio * 100 + 0.2 * growthAccuracy * 100,
-  )
+  let confidenceScore: number
+  if (totalNumbers === 0) {
+    // No numeric claims to check — confidence reflects retrieval quality
+    // directly (the AI verifier's issue penalty, applied by the caller,
+    // covers factual/quote accuracy for these answers).
+    confidenceScore = Math.round(retrievalComponent)
+  } else {
+    confidenceScore = Math.round(
+      0.25 * retrievalComponent + 0.55 * verificationRatio * 100 + 0.2 * growthAccuracy * 100,
+    )
+  }
   // Any unsupported number is a hallucination risk regardless of how well
   // everything else scores — cap the score so it can't read as "High".
   if (unsupported.length > 0) confidenceScore = Math.min(confidenceScore, 60)

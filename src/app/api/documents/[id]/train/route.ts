@@ -4,7 +4,7 @@ import { getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { extractStructuredText, chunkPages, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
 import { canAccessTraining } from '@/lib/roles'
-import { extractFactsFromChunk, tableRecordToFact, runSanityChecks, type FinancialFact } from '@/lib/factExtraction'
+import { extractFactsFromChunk, tableRecordToFact, runSanityChecks, runCrossDocumentCorroboration, type FinancialFact } from '@/lib/factExtraction'
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
 
 export const maxDuration = 300 // 5 min for large documents
@@ -150,6 +150,27 @@ export async function POST(
           await service.from('financial_facts').insert(allFacts)
         }
         send({ stage: 'facts', message: `Extracted ${allFacts.length} financial facts`, progress: 95 })
+
+        // ── 7.5. Cross-document corroboration (national total_budget) ──
+        // runSanityChecks above only sees this document's own facts. Now
+        // that this document's facts are stored, re-check the FULL national
+        // total_budget series across all documents for this tenant — a
+        // figure flagged alternate_estimate here may be exactly corroborated
+        // by another document.
+        try {
+          const { data: allNational } = await service
+            .from('financial_facts')
+            .select('*')
+            .eq('tenant_id', membership.tenant_id)
+            .eq('entity_type', 'national')
+            .eq('metric', 'total_budget')
+          const changed = runCrossDocumentCorroboration((allNational ?? []) as (FinancialFact & { id: string })[])
+          for (const f of changed) {
+            await service.from('financial_facts').update({ flags: f.flags, confidence: f.confidence }).eq('id', f.id)
+          }
+        } catch (err) {
+          console.error('[Train] cross-document corroboration failed', err)
+        }
 
         // ── 8. Mark document as ready ─────────────────────────────
         await service.from('documents').update({ status: 'ready' }).eq('id', id)
