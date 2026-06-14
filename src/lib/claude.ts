@@ -34,21 +34,37 @@ interface ClaudeCompleteOptions {
 }
 
 // Single non-streaming completion — returns the assistant's text response.
+// Retries on 429 (the Claude org's 10k input-tokens/min limit is a per-minute
+// throughput cap, not a balance issue — a short backoff almost always
+// succeeds). Without this, callers like the dashboard insights batch (which
+// fires several of these in parallel) silently swallow 429s via .catch(() =>
+// ''), surfacing as "Insight temporarily unavailable" even though the org has
+// plenty of credit.
+const MAX_CLAUDE_COMPLETE_ATTEMPTS = 3
+
 export async function claudeComplete({ system, messages, maxTokens = 1024, temperature = 0, signal }: ClaudeCompleteOptions): Promise<string> {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: getAnthropicHeaders(),
-    body: JSON.stringify({
-      model: CLAUDE_MODEL,
-      max_tokens: maxTokens,
-      temperature,
-      ...(system ? { system } : {}),
-      messages,
-    }),
-    signal,
-  })
-  if (!res.ok) throw new Error(`Claude API error ${res.status}: ${await res.text()}`)
-  const data = await res.json()
+  let res: Response
+  for (let attempt = 1; attempt <= MAX_CLAUDE_COMPLETE_ATTEMPTS; attempt++) {
+    res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: getAnthropicHeaders(),
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: maxTokens,
+        temperature,
+        ...(system ? { system } : {}),
+        messages,
+      }),
+      signal,
+    })
+    if (res.ok) break
+    if (res.status !== 429 || attempt === MAX_CLAUDE_COMPLETE_ATTEMPTS) {
+      throw new Error(`Claude API error ${res.status}: ${await res.text()}`)
+    }
+    const retryAfter = Number(res.headers.get('retry-after'))
+    await new Promise(r => setTimeout(r, (Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : attempt) * 1000))
+  }
+  const data = await res!.json()
   return (data.content?.[0]?.text ?? '').trim()
 }
 

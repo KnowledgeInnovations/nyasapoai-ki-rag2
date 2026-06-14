@@ -89,6 +89,12 @@ export async function POST(request: NextRequest) {
 
       const context = chunks.map((c, j) => `[${j + 1}] ${c.chunk_text}`).join('\n\n')
 
+      // Stagger the parallel Claude calls — firing all of them in the same
+      // instant is the most common way to trip the org's per-minute
+      // input-token rate limit, even though claudeComplete() now retries
+      // on 429. Spreading them out reduces how often a 429 happens at all.
+      if (i > 0) await new Promise(r => setTimeout(r, i * 300))
+
       const raw = await claudeComplete({
         temperature: 0.3,
         maxTokens: 150,
