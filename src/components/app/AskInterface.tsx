@@ -38,6 +38,23 @@ interface HistoryItem {
   created_at: string
 }
 
+/* ── Typing indicator ─────────────────────────────────────
+   Shown the instant the user's message is sent, before the multi-pass
+   retrieval/analysis pipeline produces a first token — a small bouncing-dot
+   animation (Claude.ai-style), distinct from the shimmer skeleton below. */
+function TypingIndicator() {
+  return (
+    <div className="flex">
+      <div className="flex items-center gap-1 rounded-2xl rounded-tl-sm border border-gray-200 bg-white px-4 py-3 shadow-sm">
+        {[0, 1, 2].map(i => (
+          <span key={i} className="typing-dot inline-block h-1.5 w-1.5 rounded-full bg-gray-400"
+            style={{ animationDelay: `${i * 0.15}s` }} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /* ── Shimmer skeleton ────────────────────────────────────── */
 function ThinkingSkeleton() {
   return (
@@ -250,6 +267,11 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
   // Tracks the convId of the first message in the current session.
   // null = new session (next message will create a sidebar entry).
   // set  = active session (subsequent messages won't add new sidebar entries).
+  // Shows the lightweight typing dots the instant `loading` becomes true;
+  // after a short delay, swaps to the fuller shimmer skeleton — so the user
+  // sees an immediate response while the accuracy pipeline (retrieval,
+  // reranking, fact queries, analysis) is still working in the background.
+  const [showThinkingSkeleton, setShowThinkingSkeleton] = useState(false)
   const [sessionConvId, setSessionConvId] = useState<string | null>(null)
   const sessionConvIdRef = useRef(sessionConvId)
   useEffect(() => { sessionConvIdRef.current = sessionConvId }, [sessionConvId])
@@ -433,6 +455,18 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
     const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX
     if (isNearBottom) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
+
+  // Flip from typing dots to the fuller shimmer skeleton ~500ms after
+  // loading starts; reset immediately once loading ends.
+  useEffect(() => {
+    if (!loading) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setShowThinkingSkeleton(false)
+      return
+    }
+    const t = setTimeout(() => setShowThinkingSkeleton(true), 500)
+    return () => clearTimeout(t)
+  }, [loading])
 
   function autoResize(el: HTMLTextAreaElement) {
     el.style.height = 'auto'
@@ -626,8 +660,11 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
             {messages.map((msg, i) => (
               <MessageBubble key={i} msg={msg} onCiteClick={setActiveSource} />
             ))}
-            {/* Show skeleton only before first token arrives (last msg is still from user) */}
-            {loading && messages[messages.length - 1]?.role === 'user' && <ThinkingSkeleton />}
+            {/* Show typing dots immediately, then the fuller shimmer skeleton —
+                only before the first token arrives (last msg is still from user) */}
+            {loading && messages[messages.length - 1]?.role === 'user' && (
+              showThinkingSkeleton ? <ThinkingSkeleton /> : <TypingIndicator />
+            )}
             <div ref={bottomRef} />
           </div>
         )}

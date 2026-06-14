@@ -47,6 +47,8 @@ Numeric formatting is NOT an issue. Two numbers that are mathematically equal �
 
 Do NOT report general disclaimers, confidence/reliability assessments, or other meta-commentary about the ANSWER as an "issue" — issues must be concrete factual or numeric contradictions, each naming a specific figure or claim from the ANSWER and the conflicting source value.
 
+If the ANSWER includes a "DEVIATION DETECTION"-style statement comparing a year's value to a "neighboring median" or similar computed baseline (e.g. "3,841 ... vs. neighboring median 7,810.12 ... (-50.8%)"), that is a deliberate, intentional anomaly comparison the ANSWER is reporting — NOT a contradiction between two competing source figures for the same year/entity. Do not flag such comparisons as issues.
+
 Before flagging anything, find the EXACT sentence in the ANSWER containing the claim and re-read it carefully — many candidate issues turn out not to actually be present in the ANSWER text (e.g. the ANSWER already states the correct total/percentage). Only flag a claim if you can quote the specific wrong number or statement that literally appears in the ANSWER. If you are not at least 80% confident an issue is real, do not include it.
 
 When checking a per-year (or per-entity) figure in the ANSWER against the VALIDATED FACTS table, you MUST compare it against the VALIDATED FACTS row for that SAME year/entity — never flag a mismatch against a different year's or entity's row. A figure that correctly matches its own year's row in VALIDATED FACTS is NOT an issue, even if it differs from another year's value.
@@ -164,6 +166,35 @@ function isFalseStatedValue(issue: string, answer: string): boolean {
   return !numberAppearsIn(stated, answer)
 }
 
+// gpt-4o-mini sometimes flags the DEVIATION DETECTION block's own "<value>
+// vs. neighboring median <baseline>" comparison as a contradiction between
+// two source figures for the same year — e.g. "2017 capital expenditure
+// reported as 3,841 million contradicts 7,810.12 million median from
+// sources". The median is a computed baseline across surrounding years, not
+// a competing reported figure for that year, and the comparison is the
+// INTENDED anomaly being reported. If the issue mentions "median" and both
+// numbers it cites appear together in the ANSWER, it's restating the
+// ANSWER's own deliberate comparison — not a real contradiction.
+function isDeviationMedianIssue(issue: string, answer: string): boolean {
+  if (!/median/i.test(issue)) return false
+  const nums = extractNonYearNumbers(issue)
+  return nums.length >= 2 && nums.every(n => numberAppearsIn(n, answer))
+}
+
+// gpt-4o-mini sometimes calls a claim "misleading" or "incorrect" on purely
+// subjective/interpretive grounds (e.g. "Claim of a 1,027% increase is
+// misleading", "N/A for Roads and Highways is incorrect") without naming a
+// specific conflicting source figure — violating the SYSTEM_PROMPT's own
+// requirement that issues name "a specific figure or claim ... and the
+// conflicting source value". Without "stated as X" / "should be Y" /
+// "contradicts" / "instead of" language, there's nothing actionable to act
+// on — filter these out as unsupported subjective commentary.
+function isUnsupportedSubjectiveCritique(issue: string): boolean {
+  const hasContradictionLanguage = /\b(stated as|should be|contradicts|instead of)\b/i.test(issue)
+  if (hasContradictionLanguage) return false
+  return /\b(misleading|incorrect|inaccurate|wrong)\b/i.test(issue)
+}
+
 export async function verifyAnswerWithAI(
   { query, answer, factsBlock, context, signal }: VerifyAnswerWithAIArgs,
 ): Promise<AnswerVerificationResult> {
@@ -198,6 +229,8 @@ export async function verifyAnswerWithAI(
       .filter((i: string) => !isCrossYearFactMismatch(i, factsBlock))
       .filter((i: string) => !isAbsenceMetaIssue(i))
       .filter((i: string) => !isFalseStatedValue(i, answer))
+      .filter((i: string) => !isDeviationMedianIssue(i, answer))
+      .filter((i: string) => !isUnsupportedSubjectiveCritique(i))
     return { issues }
   } catch (e) {
     if (e instanceof Error && e.name === 'AbortError') throw e
