@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { slugify, validateSubdomainFormat } from '@/lib/tenant'
+import { tenantUrl } from '@/lib/domain'
 
 type SubdomainStatus = 'idle' | 'checking' | 'available' | 'unavailable'
 
@@ -128,8 +129,10 @@ export default function SetupWorkspacePage() {
         setError(data.error ?? 'Something went wrong. Please try again.')
         return
       }
-      router.push('/ask')
-      router.refresh()
+      // Full navigation (not router.push) — the workspace now lives on its own
+      // subdomain. The shared cookie domain (see src/lib/domain.ts) keeps the
+      // session valid there.
+      window.location.href = tenantUrl(subdomain, '/ask')
     } catch {
       setError('Something went wrong. Please try again.')
     } finally {

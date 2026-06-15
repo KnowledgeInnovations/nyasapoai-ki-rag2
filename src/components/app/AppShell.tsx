@@ -9,10 +9,11 @@ interface Props {
   user: User
   role: string
   tenantName: string
+  isPlatformAdmin?: boolean
   children: React.ReactNode
 }
 
-export default function AppShell({ user, role, tenantName, children }: Props) {
+export default function AppShell({ user, role, tenantName, isPlatformAdmin, children }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
 
@@ -50,6 +51,7 @@ export default function AppShell({ user, role, tenantName, children }: Props) {
       <AppSidebar
         role={role}
         tenantName={tenantName}
+        isPlatformAdmin={isPlatformAdmin}
         collapsed={collapsed}
         mobileOpen={mobileOpen}
         onClose={() => setMobileOpen(false)}

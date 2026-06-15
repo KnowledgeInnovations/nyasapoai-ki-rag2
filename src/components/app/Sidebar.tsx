@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
-  MessageSquare, FileText, LayoutDashboard, Settings, Brain, Users,
+  MessageSquare, FileText, LayoutDashboard, Settings, Brain, Users, Building2,
   ChevronLeft, ChevronRight, X, Plus, History, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -19,7 +19,7 @@ interface HistoryItem {
   created_at: string
 }
 
-function getNavItems(role: string) {
+function getNavItems(role: string, isPlatformAdmin?: boolean) {
   const r = normalizeRole(role)
   return [
     { href: '/ask',        icon: MessageSquare,   label: 'Ask AI'     },
@@ -27,6 +27,7 @@ function getNavItems(role: string) {
     ...(canAccessTraining(r)   ? [{ href: '/training',   icon: Brain,           label: 'Training'   }] : []),
     ...(canAccessDashboards(r) ? [{ href: '/dashboards', icon: LayoutDashboard, label: 'Dashboards' }] : []),
     ...(canManageUsers(r)      ? [{ href: '/users',      icon: Users,           label: 'Users'      }] : []),
+    ...(isPlatformAdmin        ? [{ href: '/admin/tenants', icon: Building2,    label: 'Tenants'    }] : []),
     { href: '/settings',   icon: Settings,         label: 'Settings'   },
   ]
 }
@@ -34,6 +35,7 @@ function getNavItems(role: string) {
 interface Props {
   role: string
   tenantName: string
+  isPlatformAdmin?: boolean
   collapsed: boolean
   mobileOpen: boolean
   onClose: () => void
@@ -56,11 +58,11 @@ function deriveTitle(query: string): string {
   return words.join(' ') + (q.split(/\s+/).length > 6 ? '…' : '')
 }
 
-export default function AppSidebar({ role, tenantName, collapsed, mobileOpen, onClose, onToggle }: Props) {
+export default function AppSidebar({ role, tenantName, isPlatformAdmin, collapsed, mobileOpen, onClose, onToggle }: Props) {
   const pathname = usePathname()
   const router   = useRouter()
   const isAsk    = pathname.startsWith('/ask')
-  const navItems = useMemo(() => getNavItems(role), [role])
+  const navItems = useMemo(() => getNavItems(role, isPlatformAdmin), [role, isPlatformAdmin])
   const initials = useMemo(() => tenantInitials(tenantName), [tenantName])
 
   // Prefetch all nav routes immediately so link clicks feel instant

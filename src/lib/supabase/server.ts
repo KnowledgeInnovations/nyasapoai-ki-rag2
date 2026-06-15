@@ -1,8 +1,9 @@
 import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import { cache } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { normalizeRole, type Role } from '@/lib/roles'
+import { cookieDomainForHost } from '@/lib/domain'
 
 // ── Module-level caches ────────────────────────────────────────
 // Survive across requests within the same server process.
@@ -17,7 +18,7 @@ const TENANT_TTL     = 300_000 // 5 min — tenant name/subdomain rarely changes
 
 const userCache       = new Map<string, Entry<User | null>>()
 const membershipCache = new Map<string, Entry<{ tenant_id: string; role: Role } | null>>()
-const tenantCache      = new Map<string, Entry<{ id: string; name: string; subdomain: string; description: string | null } | null>>()
+const tenantCache      = new Map<string, Entry<{ id: string; name: string; subdomain: string; description: string | null; is_platform: boolean } | null>>()
 
 /** Derive a compact, unique cache key from the Supabase session cookies. */
 function authKey(cookieStore: Awaited<ReturnType<typeof cookies>>): string {
@@ -38,10 +39,12 @@ function evict<T>(map: Map<string, Entry<T>>, maxSize = 400) {
 // ── One Supabase client per request ───────────────────────────
 export const createClient = cache(async () => {
   const cookieStore = await cookies()
+  const host = (await headers()).get('host')
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      cookieOptions: { domain: cookieDomainForHost(host) },
       cookies: {
         getAll() { return cookieStore.getAll() },
         setAll(cookiesToSet) {
@@ -107,11 +110,11 @@ export const getTenant = cache(async (tenantId: string) => {
   const supabase = await createClient()
   const { data } = await supabase
     .from('tenants')
-    .select('id, name, subdomain, description')
+    .select('id, name, subdomain, description, is_platform')
     .eq('id', tenantId)
     .single()
 
-  const val = data as { id: string; name: string; subdomain: string; description: string | null } | null
+  const val = data as { id: string; name: string; subdomain: string; description: string | null; is_platform: boolean } | null
   evict(tenantCache)
   tenantCache.set(tenantId, { v: val, exp: Date.now() + TENANT_TTL })
   return val

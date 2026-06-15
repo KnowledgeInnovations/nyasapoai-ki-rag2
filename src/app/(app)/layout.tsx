@@ -10,5 +10,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const role = membership.role
   const tenant = await getTenant(membership.tenant_id)
   const tenantName = tenant?.name ?? 'NyasapoAI'
-  return <AppShell user={user} role={role} tenantName={tenantName}>{children}</AppShell>
+  const isPlatformAdmin = role === 'senior' && tenant?.is_platform === true
+  return <AppShell user={user} role={role} tenantName={tenantName} isPlatformAdmin={isPlatformAdmin}>{children}</AppShell>
 }
