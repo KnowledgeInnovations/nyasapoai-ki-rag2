@@ -15,13 +15,31 @@ export function cookieDomainForHost(host: string | null | undefined): string | u
   return undefined
 }
 
+/** Build the URL for a tenant's subdomain, given a host (e.g. from a `Host` header). */
+export function tenantUrlForHost(subdomain: string, path: string, host: string | null | undefined): string {
+  const hostname = (host ?? '').split(':')[0]
+  const port = host?.includes(':') ? `:${host.split(':')[1]}` : ''
+  const isLocal = hostname === 'localhost' || hostname.endsWith('.localhost')
+  const protocol = isLocal ? 'http:' : 'https:'
+  const base = isLocal ? 'localhost' : ROOT_DOMAIN
+  return `${protocol}//${subdomain}.${base}${port}${path}`
+}
+
 /** Build the URL for a tenant's subdomain, preserving the current protocol/port. */
 export function tenantUrl(subdomain: string, path: string): string {
   if (typeof window === 'undefined') return path
-  const { protocol, host } = window.location
-  const port = host.includes(':') ? `:${host.split(':')[1]}` : ''
-  const base = host === 'localhost' || host.endsWith('.localhost') || host.startsWith('localhost:')
-    ? 'localhost'
-    : ROOT_DOMAIN
-  return `${protocol}//${subdomain}.${base}${port}${path}`
+  return tenantUrlForHost(subdomain, path, window.location.host)
+}
+
+/**
+ * Extract the tenant subdomain from a host, or null if the host is the root
+ * domain, `www`, or unrelated (e.g. a *.vercel.app preview deployment).
+ */
+export function subdomainFromHost(host: string | null | undefined): string | null {
+  if (!host) return null
+  const hostname = host.split(':')[0]
+  let sub: string | null = null
+  if (hostname.endsWith(`.${ROOT_DOMAIN}`)) sub = hostname.slice(0, -(ROOT_DOMAIN.length + 1))
+  else if (hostname.endsWith('.localhost')) sub = hostname.slice(0, -'.localhost'.length)
+  return sub && sub !== 'www' ? sub : null
 }

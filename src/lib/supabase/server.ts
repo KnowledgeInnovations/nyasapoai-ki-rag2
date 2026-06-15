@@ -1,4 +1,5 @@
 import { createServerClient } from '@supabase/ssr'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { cookies, headers } from 'next/headers'
 import { cache } from 'react'
 import type { User } from '@supabase/supabase-js'
@@ -19,6 +20,7 @@ const TENANT_TTL     = 300_000 // 5 min — tenant name/subdomain rarely changes
 const userCache       = new Map<string, Entry<User | null>>()
 const membershipCache = new Map<string, Entry<{ tenant_id: string; role: Role } | null>>()
 const tenantCache      = new Map<string, Entry<{ id: string; name: string; subdomain: string; description: string | null; is_platform: boolean } | null>>()
+const subdomainTenantCache = new Map<string, Entry<{ id: string; name: string; subdomain: string } | null>>()
 
 /** Derive a compact, unique cache key from the Supabase session cookies. */
 function authKey(cookieStore: Awaited<ReturnType<typeof cookies>>): string {
@@ -118,6 +120,30 @@ export const getTenant = cache(async (tenantId: string) => {
   evict(tenantCache)
   tenantCache.set(tenantId, { v: val, exp: Date.now() + TENANT_TTL })
   return val
+})
+
+// ── getTenantBySubdomain — public lookup for unauthenticated visitors ──
+// Used by the login page to brand itself for a tenant's subdomain. Reads
+// via the service role since the visitor isn't authenticated yet (tenants
+// RLS only allows members to read their own tenant row).
+export const getTenantBySubdomain = cache(async (subdomain: string) => {
+  const hit = subdomainTenantCache.get(subdomain)
+  if (hit && hit.exp > Date.now()) return hit.v
+
+  const service = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  )
+  const { data } = await service
+    .from('tenants')
+    .select('id, name, subdomain')
+    .eq('subdomain', subdomain)
+    .maybeSingle()
+
+  evict(subdomainTenantCache)
+  subdomainTenantCache.set(subdomain, { v: data, exp: Date.now() + TENANT_TTL })
+  return data
 })
 
 // Drop a user's cached membership (role/tenant) immediately — call after
