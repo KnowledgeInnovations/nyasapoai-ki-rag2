@@ -72,14 +72,20 @@ export const getUser = cache(async () => {
   }
 
   const supabase = await createClient()
-  const { data } = await supabase.auth.getUser()
+  // Use getSession() (local JWT verification, no network call) instead of
+  // getUser() (which makes a network round-trip to /auth/v1/user and can
+  // trigger a refresh attempt that exhausts rate limits when the refresh
+  // token is stale). Middleware already handles token refresh and writes
+  // updated cookies to the forwarded request before server components run.
+  const { data: { session } } = await supabase.auth.getSession()
+  const user = session?.user ?? null
 
   if (key) {
     evict(userCache)
-    userCache.set(key, { v: data.user, exp: Date.now() + USER_TTL })
+    userCache.set(key, { v: user, exp: Date.now() + USER_TTL })
   }
 
-  return data.user
+  return user
 })
 
 // ── getMembership — cached 5 min across requests ───────────────
