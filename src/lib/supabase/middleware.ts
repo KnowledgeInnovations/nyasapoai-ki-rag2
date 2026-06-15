@@ -31,19 +31,39 @@ export async function updateSession(request: NextRequest) {
   // getUser() (the old approach) made a round-trip to Supabase Auth on every
   // navigation, adding 2–8 seconds of latency. Security is still enforced in
   // server components, which call getUser() to verify the token when it matters.
-  const { data: { session }, error } = await supabase.auth.getSession()
+  let session = null
+  let staleSession = false
+  try {
+    const { data, error } = await supabase.auth.getSession()
+    session = data.session
+    staleSession = error?.code === 'refresh_token_not_found'
+  } catch (err) {
+    if (err instanceof Object && (err as { code?: string }).code === 'refresh_token_not_found') {
+      staleSession = true
+    } else {
+      throw err
+    }
+  }
 
   // A stale/duplicate auth cookie (e.g. left over from the cookie-Domain
   // change to share sessions across subdomains) can leave a dead refresh
-  // token that fails on every request, burning the Auth rate limit. Clear
-  // all sb-* cookies so the browser drops it and the user can log in fresh.
-  if (error?.code === 'refresh_token_not_found') {
+  // token that fails on every request, burning the Auth rate limit. Drop the
+  // cookies from both the forwarded request (so this request's server
+  // components see a clean, logged-out state) and the response (so the
+  // browser stops sending them too).
+  if (staleSession) {
     const host = request.headers.get('host')
-    for (const cookie of request.cookies.getAll()) {
-      if (!cookie.name.startsWith('sb-')) continue
-      supabaseResponse.cookies.set(cookie.name, '', { maxAge: 0 })
-      supabaseResponse.cookies.set(cookie.name, '', { maxAge: 0, domain: cookieDomainForHost(host) })
+    const staleCookieNames = request.cookies.getAll()
+      .map(c => c.name)
+      .filter(name => name.startsWith('sb-'))
+
+    for (const name of staleCookieNames) request.cookies.delete(name)
+    supabaseResponse = NextResponse.next({ request })
+    for (const name of staleCookieNames) {
+      supabaseResponse.cookies.set(name, '', { maxAge: 0 })
+      supabaseResponse.cookies.set(name, '', { maxAge: 0, domain: cookieDomainForHost(host) })
     }
+    session = null
   }
 
   return { supabaseResponse, user: session?.user ?? null }
