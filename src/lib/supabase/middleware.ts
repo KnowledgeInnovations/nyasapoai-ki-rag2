@@ -31,7 +31,20 @@ export async function updateSession(request: NextRequest) {
   // getUser() (the old approach) made a round-trip to Supabase Auth on every
   // navigation, adding 2–8 seconds of latency. Security is still enforced in
   // server components, which call getUser() to verify the token when it matters.
-  const { data: { session } } = await supabase.auth.getSession()
+  const { data: { session }, error } = await supabase.auth.getSession()
+
+  // A stale/duplicate auth cookie (e.g. left over from the cookie-Domain
+  // change to share sessions across subdomains) can leave a dead refresh
+  // token that fails on every request, burning the Auth rate limit. Clear
+  // all sb-* cookies so the browser drops it and the user can log in fresh.
+  if (error?.code === 'refresh_token_not_found') {
+    const host = request.headers.get('host')
+    for (const cookie of request.cookies.getAll()) {
+      if (!cookie.name.startsWith('sb-')) continue
+      supabaseResponse.cookies.set(cookie.name, '', { maxAge: 0 })
+      supabaseResponse.cookies.set(cookie.name, '', { maxAge: 0, domain: cookieDomainForHost(host) })
+    }
+  }
 
   return { supabaseResponse, user: session?.user ?? null }
 }
