@@ -25,6 +25,16 @@ export function tenantUrlForHost(subdomain: string, path: string, host: string |
   return `${protocol}//${subdomain}.${base}${port}${path}`
 }
 
+/** Build a URL on the root domain (no tenant subdomain), given a host. */
+export function rootUrlForHost(path: string, host: string | null | undefined): string {
+  const hostname = (host ?? '').split(':')[0]
+  const port = host?.includes(':') ? `:${host.split(':')[1]}` : ''
+  const isLocal = hostname === 'localhost' || hostname.endsWith('.localhost')
+  const protocol = isLocal ? 'http:' : 'https:'
+  const base = isLocal ? 'localhost' : ROOT_DOMAIN
+  return `${protocol}//${base}${port}${path}`
+}
+
 /** Build the URL for a tenant's subdomain, preserving the current protocol/port. */
 export function tenantUrl(subdomain: string, path: string): string {
   if (typeof window === 'undefined') return path

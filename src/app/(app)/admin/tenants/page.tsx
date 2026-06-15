@@ -25,6 +25,7 @@ export default async function TenantsPage() {
   const { data: tenants } = await service
     .from('tenants')
     .select('id, name, subdomain, plan, created_at, is_platform, memberships(count)')
+    .eq('is_platform', false)
     .order('created_at', { ascending: false })
 
   type Row = {
