@@ -8,6 +8,7 @@ create table public.tenants (
   id          uuid primary key default gen_random_uuid(),
   name        text not null,
   subdomain   text not null unique,
+  description text,
   plan        text not null default 'starter' check (plan in ('starter', 'professional', 'enterprise')),
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()

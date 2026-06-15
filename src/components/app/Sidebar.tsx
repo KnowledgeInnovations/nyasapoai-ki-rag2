@@ -33,10 +33,19 @@ function getNavItems(role: string) {
 
 interface Props {
   role: string
+  tenantName: string
   collapsed: boolean
   mobileOpen: boolean
   onClose: () => void
   onToggle: () => void
+}
+
+// Derive a 1-2 letter badge from a tenant name, e.g. "Knowledge Innovations" -> "KI"
+function tenantInitials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return 'NA'
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
+  return (words[0][0] + words[1][0]).toUpperCase()
 }
 
 // Generate a short readable title from the query
@@ -47,11 +56,12 @@ function deriveTitle(query: string): string {
   return words.join(' ') + (q.split(/\s+/).length > 6 ? '…' : '')
 }
 
-export default function AppSidebar({ role, collapsed, mobileOpen, onClose, onToggle }: Props) {
+export default function AppSidebar({ role, tenantName, collapsed, mobileOpen, onClose, onToggle }: Props) {
   const pathname = usePathname()
   const router   = useRouter()
   const isAsk    = pathname.startsWith('/ask')
   const navItems = useMemo(() => getNavItems(role), [role])
+  const initials = useMemo(() => tenantInitials(tenantName), [tenantName])
 
   // Prefetch all nav routes immediately so link clicks feel instant
   useEffect(() => {
@@ -171,15 +181,15 @@ export default function AppSidebar({ role, collapsed, mobileOpen, onClose, onTog
       <div className="flex h-14 shrink-0 items-center border-b border-gray-100 px-3">
         {collapsed ? (
           <div className="mx-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand text-[11px] font-extrabold text-white shadow-sm">
-            KI
+            {initials}
           </div>
         ) : (
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand text-xs font-extrabold text-white shadow-sm">
-              KI
+              {initials}
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-bold text-gray-900 leading-tight truncate">Knowledge Innovations</p>
+              <p className="text-sm font-bold text-gray-900 leading-tight truncate">{tenantName}</p>
               <p className="text-[10px] leading-tight text-gray-400">Intelligence workspace</p>
             </div>
             <button onClick={onClose}

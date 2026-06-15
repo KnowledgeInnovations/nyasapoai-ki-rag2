@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getMembership } from '@/lib/supabase/server'
+import { getMembership, getTenant } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { claudeComplete } from '@/lib/claude'
+import { DEFAULT_TENANT_DESCRIPTION } from '@/lib/tenant'
 
 // A function, not a module-level constant — see getAnthropicHeaders() in
 // claude.ts for why: Next.js dev-server env reloads can bake a stale/undefined
@@ -26,6 +27,10 @@ function svc() {
 export async function POST(request: NextRequest) {
   const membership = await getMembership()
   if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const tenant = await getTenant(membership.tenant_id)
+  const orgName = tenant?.name ?? 'NyasapoAI'
+  const orgDescription = tenant?.description ?? DEFAULT_TENANT_DESCRIPTION
 
   const body = await request.json().catch(() => null) as { question?: string; label?: string } | null
   const { question, label } = body ?? {}
@@ -74,7 +79,7 @@ export async function POST(request: NextRequest) {
   const raw = await claudeComplete({
     temperature: 0.3,
     maxTokens: 250,
-    system: `You are a sharp business analyst for Knowledge Innovations, a Ghanaian AI strategy, FinTech, and digital transformation consultancy.
+    system: `You are a sharp business analyst for ${orgName}, ${orgDescription}.
 Analyse the document excerpts and answer the question directly and concisely (2–4 sentences max).
 Focus on real numbers, dates, names, and facts you can see.
 Be honest: flag problems clearly. Praise progress where real.

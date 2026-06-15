@@ -56,13 +56,13 @@ function TypingIndicator() {
 }
 
 /* ── Shimmer skeleton ────────────────────────────────────── */
-function ThinkingSkeleton() {
+function ThinkingSkeleton({ tenantName }: { tenantName: string }) {
   return (
     <div className="flex">
       <div className="min-w-0 flex-1 rounded-2xl rounded-tl-sm border border-gray-200 bg-white px-4 py-3.5 shadow-sm sm:max-w-3xl sm:px-5 sm:py-4">
         <div className="mb-4 flex items-center gap-2">
           <Sparkles className="h-3.5 w-3.5 animate-pulse text-brand" />
-          <span className="text-xs font-semibold text-gray-400">Knowledge Innovations AI is thinking…</span>
+          <span className="text-xs font-semibold text-gray-400">{tenantName} AI is thinking…</span>
         </div>
         <div className="space-y-3">
           {[100, 88, 94, 72].map((pct, i) => (
@@ -227,15 +227,15 @@ const SUGGESTIONS = [
   { text: 'What is the current status of our flagship project?', category: 'Projects' },
 ]
 
-function WelcomeScreen({ greeting, firstName, onSuggest }: {
-  greeting: string; firstName: string; onSuggest: (q: string) => void
+function WelcomeScreen({ greeting, firstName, tenantName, onSuggest }: {
+  greeting: string; firstName: string; tenantName: string; onSuggest: (q: string) => void
 }) {
   return (
     <div className="flex min-h-full flex-col items-center justify-center px-4 py-10">
       <div className="w-full max-w-lg">
         <h2 className="text-center text-2xl font-extrabold text-gray-900">{greeting}, {firstName}</h2>
         <p className="mt-1.5 text-center text-sm text-gray-500">
-          Ask anything across your Knowledge Innovations documents.
+          Ask anything across your {tenantName} documents.
         </p>
 
         {/* Always 2×2 grid — works on all screen sizes */}
@@ -259,7 +259,7 @@ function WelcomeScreen({ greeting, firstName, onSuggest }: {
 }
 
 /* ── Main component ──────────────────────────────────────── */
-export default function AskInterface({ userName = 'there' }: { userName?: string }) {
+export default function AskInterface({ userName = 'there', tenantName = 'NyasapoAI' }: { userName?: string; tenantName?: string }) {
   const [messages,      setMessages]      = useState<Message[]>([])
   const [input,         setInput]         = useState('')
   const [loading,       setLoading]       = useState(false)
@@ -654,7 +654,7 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
       {/* Messages — min-h-0 fixes flex overflow on iOS Safari */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto bg-[#f8f9fc]" style={{ WebkitOverflowScrolling: 'touch' }}>
         {messages.length === 0 ? (
-          <WelcomeScreen greeting={greeting} firstName={firstName} onSuggest={submit} />
+          <WelcomeScreen greeting={greeting} firstName={firstName} tenantName={tenantName} onSuggest={submit} />
         ) : (
           <div className="mx-auto max-w-3xl space-y-6 px-3 py-6 sm:px-6 sm:py-8">
             {messages.map((msg, i) => (
@@ -663,7 +663,7 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
             {/* Show typing dots immediately, then the fuller shimmer skeleton —
                 only before the first token arrives (last msg is still from user) */}
             {loading && messages[messages.length - 1]?.role === 'user' && (
-              showThinkingSkeleton ? <ThinkingSkeleton /> : <TypingIndicator />
+              showThinkingSkeleton ? <ThinkingSkeleton tenantName={tenantName} /> : <TypingIndicator />
             )}
             <div ref={bottomRef} />
           </div>
@@ -689,7 +689,7 @@ export default function AskInterface({ userName = 'there' }: { userName?: string
               ref={textareaRef} rows={1} value={input}
               onChange={e => { setInput(e.target.value); autoResize(e.target) }}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(input) } }}
-              placeholder="Ask anything about your Knowledge Innovations documents…"
+              placeholder={`Ask anything about your ${tenantName} documents…`}
               className="flex-1 resize-none bg-transparent text-base text-gray-900 placeholder-gray-400 focus:outline-none sm:text-sm"
               style={{ minHeight: '24px', maxHeight: '120px', fontSize: '16px' }}
             />

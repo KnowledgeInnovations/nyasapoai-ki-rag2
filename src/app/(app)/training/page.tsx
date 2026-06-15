@@ -5,7 +5,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 import TrainingClient from '@/components/app/TrainingClient'
 import { canAccessTraining } from '@/lib/roles'
 
-export const metadata: Metadata = { title: 'AI Training - Knowledge Innovations' }
+export const metadata: Metadata = { title: 'AI Training - NyasapoAI' }
 
 function svc() {
   return createServiceClient(

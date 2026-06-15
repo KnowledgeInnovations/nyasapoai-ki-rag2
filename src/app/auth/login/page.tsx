@@ -86,7 +86,7 @@ function LoginForm() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-extrabold text-gray-900">Welcome back</h2>
-        <p className="mt-1 text-sm text-gray-500">Sign in to your Knowledge Innovations workspace</p>
+        <p className="mt-1 text-sm text-gray-500">Sign in to your NyasapoAI workspace</p>
       </div>
 
       {/* Mode tabs */}
@@ -117,7 +117,7 @@ function LoginForm() {
               autoFocus
               value={email}
               onChange={e => setEmail(e.target.value)}
-              placeholder="you@knowledgeinnovations.com"
+              placeholder="you@company.com"
               className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-base text-gray-900 placeholder-gray-400 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10 sm:text-sm"
             />
           </div>
@@ -157,7 +157,7 @@ function LoginForm() {
               autoFocus
               value={email}
               onChange={e => setEmail(e.target.value)}
-              placeholder="you@knowledgeinnovations.com"
+              placeholder="you@company.com"
               className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-base text-gray-900 placeholder-gray-400 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10 sm:text-sm"
             />
           </div>
@@ -190,21 +190,13 @@ export default function LoginPage() {
 
         <div className="relative z-10 flex flex-1 flex-col">
           {/* Logo */}
-          <a href={HOME_URL} className="inline-flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand text-sm font-extrabold text-white shadow-sm">
-              KI
-            </div>
-            <div>
-              <p className="text-sm font-extrabold text-gray-900 leading-tight">Knowledge Innovations</p>
-              <p className="text-[11px] text-gray-500 leading-tight">Intelligence workspace</p>
-            </div>
+          <a href={HOME_URL} className="inline-flex items-center gap-2">
+            <span className="text-2xl font-bold text-brand">Nyansapo</span>
+            <span className="rounded-md bg-brand px-1.5 py-0.5 text-xs font-semibold text-white">AI</span>
           </a>
 
           {/* Hero copy */}
           <div className="mt-auto">
-            <p className="mb-4 text-[11px] font-bold uppercase tracking-widest text-brand">
-              Powered by NyasapoAI
-            </p>
             <h1 className="text-4xl font-extrabold leading-[1.15] text-gray-900">
               Every answer.<br />
               Every source.<br />
@@ -227,7 +219,7 @@ export default function LoginPage() {
           </div>
 
           <p className="mt-12 text-[11px] text-gray-400">
-            © {new Date().getFullYear()} Knowledge Innovations Ltd
+            © {new Date().getFullYear()} NyasapoAI
           </p>
         </div>
       </div>
@@ -236,11 +228,9 @@ export default function LoginPage() {
       <div className="flex flex-1 flex-col items-center justify-center bg-[#f8f9fb] px-6 py-12">
 
         {/* Mobile-only logo */}
-        <a href={HOME_URL} className="mb-8 inline-flex items-center gap-3 lg:hidden">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand text-sm font-extrabold text-white shadow-md">
-            KI
-          </div>
-          <span className="text-sm font-extrabold text-gray-900">Knowledge Innovations</span>
+        <a href={HOME_URL} className="mb-8 inline-flex items-center gap-2 lg:hidden">
+          <span className="text-2xl font-bold text-brand">Nyansapo</span>
+          <span className="rounded-md bg-brand px-1.5 py-0.5 text-xs font-semibold text-white">AI</span>
         </a>
 
         {/* Card */}

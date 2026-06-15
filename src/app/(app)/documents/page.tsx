@@ -5,7 +5,7 @@ import type { Document } from '@/types'
 import { mergeWithDbCategories, type DbCategory } from '@/lib/documentCategories'
 import { canUploadDocuments, canDeleteDocuments } from '@/lib/roles'
 
-export const metadata: Metadata = { title: 'Documents - Knowledge Innovations' }
+export const metadata: Metadata = { title: 'Documents - NyasapoAI' }
 
 export default async function DocumentsPage() {
   const membership = await getMembership()

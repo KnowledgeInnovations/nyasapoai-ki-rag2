@@ -13,9 +13,11 @@ type Entry<T> = { v: T; exp: number }
 
 const USER_TTL       = 30_000  // 30 s  — auth check
 const MEMBERSHIP_TTL = 300_000 // 5 min — membership rarely changes
+const TENANT_TTL     = 300_000 // 5 min — tenant name/subdomain rarely changes
 
 const userCache       = new Map<string, Entry<User | null>>()
 const membershipCache = new Map<string, Entry<{ tenant_id: string; role: Role } | null>>()
+const tenantCache      = new Map<string, Entry<{ id: string; name: string; subdomain: string; description: string | null } | null>>()
 
 /** Derive a compact, unique cache key from the Supabase session cookies. */
 function authKey(cookieStore: Awaited<ReturnType<typeof cookies>>): string {
@@ -96,3 +98,30 @@ export const getMembership = cache(async () => {
   membershipCache.set(user.id, { v: val, exp: Date.now() + MEMBERSHIP_TTL })
   return val
 })
+
+// ── getTenant — cached 5 min across requests ───────────────────
+export const getTenant = cache(async (tenantId: string) => {
+  const hit = tenantCache.get(tenantId)
+  if (hit && hit.exp > Date.now()) return hit.v
+
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('tenants')
+    .select('id, name, subdomain, description')
+    .eq('id', tenantId)
+    .single()
+
+  const val = data as { id: string; name: string; subdomain: string; description: string | null } | null
+  evict(tenantCache)
+  tenantCache.set(tenantId, { v: val, exp: Date.now() + TENANT_TTL })
+  return val
+})
+
+// Drop a user's cached membership (role/tenant) immediately — call after
+// updating or removing a membership row via the service client, which
+// bypasses getMembership()'s normal read-through caching. Without this, the
+// affected user's role/permission checks keep returning the stale cached
+// value for up to MEMBERSHIP_TTL.
+export function invalidateMembership(userId: string) {
+  membershipCache.delete(userId)
+}

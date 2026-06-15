@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient, getUser, getMembership } from '@/lib/supabase/server'
+import { createClient, getUser, getMembership, getTenant } from '@/lib/supabase/server'
+import { DEFAULT_TENANT_DESCRIPTION } from '@/lib/tenant'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { classifyQuery, computeGrowthCalculations, computeCAGR, computeAggregate, computeForecast, verifyAnswer, type QueryType, type FactForVerification } from '@/lib/ragAnalysis'
 import { rerankChunks } from '@/lib/rerank'
@@ -30,7 +31,7 @@ export const OPENAI_HEADERS = {
 
 // Core rules that apply to any document type (contracts, policies, reports,
 // budgets, etc.) — always included in the system prompt.
-export const CORE_SYSTEM_PROMPT = `You are Knowledge Innovations AI, the assistant for Knowledge Innovations, a Ghanaian AI strategy, FinTech, and digital transformation consultancy.
+export const coreSystemPrompt = (orgName: string, orgDescription: string) => `You are ${orgName} AI, the assistant for ${orgName}, ${orgDescription}.
 
 Personality: warm, polite, professional — a knowledgeable colleague always ready to help.
 
@@ -314,6 +315,10 @@ export async function POST(request: NextRequest) {
   if (!user)       return new Response('Unauthorized', { status: 401 })
   if (!membership) return new Response('No workspace',  { status: 403 })
 
+  const tenant = await getTenant(membership.tenant_id)
+  const orgName = tenant?.name ?? 'NyasapoAI'
+  const orgDescription = tenant?.description ?? DEFAULT_TENANT_DESCRIPTION
+
   const supabase = await createClient()
 
   let body: unknown
@@ -328,8 +333,8 @@ export async function POST(request: NextRequest) {
   // push the prompt over the org's 10k input-tokens/min limit (same class of
   // issue as MAX_CONTEXT_CHUNKS/MAX_CHUNK_CHARS below).
   type HistMsg = { role: 'user' | 'assistant'; content: string }
-  const MAX_HISTORY_MESSAGES = 10
-  const MAX_HISTORY_CHARS = 2000
+  const MAX_HISTORY_MESSAGES = 6
+  const MAX_HISTORY_CHARS = 1200
   // Index this turn's AI message will occupy in conversations.messages —
   // used to scope citation rows to the message that cited them (see
   // migration 012_citation_message_index).
@@ -387,7 +392,7 @@ export async function POST(request: NextRequest) {
     const firstName = (user.user_metadata?.name || user.email?.split('@')[0] || 'there').split(/\s+/)[0]
     const msg = await claudeComplete({
       temperature: 0.7, maxTokens: 120,
-      system: `You are Knowledge Innovations AI, a friendly AI document assistant for Knowledge Innovations — a Ghanaian AI strategy, FinTech, and digital transformation consultancy. The user sent a short conversational message. Reply warmly in 1–2 sentences. Address them as ${firstName}. Stay in character. Gently remind them you can help with documents if appropriate. Use the conversation history below to understand context before responding.`,
+      system: `You are ${orgName} AI, a friendly AI document assistant for ${orgName} — ${orgDescription}. The user sent a short conversational message. Reply warmly in 1–2 sentences. Address them as ${firstName}. Stay in character. Gently remind them you can help with documents if appropriate. Use the conversation history below to understand context before responding.`,
       messages: [
         ...historyMsgs,
         { role: 'user', content: query },
@@ -528,14 +533,20 @@ export async function POST(request: NextRequest) {
     // over the org's 10,000 input-tokens/min limit, surfacing as a 429. The
     // highest-ranked reranked chunks are first in the array, so truncating
     // keeps those and trims the lowest-ranked per-doc additions.
-    const MAX_CONTEXT_CHUNKS = 15
+    // isDeepSearch queries (broad "for each year"/comparison/trend) are the
+    // ones that both pull the most per-doc chunks AND populate the largest
+    // VALIDATED FACTS + analysis blocks (which the system prompt already
+    // treats as the authoritative source for those queries) — so trim
+    // excerpts more aggressively for them specifically, rather than for
+    // every query.
+    const MAX_CONTEXT_CHUNKS = isDeepSearch ? 10 : 15
     if (chunks.length > MAX_CONTEXT_CHUNKS) chunks.length = MAX_CONTEXT_CHUNKS
 
     /* ── No matching chunks — answer from inventory ─────────── */
     if (!chunks?.length) {
       const msg = await claudeComplete({
         temperature: 0.4, maxTokens: 250,
-        system: `You are Knowledge Innovations AI, the assistant for Knowledge Innovations (a Ghanaian AI strategy, FinTech, and digital transformation consultancy).
+        system: `You are ${orgName} AI, the assistant for ${orgName} (${orgDescription}).
 No specific document excerpts matched this query, but you have the complete file inventory below.
 IMPORTANT: If the user asks whether a file or category of document exists, CHECK the inventory and answer directly — "Yes, we have..." or "No, there are none...". Never say you cannot access files when they appear in the inventory. Be specific about names and categories.`,
         messages: [
@@ -569,8 +580,12 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
     }
 
     // Truncate any single oversized chunk so one large chunk can't dominate
-    // the input-token budget (org cap is 10k input tokens/min).
-    const MAX_CHUNK_CHARS = 2000
+    // the input-token budget (org cap is 10k input tokens/min). isDeepSearch
+    // queries already get a smaller MAX_CONTEXT_CHUNKS above for the same
+    // reason — shrink the per-chunk budget too so the combined excerpts
+    // block stays well under the limit even with a large VALIDATED FACTS /
+    // analysis block alongside it.
+    const MAX_CHUNK_CHARS = isDeepSearch ? 1200 : 2000
     const context = chunks
       .map((c, i) => `[${i + 1}] ${c.chunk_text.length > MAX_CHUNK_CHARS ? c.chunk_text.slice(0, MAX_CHUNK_CHARS) + '…' : c.chunk_text}`)
       .join('\n\n')
@@ -1051,7 +1066,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
     // PRE-COMPUTED/VALIDATED FACTS content in the prompt for it to govern —
     // keeps the prompt lean (faster, fewer tokens) for general documents.
     const hasFinancialContext = calcBlock.length > 0 || factsBlock.length > 0
-    const systemPrompt = CORE_SYSTEM_PROMPT + (hasFinancialContext ? FINANCIAL_SYSTEM_PROMPT_ADDENDUM : '')
+    const systemPrompt = coreSystemPrompt(orgName, orgDescription) + (hasFinancialContext ? FINANCIAL_SYSTEM_PROMPT_ADDENDUM : '')
 
     /* ── 5. Stream from Claude ──────────────────────────────── */
     // Large multi-document ("deep search") prompts can push this single

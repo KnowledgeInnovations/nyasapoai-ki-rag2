@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getMembership } from '@/lib/supabase/server'
+import { getMembership, getTenant } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { claudeComplete } from '@/lib/claude'
+import { DEFAULT_TENANT_DESCRIPTION } from '@/lib/tenant'
 
 export const maxDuration = 30
 
@@ -34,6 +35,10 @@ type Sentiment = 'positive' | 'negative' | 'caution' | 'neutral'
 export async function POST(request: NextRequest) {
   const membership = await getMembership()
   if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const tenant = await getTenant(membership.tenant_id)
+  const orgName = tenant?.name ?? 'NyasapoAI'
+  const orgDescription = tenant?.description ?? DEFAULT_TENANT_DESCRIPTION
 
   const body = await request.json().catch(() => null) as { questions?: InsightQuestion[] } | null
   const questions = (body?.questions ?? []).slice(0, MAX_QUESTIONS)
@@ -98,7 +103,7 @@ export async function POST(request: NextRequest) {
       const raw = await claudeComplete({
         temperature: 0.3,
         maxTokens: 150,
-        system: `You are a business analyst for Knowledge Innovations, a Ghanaian AI strategy, FinTech, and digital transformation consultancy. Answer in 2-3 sentences with specific facts, figures, and names from the documents. End with: SENTIMENT:positive OR SENTIMENT:negative OR SENTIMENT:caution OR SENTIMENT:neutral`,
+        system: `You are a business analyst for ${orgName}, ${orgDescription}. Answer in 2-3 sentences with specific facts, figures, and names from the documents. End with: SENTIMENT:positive OR SENTIMENT:negative OR SENTIMENT:caution OR SENTIMENT:neutral`,
         messages: [
           {
             role: 'user',
