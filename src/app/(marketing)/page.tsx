@@ -11,8 +11,8 @@ import FAQ from '@/components/marketing/FAQ'
 export const revalidate = 86400
 
 export const metadata: Metadata = {
-  title: 'Knowledge Innovations — Intelligent Document Workspace',
-  description: 'Ask questions across all your Knowledge Innovations engagement files, proposals, and research. Get cited answers in seconds.',
+  title: 'NyasapoAI — Enterprise Document Intelligence',
+  description: 'Turn your organization\'s documents into a decision-ready knowledge base. Ask questions in plain English and get cited, trustworthy answers in seconds.',
 }
 
 const features = [
@@ -82,11 +82,11 @@ export default function HomePage() {
             <div className="max-w-xl">
               <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-brand/20 bg-brand-light px-4 py-1.5 text-xs font-semibold text-brand">
                 <Sparkles className="h-3.5 w-3.5" />
-                Powered by NyasapoAI · Built for Knowledge Innovations
+                Enterprise RAG-based decision intelligence
               </div>
 
               <h1 className="text-5xl font-extrabold leading-[1.1] tracking-tight text-gray-900 xl:text-6xl">
-                Every Engagement.
+                Every Document.
                 <br />Every Decision.
                 <br />
                 <span className="bg-gradient-to-r from-brand to-gold bg-clip-text text-transparent">
@@ -95,14 +95,15 @@ export default function HomePage() {
               </h1>
 
               <p className="mt-6 text-lg leading-relaxed text-gray-500">
-                Ask questions across all your Knowledge Innovations engagement files,
-                proposals, and research reports. Get cited answers in seconds — not hours of searching.
+                Give your team a private AI workspace that turns your documents — contracts,
+                reports, proposals, policies — into instant, cited answers. Get started in
+                minutes with your own secure subdomain.
               </p>
 
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                <Link href="/auth/login"
+                <Link href="/auth/signup"
                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand px-6 py-3.5 text-sm font-bold text-white shadow-xl shadow-brand/25 transition hover:bg-brand-dark">
-                  Sign in to Workspace <ArrowRight className="h-4 w-4" />
+                  Start free <ArrowRight className="h-4 w-4" />
                 </Link>
                 <a href="#demo"
                   className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-6 py-3.5 text-sm font-semibold text-gray-600 transition hover:border-gray-300 hover:text-gray-900">
@@ -133,7 +134,7 @@ export default function HomePage() {
                 {/* Top badge */}
                 <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-4">
                   <span className="h-2 w-2 animate-pulse rounded-full bg-gold" />
-                  <span className="text-xs font-semibold text-brand">Knowledge Innovations Workspace</span>
+                  <span className="text-xs font-semibold text-brand">yourcompany.nyasapoai.com</span>
                 </div>
 
                 {/* Mock conversation preview */}
@@ -198,9 +199,9 @@ export default function HomePage() {
         <div className="mx-auto max-w-7xl">
           <div className="mb-12 text-center">
             <span className="text-xs font-bold uppercase tracking-widest text-brand">See it in action</span>
-            <h2 className="mt-4 text-4xl font-extrabold text-gray-900">Real questions. Real Knowledge Innovations documents.</h2>
+            <h2 className="mt-4 text-4xl font-extrabold text-gray-900">Real questions. Real documents.</h2>
             <p className="mx-auto mt-4 max-w-lg text-gray-500">
-              Click any tab below to see how the system answers real questions across your proposals, engagement reports, and research.
+              Click any tab below to see how NyasapoAI answers real questions across contracts, site reports, and financial records.
             </p>
           </div>
           <DemoChat />
@@ -212,13 +213,13 @@ export default function HomePage() {
         <div className="mx-auto max-w-7xl">
           <div className="mb-14 text-center">
             <span className="text-xs font-bold uppercase tracking-widest text-brand">
-              Why Knowledge Innovations chose NyasapoAI
+              Why teams choose NyasapoAI
             </span>
             <h2 className="mt-4 text-4xl font-extrabold text-gray-900">
-              Intelligence built for modern consultancies
+              Intelligence built for modern organizations
             </h2>
             <p className="mx-auto mt-4 max-w-lg text-gray-500">
-              From engagement reports to board briefings — your documents become a searchable, answerable knowledge base your whole team can rely on.
+              From contracts to board briefings — your documents become a searchable, answerable knowledge base your whole team can rely on.
             </p>
           </div>
 
@@ -253,7 +254,7 @@ export default function HomePage() {
               </Link>
             ))}
           </div>
-          <Link href="/auth/login"
+          <Link href="/auth/signup"
             className="mt-10 inline-flex items-center gap-2 rounded-xl bg-brand-light border border-brand/20 px-6 py-3 text-sm font-bold text-brand transition hover:bg-brand hover:text-white">
             Start asking your own questions <ArrowRight className="h-4 w-4" />
           </Link>
@@ -318,16 +319,16 @@ export default function HomePage() {
       <section className="px-6 py-20 md:px-8">
         <div className="mx-auto max-w-2xl">
           <div className="rounded-3xl border border-brand/15 bg-gradient-to-br from-brand-light to-white p-12 text-center">
-            <p className="text-xs font-bold uppercase tracking-widest text-brand mb-4">Your workspace is ready</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-brand mb-4">Your workspace is one click away</p>
             <h2 className="text-4xl font-extrabold leading-tight text-gray-900">
               Stop searching.<br />Start knowing.
             </h2>
             <p className="mx-auto mt-4 max-w-md text-gray-500">
-              Every Knowledge Innovations document. Every answer. Every source citation. Waiting for you right now.
+              Every document. Every answer. Every source citation. Waiting for you right now.
             </p>
-            <Link href="/auth/login"
+            <Link href="/auth/signup"
               className="mt-8 inline-flex items-center gap-2 rounded-xl bg-brand px-8 py-4 text-base font-bold text-white shadow-xl shadow-brand/25 transition hover:bg-brand-dark">
-              Sign in to Workspace <ArrowRight className="h-5 w-5" />
+              Create your workspace <ArrowRight className="h-5 w-5" />
             </Link>
             <p className="mt-5 text-xs text-gray-400">
               No setup. No training. Ask your first question in under 2 minutes.

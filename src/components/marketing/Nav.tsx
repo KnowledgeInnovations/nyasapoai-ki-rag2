@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 
 const navLinks = [
   { href: '/#features', label: 'Features' },
+  { href: '/pricing', label: 'Pricing' },
   { href: '/security', label: 'Security' },
   { href: '/contact', label: 'Contact' },
 ]
@@ -42,11 +43,9 @@ export default function MarketingNav() {
           : 'bg-transparent'
       )}>
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 md:px-8">
-          <Link href="/" className="flex items-center gap-2.5 shrink-0">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand text-sm font-extrabold text-white shadow-sm">
-              KI
-            </div>
-            <span className="text-base font-extrabold text-gray-900 tracking-tight">Knowledge Innovations</span>
+          <Link href="/" className="flex items-center gap-2 shrink-0">
+            <span className="text-xl font-bold text-brand">Nyansapo</span>
+            <span className="rounded-md bg-brand px-1.5 py-0.5 text-xs font-semibold text-white">AI</span>
           </Link>
 
           <nav className="hidden md:flex items-center gap-1">
@@ -88,11 +87,9 @@ export default function MarketingNav() {
       )}>
         {/* Header */}
         <div className="flex h-16 shrink-0 items-center justify-between px-5 border-b border-gray-200">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand text-sm font-extrabold text-white shadow-sm">
-              KI
-            </div>
-            <span className="text-sm font-extrabold text-gray-900 tracking-tight">Knowledge Innovations</span>
+          <div className="flex items-center gap-2">
+            <span className="text-lg font-bold text-brand">Nyansapo</span>
+            <span className="rounded-md bg-brand px-1.5 py-0.5 text-xs font-semibold text-white">AI</span>
           </div>
           <button onClick={() => setOpen(false)} aria-label="Close menu"
             className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition">
