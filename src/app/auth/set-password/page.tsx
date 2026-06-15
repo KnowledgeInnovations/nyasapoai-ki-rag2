@@ -20,19 +20,32 @@ export default function SetPasswordPage() {
   const [loading, setLoading]     = useState(false)
 
   useEffect(() => {
-    // Invite/recovery links exchange the URL token for a session via
-    // detectSessionInUrl, which may still be in flight on first mount —
-    // a one-shot getSession() can return null for a valid link. Listen for
-    // the auth state change too, so we don't show "invite expired" prematurely.
+    // Supabase invite/recovery links redirect with the session tokens in the
+    // URL hash using the IMPLICIT grant format (#access_token=...&refresh_token=...).
+    // createBrowserClient() hardcodes flowType: 'pkce', which makes the
+    // built-in detectSessionInUrl handling in _initialize() reject this hash
+    // shape with "Not a valid PKCE flow url." and silently skip saving the
+    // session. So we parse the hash ourselves and set the session directly —
+    // setSession() isn't subject to that flow-type check, and still persists
+    // via the same cookie storage the SSR middleware reads.
+    const hashParams = new URLSearchParams(window.location.hash.slice(1))
+    const access_token = hashParams.get('access_token')
+    const refresh_token = hashParams.get('refresh_token')
+
+    if (access_token && refresh_token) {
+      supabase.auth.setSession({ access_token, refresh_token }).then(({ data, error }) => {
+        setValidSession(!!data.session && !error)
+        setChecking(false)
+        window.history.replaceState(null, '', window.location.pathname)
+      })
+      return
+    }
+
+    // No tokens in the URL — fall back to checking for an existing session.
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session) { setValidSession(true); setChecking(false) }
-    })
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setValidSession(!!session)
+      setValidSession(!!data.session)
       setChecking(false)
     })
-    const timeout = setTimeout(() => setChecking(false), 3000)
-    return () => { sub.subscription.unsubscribe(); clearTimeout(timeout) }
   }, [supabase])
 
   async function handleSubmit(e: React.FormEvent) {
