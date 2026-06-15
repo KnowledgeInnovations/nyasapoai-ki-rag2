@@ -29,6 +29,17 @@ export default function SetupWorkspacePage() {
   // in, or already belong to a workspace, send them elsewhere.
   useEffect(() => {
     (async () => {
+      // Signup confirmation links redirect here with the session tokens in
+      // the URL hash using the IMPLICIT grant format. See set-password/page.tsx
+      // for why we parse the hash and call setSession() directly.
+      const hashParams = new URLSearchParams(window.location.hash.slice(1))
+      const access_token = hashParams.get('access_token')
+      const refresh_token = hashParams.get('refresh_token')
+      if (access_token && refresh_token) {
+        await supabase.auth.setSession({ access_token, refresh_token })
+        window.history.replaceState(null, '', window.location.pathname)
+      }
+
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
         router.replace('/auth/login')

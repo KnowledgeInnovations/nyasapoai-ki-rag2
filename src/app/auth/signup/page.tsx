@@ -89,7 +89,10 @@ export default function SignupPage() {
       const { error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { name, workspace_name: orgName.trim(), workspace_subdomain: subdomain } },
+        options: {
+          data: { name, workspace_name: orgName.trim(), workspace_subdomain: subdomain },
+          emailRedirectTo: `${window.location.origin}/auth/setup-workspace`,
+        },
       })
       if (error) setError(error.message)
       else setDone(true)
