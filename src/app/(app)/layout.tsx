@@ -6,8 +6,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const user = await getUser()
   if (!user) redirect('/auth/login')
   const membership = await getMembership()
-  const role = membership?.role ?? 'junior'
-  const tenant = membership ? await getTenant(membership.tenant_id) : null
+  if (!membership) redirect('/auth/setup-workspace')
+  const role = membership.role
+  const tenant = await getTenant(membership.tenant_id)
   const tenantName = tenant?.name ?? 'NyasapoAI'
   return <AppShell user={user} role={role} tenantName={tenantName}>{children}</AppShell>
 }
