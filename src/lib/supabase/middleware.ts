@@ -28,21 +28,25 @@ export async function updateSession(request: NextRequest) {
   )
 
   // getSession() reads the JWT from the cookie locally — no network call (~0ms).
-  // getUser() (the old approach) made a round-trip to Supabase Auth on every
-  // navigation, adding 2–8 seconds of latency. Security is still enforced in
-  // server components, which call getUser() to verify the token when it matters.
+  // Security is enforced in server components and API routes via getUser().
   //
-  // The @supabase/ssr createServerClient registers an internal onAuthStateChange
-  // listener whose _emitInitialSession fires as a floating async IIFE. When the
-  // refresh token is stale it acquires the lock first, calls console.error()
-  // internally, and returns — before our getSession() even runs. Suppress that
-  // specific error code for the duration of the await so Vercel logs stay clean.
-  // The stale-cookie path below handles the actual cookie clearing.
+  // Suppress two specific noise sources during the await:
+  // 1. console.error({ code: 'refresh_token_not_found' }): fired internally by
+  //    @supabase/ssr's _emitInitialSession IIFE when a stale refresh token is
+  //    detected before our getSession() even runs.
+  // 2. console.warn("Using the user object as returned from supabase.auth.getSession()"):
+  //    Supabase's advisory warning about server-side JWT trust — intentionally
+  //    accepted here for performance; server components call getUser() when it matters.
   const _origError = console.error
+  const _origWarn = console.warn
   console.error = (...args: Parameters<typeof console.error>) => {
     const e = args[0]
     if (e != null && typeof e === 'object' && (e as { code?: string }).code === 'refresh_token_not_found') return
     _origError.apply(console, args)
+  }
+  console.warn = (...args: Parameters<typeof console.warn>) => {
+    if (typeof args[0] === 'string' && args[0].startsWith('Using the user object as returned from supabase.auth.getSession()')) return
+    _origWarn.apply(console, args)
   }
   let session = null
   let staleSession = false
@@ -58,29 +62,17 @@ export async function updateSession(request: NextRequest) {
     }
   } finally {
     console.error = _origError
+    console.warn = _origWarn
   }
 
-  // A stale/duplicate auth cookie (e.g. left over from the cookie-Domain
-  // change to share sessions across subdomains) can leave a dead refresh
-  // token that fails on every request, burning the Auth rate limit. Drop the
-  // cookies from both the forwarded request (so this request's server
-  // components see a clean, logged-out state) and the response (so the
-  // browser stops sending them too).
-  //
-  // Two code paths end up here:
-  // A) staleSession=true: getSession() returned refresh_token_not_found directly.
-  // B) staleSession=false, session=null, but sb-* cookies exist: the SSR library's
-  //    internal _emitInitialSession IIFE acquired the lock first, detected the stale
-  //    token, called _removeSession() → applyServerStorage, which cleared the
-  //    domain-scoped cookie but NOT the old host-only cookie from before the domain
-  //    migration. We must explicitly clear both variants so the browser stops
-  //    resending the orphaned host-only cookie on every subsequent navigation.
-  const sbCookieNames = request.cookies.getAll()
-    .map(c => c.name)
-    .filter(name => name.startsWith('sb-'))
-
-  if (staleSession || (!session && sbCookieNames.length > 0)) {
+  // Only clear sb-* cookies when we know for certain the refresh token is dead
+  // (explicit refresh_token_not_found error). Clearing on any null session would
+  // log out users whose cookies are valid but whose access token is mid-refresh.
+  if (staleSession) {
     const host = request.headers.get('host')
+    const sbCookieNames = request.cookies.getAll()
+      .map(c => c.name)
+      .filter(name => name.startsWith('sb-'))
     for (const name of sbCookieNames) request.cookies.delete(name)
     supabaseResponse = NextResponse.next({ request })
     for (const name of sbCookieNames) {
