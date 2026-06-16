@@ -24,18 +24,6 @@ export function getServiceClient() {
   )
 }
 
-// ── Platform tenant cache ─────────────────────────────────────────────────
-// Looked up once per cold-start; the platform tenant rarely (if ever) changes.
-let _platformTenantId: string | null | undefined = undefined
-
-async function getPlatformTenantId(svc: ReturnType<typeof getServiceClient>): Promise<string | null> {
-  if (_platformTenantId !== undefined) return _platformTenantId
-  const { data } = await svc.from('tenants').select('id').eq('is_platform', true).maybeSingle()
-  const resolved = data?.id ?? null
-  _platformTenantId = resolved
-  return resolved
-}
-
 export const OPENAI_HEADERS = {
   'Content-Type': 'application/json',
   Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
@@ -445,18 +433,17 @@ export async function POST(request: NextRequest) {
     }
     let queryPlan: QueryPlan | null = null
 
-    const [embRes, { data: docInventory }, platformTenantId] = await Promise.all([
+    const [embRes, { data: docInventory }] = await Promise.all([
       fetch('https://api.openai.com/v1/embeddings', {
         method: 'POST', headers: OPENAI_HEADERS,
         body: JSON.stringify({ model: 'text-embedding-3-small', input: query }),
       }),
-      // Full document list — includes platform docs so AI knows what exists
       svc.from('documents')
-        .select('title, department, status, tenant_id')
+        .select('title, department, status')
+        .eq('tenant_id', tenantId)
         .eq('status', 'ready')
         .order('created_at', { ascending: false })
         .limit(100),
-      getPlatformTenantId(svc),
       claudeComplete({
         maxTokens: 200,
         messages: [{
@@ -471,29 +458,18 @@ Query: "${query}"`,
     const embData = await embRes.json()
     const queryEmbedding = embData.data[0].embedding
 
-    // Platform docs are shared across all tenants ("powered by the main").
-    // Filter inventory to current tenant + platform tenant docs only.
-    const tenantDocs = (docInventory ?? []).filter(
-      d => d.tenant_id === tenantId || (platformTenantId && d.tenant_id === platformTenantId)
-    )
-
     // Inventory is shown FIRST so the AI always knows what files exist
-    const inventoryText = tenantDocs.length
-      ? `KNOWLEDGE BASE INVENTORY (${tenantDocs.length} file${tenantDocs.length !== 1 ? 's' : ''}):\n` +
-        tenantDocs.map(d => `• ${d.title}${d.department ? ` [category: ${d.department}]` : ''}`).join('\n')
+    const inventoryText = (docInventory ?? []).length
+      ? `KNOWLEDGE BASE INVENTORY (${(docInventory ?? []).length} file${(docInventory ?? []).length !== 1 ? 's' : ''}):\n` +
+        (docInventory ?? []).map(d => `• ${d.title}${d.department ? ` [category: ${d.department}]` : ''}`).join('\n')
       : 'KNOWLEDGE BASE INVENTORY: No files have been uploaded yet.'
-
-    // Pass platform tenant to RPCs so both tenant + platform chunks are searched
-    const platformId = (platformTenantId && platformTenantId !== tenantId) ? platformTenantId : undefined
-    // Tenant IDs for financial_facts queries — includes platform so tenants see platform docs' facts
-    const tenantIds = platformId ? [tenantId, platformId] : [tenantId]
 
     /* ── 2. Hybrid retrieval (dense vector + BM25-ish FTS via RRF) ──
        Tenant isolation enforced by p_tenant_id — this is safe.
        Returns up to 30 candidates, reranked down to the top 10. */
     const { data: hybridChunks, error: rpcError } = await svc.rpc('match_document_chunks_hybrid', {
       query_embedding: queryEmbedding, query_text: query, p_tenant_id: tenantId,
-      match_count: 30, ...(platformId ? { p_platform_tenant_id: platformId } : {}),
+      match_count: 30,
     })
     if (rpcError) console.error('[RAG] hybrid RPC error:', JSON.stringify(rpcError))
 
@@ -511,7 +487,7 @@ Query: "${query}"`,
     if (queryYears.length === 1) {
       const { data: filteredChunks, error: filteredError } = await svc.rpc('match_document_chunks_hybrid_filtered', {
         query_embedding: queryEmbedding, query_text: query, p_tenant_id: tenantId,
-        match_count: 15, p_fiscal_year: queryYears[0], ...(platformId ? { p_platform_tenant_id: platformId } : {}),
+        match_count: 15, p_fiscal_year: queryYears[0],
       })
       if (filteredError) console.error('[RAG] filtered hybrid RPC error:', JSON.stringify(filteredError))
       if (filteredChunks?.length) {
@@ -544,7 +520,7 @@ Query: "${query}"`,
     if (isDeepSearch) {
       const { data: perDocChunks, error: perDocError } = await svc.rpc('match_document_chunks_per_doc', {
         query_embedding: queryEmbedding, p_tenant_id: tenantId,
-        match_count_per_doc: 3, match_threshold: 0.05, ...(platformId ? { p_platform_tenant_id: platformId } : {}),
+        match_count_per_doc: 3, match_threshold: 0.05,
       })
       if (perDocError) console.error('[RAG] per-doc RPC error:', JSON.stringify(perDocError))
       if (perDocChunks?.length) {
@@ -761,7 +737,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
         const { data: latestRow } = await svc
           .from('financial_facts')
           .select('fiscal_year')
-          .in('tenant_id', tenantIds).eq('entity_type', 'national').eq('metric', 'total_budget')
+          .eq('tenant_id', tenantId).eq('entity_type', 'national').eq('metric', 'total_budget')
           .order('fiscal_year', { ascending: false }).limit(1).maybeSingle()
         const latestYear = latestRow?.fiscal_year ? parseInt(latestRow.fiscal_year, 10) : new Date().getFullYear()
         relativeRange = parseRelativeYearRange(query, latestYear)
@@ -779,7 +755,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
       let factsQuery = svc
         .from('financial_facts')
         .select('fiscal_year, entity, entity_type, metric, value, unit, value_millions, page_number, section_title, document_id, confidence, flags')
-        .in('tenant_id', tenantIds)
+        .eq('tenant_id', tenantId)
         .order('fiscal_year', { ascending: true })
         .limit(300)
       if (years.length) factsQuery = factsQuery.in('fiscal_year', years)
@@ -820,7 +796,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
         const nationalQuery = svc
           .from('financial_facts')
           .select(FACTS_SELECT)
-          .in('tenant_id', tenantIds)
+          .eq('tenant_id', tenantId)
           .gte('confidence', 70)
           .eq('entity_type', 'national')
           .limit(500)
@@ -842,7 +818,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
         let ministryQuery = svc
           .from('financial_facts')
           .select(FACTS_SELECT)
-          .in('tenant_id', tenantIds)
+          .eq('tenant_id', tenantId)
           .gte('confidence', 70)
           .in('entity_type', ['ministry', 'sector'])
           .or('entity_type.eq.sector,entity.ilike.%ministry of%')
