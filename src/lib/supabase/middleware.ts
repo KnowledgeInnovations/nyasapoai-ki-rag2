@@ -131,14 +131,18 @@ export async function updateSession(request: NextRequest) {
 
   const now = Math.floor(Date.now() / 1000)
 
-  // Token still valid — let the browser's autoRefreshToken handle the
-  // proactive 90-second refresh window so we never race with it here.
-  if ((claims.exp ?? 0) > now) {
+  // Refresh proactively when AT expires within 120s.
+  // This creates a buffer BEFORE the 90s EXPIRY_MARGIN_MS window where
+  // server.ts's getSession() → __loadSession() and the browser's
+  // autoRefreshToken both independently try to refresh. By refreshing at
+  // 120s we guarantee the AT is still well over 90s from expiry when server
+  // components and the browser auto-refresh check it — nobody else races.
+  if ((claims.exp ?? 0) > now + 120) {
     return { supabaseResponse, user: { id: claims.sub ?? '' } }
   }
 
-  // Access token expired — refresh directly via the Supabase token endpoint.
-  // No @supabase/ssr client = no _emitInitialSession IIFE = no race.
+  // AT expired or expiring within 120s — refresh directly via the Supabase
+  // token endpoint. No @supabase/ssr client = no IIFE = no secondary race.
   try {
     const res = await fetch(
       `${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`,
@@ -155,7 +159,9 @@ export async function updateSession(request: NextRequest) {
     )
 
     if (!res.ok) {
-      clearSbCookies(supabaseResponse, request, host)
+      // Don't clear cookies — a parallel request may have won the refresh
+      // race and already written fresh tokens. Clearing here would destroy
+      // the valid session that the winning request produced.
       return { supabaseResponse, user: null }
     }
 
@@ -169,7 +175,7 @@ export async function updateSession(request: NextRequest) {
     const newClaims = jwtClaims(newSession.access_token)
     return { supabaseResponse, user: newClaims?.sub ? { id: newClaims.sub } : null }
   } catch {
-    clearSbCookies(supabaseResponse, request, host)
+    // Network error / timeout — same reasoning: don't clear cookies.
     return { supabaseResponse, user: null }
   }
 }
