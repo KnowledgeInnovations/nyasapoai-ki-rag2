@@ -31,6 +31,19 @@ export async function updateSession(request: NextRequest) {
   // getUser() (the old approach) made a round-trip to Supabase Auth on every
   // navigation, adding 2–8 seconds of latency. Security is still enforced in
   // server components, which call getUser() to verify the token when it matters.
+  //
+  // The @supabase/ssr createServerClient registers an internal onAuthStateChange
+  // listener whose _emitInitialSession fires as a floating async IIFE. When the
+  // refresh token is stale it acquires the lock first, calls console.error()
+  // internally, and returns — before our getSession() even runs. Suppress that
+  // specific error code for the duration of the await so Vercel logs stay clean.
+  // The stale-cookie path below handles the actual cookie clearing.
+  const _origError = console.error
+  console.error = (...args: Parameters<typeof console.error>) => {
+    const e = args[0]
+    if (e != null && typeof e === 'object' && (e as { code?: string }).code === 'refresh_token_not_found') return
+    _origError.apply(console, args)
+  }
   let session = null
   let staleSession = false
   try {
@@ -43,6 +56,8 @@ export async function updateSession(request: NextRequest) {
     } else {
       throw err
     }
+  } finally {
+    console.error = _origError
   }
 
   // A stale/duplicate auth cookie (e.g. left over from the cookie-Domain
