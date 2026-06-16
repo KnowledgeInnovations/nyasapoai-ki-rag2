@@ -766,6 +766,7 @@ export async function aiEnhanceTableFacts(
   chunks: ProcessedChunk[],
   tenantId: string,
   documentId: string,
+  documentFiscalYear?: string | null,
 ): Promise<FinancialFact[]> {
   const tableChunks = chunks.filter(c => c.is_table && c.text.trim().length > 30)
   if (!tableChunks.length) return []
@@ -808,14 +809,51 @@ ${combined}`,
       if (!Array.isArray(parsed)) return
       for (const f of parsed) {
         if (!f.entity || !f.metric || f.value == null || !Number.isFinite(f.value)) continue
-        const valueMil = toMillions(f.value, f.unit ?? 'million')
+        const entityType = f.entity_type ?? 'ministry'
+
+        // Apply pre-2007 cedi redenomination: old cedis were redenominated
+        // 10,000:1 in July 2007. A table reporting "15,447 billion" in a
+        // 2002 document means 15,447 billion OLD cedis = 1,544.7 million GH¢.
+        let valueMil = toMillions(f.value, f.unit ?? 'million')
+        if (valueMil != null && f.fiscal_year) {
+          const fy = parseInt(f.fiscal_year, 10)
+          if (!isNaN(fy) && fy < 2007 && (f.unit === 'billion' || f.unit === 'million')) {
+            valueMil = f.unit === 'billion' ? f.value / 10 : f.value / 10000
+          }
+        }
+
+        // Drop values outside the plausible range for this entity type.
+        if (valueMil != null) {
+          const [min, max] = PLAUSIBLE_VALUE_MILLIONS[entityType as keyof typeof PLAUSIBLE_VALUE_MILLIONS] ?? PLAUSIBLE_VALUE_MILLIONS.ministry
+          if (valueMil < min || valueMil > max) continue
+        }
+
+        // AI facts start at 75 (same base as tableRecordToFact without a
+        // fiscal_year bonus) so they reach the confidence >= 70 validated-facts
+        // gate. Previously stored as 0.75 (a float), which was always < 70
+        // and silently excluded every AI fact from the validated-facts block.
+        let confidence = 75
+        const flags: string[] = []
+
+        // MTEF forward projection: AI-extracted year beyond document's own
+        // fiscal year — cap below the validated-facts gate so same-year
+        // actuals from later documents take precedence.
+        if (documentFiscalYear && f.fiscal_year) {
+          const recYear = parseInt(f.fiscal_year, 10)
+          const docYear = parseInt(documentFiscalYear, 10)
+          if (!isNaN(recYear) && !isNaN(docYear) && recYear > docYear) {
+            flags.push('forward_projection')
+            confidence = Math.min(confidence, 55)
+          }
+        }
+
         facts.push({
           tenant_id: tenantId,
           document_id: documentId,
           chunk_id: null,
           fiscal_year: f.fiscal_year ?? null,
           entity: f.entity,
-          entity_type: f.entity_type ?? 'ministry',
+          entity_type: entityType as FinancialFact['entity_type'],
           metric: f.metric,
           value: f.value,
           unit: f.unit ?? 'million',
@@ -823,8 +861,8 @@ ${combined}`,
           page_number: null,
           section_title: null,
           is_table: true,
-          confidence: 0.75,
-          flags: [],
+          confidence,
+          flags,
           extraction_method: 'ai',
         })
       }

@@ -159,7 +159,7 @@ export async function POST(
         // Catches facts the regex pipeline misses: sector breakdowns,
         // footnote totals, multi-year rows with non-standard labels.
         try {
-          const aiFacts = await aiEnhanceTableFacts(cleanedChunks, membership.tenant_id, id)
+          const aiFacts = await aiEnhanceTableFacts(cleanedChunks, membership.tenant_id, id, docFiscalYear)
           if (aiFacts.length) {
             send({ stage: 'tables', message: `AI extracted ${aiFacts.length} additional financial facts`, progress: 93 })
             allFacts.push(...aiFacts)
