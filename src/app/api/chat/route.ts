@@ -474,7 +474,7 @@ Query: "${query}"`,
        Returns up to 30 candidates, reranked down to the top 10. */
     const { data: hybridChunks, error: rpcError } = await svc.rpc('match_document_chunks_hybrid', {
       query_embedding: queryEmbedding, query_text: query, p_tenant_id: tenantId,
-      match_count: 30,
+      match_count: 30, p_platform_tenant_id: null,
     })
     if (rpcError) console.error('[RAG] hybrid RPC error:', JSON.stringify(rpcError))
 
@@ -541,7 +541,7 @@ Query: "${query}"`,
     if (isDeepSearch) {
       let { data: perDocChunks, error: perDocError } = await svc.rpc('match_document_chunks_per_doc', {
         query_embedding: queryEmbedding, p_tenant_id: tenantId,
-        match_count_per_doc: 3, match_threshold: 0.05,
+        match_count_per_doc: 3, match_threshold: 0.05, p_platform_tenant_id: null,
       })
       if (perDocError) console.error('[RAG] per-doc RPC error:', JSON.stringify(perDocError))
 

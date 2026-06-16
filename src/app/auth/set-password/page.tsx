@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react'
+import { Eye, EyeOff, ArrowRight, CheckCircle2, Loader2 } from 'lucide-react'
 
 export default function SetPasswordPage() {
   const router = useRouter()
@@ -18,6 +18,7 @@ export default function SetPasswordPage() {
   const [showPwd, setShowPwd]     = useState(false)
   const [error, setError]         = useState('')
   const [loading, setLoading]     = useState(false)
+  const [done, setDone]           = useState(false)
 
   useEffect(() => {
     // Supabase invite/recovery links redirect with the session tokens in the
@@ -41,9 +42,11 @@ export default function SetPasswordPage() {
       return
     }
 
-    // No tokens in the URL — fall back to checking for an existing session.
-    supabase.auth.getSession().then(({ data }) => {
-      setValidSession(!!data.session)
+    // No tokens in the URL — fall back to verifying an existing session.
+    // getUser() contacts the Auth server to confirm authenticity, appropriate
+    // for a sensitive password-reset flow.
+    supabase.auth.getUser().then(({ data }) => {
+      setValidSession(!!data.user)
       setChecking(false)
     })
   }, [supabase])
@@ -65,13 +68,22 @@ export default function SetPasswordPage() {
     try {
       const { error: err } = await supabase.auth.updateUser({ password })
       if (err) { setError(err.message); return }
-      router.push('/ask')
+      // Sign out the temporary invite session so the user signs in fresh
+      // with their new password on the login page.
+      await supabase.auth.signOut()
+      setDone(true)
     } catch {
       setError('Something went wrong. Please try again.')
     } finally {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (!done) return
+    const t = setTimeout(() => router.push('/auth/login'), 2500)
+    return () => clearTimeout(t)
+  }, [done, router])
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#f8f9fb] px-6 py-12">
@@ -80,6 +92,19 @@ export default function SetPasswordPage() {
           {checking ? (
             <div className="flex h-40 items-center justify-center">
               <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+            </div>
+          ) : done ? (
+            <div className="space-y-3 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100">
+                <CheckCircle2 className="h-7 w-7 text-emerald-600" />
+              </div>
+              <h2 className="text-xl font-extrabold text-gray-900">Password set</h2>
+              <p className="text-sm text-gray-500">
+                Your password has been set. Redirecting you to sign in…
+              </p>
+              <a href="/auth/login" className="inline-flex items-center gap-2 text-sm font-semibold text-brand hover:text-brand-dark">
+                Go to sign in <ArrowRight className="h-4 w-4" />
+              </a>
             </div>
           ) : !validSession ? (
             <div className="space-y-3 text-center">
