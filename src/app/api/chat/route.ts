@@ -472,11 +472,16 @@ Query: "${query}"`,
     /* ── 2. Hybrid retrieval (dense vector + BM25-ish FTS via RRF) ──
        Tenant isolation enforced by p_tenant_id — this is safe.
        Returns up to 30 candidates, reranked down to the top 10. */
+    // Diagnostic: log raw chunk count so we can detect RPC vs table mismatch
+    svc.from('document_chunks').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId)
+      .then(({ count, error }) => console.log(`[RAG] tenant ${tenantId} chunks in table: ${count ?? 'err'} ${error?.message ?? ''}`))
+
     const { data: hybridChunks, error: rpcError } = await svc.rpc('match_document_chunks_hybrid', {
       query_embedding: queryEmbedding, query_text: query, p_tenant_id: tenantId,
       match_count: 30,
     })
     if (rpcError) console.error('[RAG] hybrid RPC error:', JSON.stringify(rpcError))
+    console.log(`[RAG] hybrid RPC returned ${hybridChunks?.length ?? 0} candidates, error: ${rpcError?.message ?? 'none'}`)
 
     type RetrievedChunk = { id: string; document_id: string; chunk_text: string; metadata: Record<string, unknown>; similarity: number; rrf_score?: number; rerank_score?: number }
     const candidateChunks: RetrievedChunk[] = (hybridChunks ?? []) as RetrievedChunk[]
