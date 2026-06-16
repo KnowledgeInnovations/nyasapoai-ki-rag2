@@ -630,9 +630,16 @@ const SECTOR_KEYWORDS = [
   'ICT', 'Transport', 'Housing', 'Youth', 'Sports', 'Roads', 'Sanitation',
 ]
 
+// Custom match patterns for keywords whose plain word-boundary regex is too narrow.
+// 'Health' needs to match "healthcare" (no word boundary between health/care).
+const SECTOR_KEYWORD_RX: Partial<Record<string, RegExp>> = {
+  'Health': /\bhealth(?:care|sector)?\b/i,
+}
+
 export interface QueryFilters {
   years: string[]
   entityHint: string | null
+  secondEntityHint: string | null
 }
 
 // Determines which (year, entity) facts are relevant to a query — used to
@@ -661,7 +668,8 @@ export function extractQueryFilters(
     entityHint = ministryMatch[0].trim()
   } else {
     for (const sector of SECTOR_KEYWORDS) {
-      if (new RegExp(`\\b${sector}\\b`, 'i').test(query)) {
+      const rx = SECTOR_KEYWORD_RX[sector] ?? new RegExp(`\\b${sector}\\b`, 'i')
+      if (rx.test(query)) {
         entityHint = sector
         break
       }
@@ -676,7 +684,22 @@ export function extractQueryFilters(
     entityHint = 'National'
   }
 
-  return { years, entityHint }
+  // For comparison queries mentioning two sectors (e.g. "compare infrastructure
+  // and education"), extract a second entity so the chat route can run
+  // summarizeTrend for both and present a side-by-side analysis.
+  let secondEntityHint: string | null = null
+  if (entityHint && entityHint !== 'National') {
+    for (const sector of SECTOR_KEYWORDS) {
+      if (sector === entityHint) continue
+      const rx = SECTOR_KEYWORD_RX[sector] ?? new RegExp(`\\b${sector}\\b`, 'i')
+      if (rx.test(query)) {
+        secondEntityHint = sector
+        break
+      }
+    }
+  }
+
+  return { years, entityHint, secondEntityHint }
 }
 
 // ── AI-enhanced table fact extraction ──────────────────────────────────────

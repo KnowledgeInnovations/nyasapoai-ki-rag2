@@ -210,7 +210,7 @@ const INVENTORY_QUERY_RX = /\b(do|does)\s+(we|you|i)\b.{0,20}\bhave\b|\bis there
 
 // Query types for which validated financial_facts are looked up and an
 // AI second-pass verifier checks the answer against them.
-export const FACTS_QUERY_TYPES: QueryType[] = ['fact_lookup', 'trend', 'comparison', 'forecast', 'anomaly_detection']
+export const FACTS_QUERY_TYPES: QueryType[] = ['fact_lookup', 'trend', 'comparison', 'forecast', 'anomaly_detection', 'evidence']
 
 // Questions asking for a combined/total figure across multiple items
 // (e.g. "what was the total of X and Y", "combined allocation for ...") —
@@ -757,7 +757,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
     let validatedFactsForVerification: FactForVerification[] = []
 
     if (FACTS_QUERY_TYPES.includes(queryType)) {
-      const { years, entityHint } = extractQueryFilters(query, chunks)
+      const { years, entityHint, secondEntityHint } = extractQueryFilters(query, chunks)
 
       // Analytical questions (cumulative totals, growth rankings,
       // proportions, trend summaries, deviations, forecasts) need a broader
@@ -766,9 +766,11 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
       const wantsCumulative = CUMULATIVE_RX.test(query)
       const wantsRanking = RANKING_RX.test(query)
       const wantsProportion = PROPORTION_RX.test(query)
-      const wantsSummary = SUMMARY_RX.test(query) || queryType === 'trend'
+      // evidence queries (Q9) need summarizeTrend to surface the numeric series
+      // that proves the claim, even though they won't be classified as 'trend'.
+      const wantsSummary = SUMMARY_RX.test(query) || queryType === 'trend' || queryType === 'evidence'
       const wantsAnalysis = wantsCumulative || wantsRanking || wantsProportion || wantsSummary
-        || queryType === 'forecast' || queryType === 'anomaly_detection'
+        || queryType === 'forecast' || queryType === 'anomaly_detection' || queryType === 'comparison'
 
       // "the past decade" / "previous 21 years" / "27-year period" etc. don't
       // match extractQueryFilters' explicit-year regexes — fall back to a
@@ -812,6 +814,10 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
         // many other national metrics (revenue, debt, expenditure, etc.) per
         // year before hitting the row limit.
         factsQuery = factsQuery.eq('entity_type', 'national').in('metric', ['total_budget', 'allocation'])
+      } else if (entityHint && secondEntityHint) {
+        // Comparison query mentioning two entities (e.g. "infrastructure and education") —
+        // fetch facts for both so the VALIDATED FACTS block covers both sides.
+        factsQuery = factsQuery.or(`entity.ilike.%${entityHint}%,entity.ilike.%${secondEntityHint}%`)
       } else if (entityHint) {
         factsQuery = factsQuery.ilike('entity', `%${entityHint}%`)
       }
@@ -1079,6 +1085,29 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           }
         } else {
           analysisLines.push(`TREND SUMMARY — ${canonicalizeEntity(sumEntity)} ${sumMetric.replace(/_/g, ' ')} ${range.from}-${range.to}: Fewer than 2 validated figures found — cannot summarize a trend.`)
+        }
+      }
+
+      // Second-entity trend for comparison queries (e.g. Q8: "compare
+      // allocations to infrastructure and education over the last decade").
+      // Produces a second TREND SUMMARY block so the model can present both
+      // entities side-by-side without recomputing the numbers itself.
+      if (secondEntityHint && range && (queryType === 'comparison' || wantsSummary)) {
+        const found2 = findEntity(secondEntityHint)
+        if (found2) {
+          const trend2 = summarizeTrend(analysisFacts, { entityType: found2.entityType, entity: found2.entity, metric: 'allocation', from: range.from, to: range.to })
+          if (trend2) {
+            const n1 = citeFact(trend2.firstFact)
+            const n2 = citeFact(trend2.lastFact)
+            analysisLines.push(`TREND SUMMARY — ${trend2.entity} allocation ${trend2.from}-${trend2.to} (${trend2.yearsCovered} of ${trend2.rangeSize} years covered):`)
+            analysisLines.push(`- Overall change: ${trend2.totalChangePct != null ? `${trend2.totalChangePct > 0 ? '+' : ''}${trend2.totalChangePct}%` : 'not computable'} from ${trend2.firstFact.fiscal_year} to ${trend2.lastFact.fiscal_year} [${n1}][${n2}]`)
+            if (trend2.avgYoYPct != null) analysisLines.push(`- Average year-over-year change: ${trend2.avgYoYPct > 0 ? '+' : ''}${trend2.avgYoYPct}%`)
+            if (trend2.maxChange) analysisLines.push(`- Largest single-year increase: ${trend2.maxChange.pct > 0 ? '+' : ''}${trend2.maxChange.pct}% in ${trend2.maxChange.year}`)
+            if (trend2.minChange) analysisLines.push(`- Largest single-year decrease: ${trend2.minChange.pct > 0 ? '+' : ''}${trend2.minChange.pct}% in ${trend2.minChange.year}`)
+            if (trend2.yearsCovered < trend2.rangeSize) analysisLines.push(`- NOTE: only ${trend2.yearsCovered} of ${trend2.rangeSize} years in this range have validated figures.`)
+          } else {
+            analysisLines.push(`TREND SUMMARY — ${secondEntityHint} allocation ${range.from}-${range.to}: Fewer than 2 validated figures found — cannot summarize.`)
+          }
         }
       }
 

@@ -29,9 +29,9 @@ export interface FactRow {
 // classifyQuery()'s single QueryType.
 
 export const CUMULATIVE_RX = /\bcumulative\b|highest .*(allocation|funding|spending|received)|received the (most|highest)|which (ministry|sector|entity) .*(most|highest|largest)/i
-export const RANKING_RX = /\btop\s+(five|5|three|3|ten|10|\d+)\b/i
+export const RANKING_RX = /\btop\s+(?:five|5|three|3|ten|10|\d+)\b|\blargest\s+percentage\s+(?:increase|growth)\b|\bhighest\s+cumulative\b/i
 export const PROPORTION_RX = /\bproportion\b|\bshare of\b|percentage of (the )?(total|budget)|what (percent|%|portion)/i
-export const SUMMARY_RX = /summari[sz]e|\boverview\b|major (budget )?trend/i
+export const SUMMARY_RX = /summari[sz]e|\boverview\b|major (budget )?trend|\bcompare\s+(?:allocations?|spending|funding|budget)\b/i
 
 // ── Entity canonicalization & dedup ─────────────────────────────────
 
