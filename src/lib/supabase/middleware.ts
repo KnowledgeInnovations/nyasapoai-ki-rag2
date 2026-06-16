@@ -80,8 +80,9 @@ function clearSbCookies(
   const domain = cookieDomainForHost(host)
   for (const { name } of request.cookies.getAll()) {
     if (!name.startsWith('sb-')) continue
-    response.cookies.set(name, '', { maxAge: 0, path: '/' })
-    if (domain) response.cookies.set(name, '', { maxAge: 0, path: '/', domain })
+    // Clear both the domain-scoped and host-only variants
+    response.cookies.set(name, '', { maxAge: 0, path: '/', sameSite: 'lax' })
+    if (domain) response.cookies.set(name, '', { maxAge: 0, path: '/', sameSite: 'lax', domain })
   }
 }
 
@@ -91,18 +92,21 @@ function writeSession(
   host: string | null,
 ) {
   const domain = cookieDomainForHost(host)
+  // Match @supabase/ssr DEFAULT_COOKIE_OPTIONS exactly so the browser
+  // client (createBrowserClient) can still read the session after a
+  // server-side refresh. httpOnly:false is intentional — the browser
+  // Supabase client must be able to read its own auth cookie.
   const opts = {
     path:     '/',
-    httpOnly: true,
+    httpOnly: false,
     sameSite: 'lax' as const,
-    secure:   host != null && !host.includes('localhost'),
-    maxAge:   60 * 60 * 24 * 365,
+    maxAge:   400 * 24 * 60 * 60, // 400 days — matches Supabase SSR default
     ...(domain ? { domain } : {}),
   }
 
   const json    = JSON.stringify(session)
   const encoded = 'base64-' + Buffer.from(json).toString('base64url')
-  const CHUNK   = 3500
+  const CHUNK   = 3180 // MAX_CHUNK_SIZE from @supabase/ssr
 
   if (encoded.length <= CHUNK) {
     response.cookies.set(STORAGE_KEY, encoded, opts)
