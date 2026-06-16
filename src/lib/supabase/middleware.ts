@@ -66,15 +66,24 @@ export async function updateSession(request: NextRequest) {
   // cookies from both the forwarded request (so this request's server
   // components see a clean, logged-out state) and the response (so the
   // browser stops sending them too).
-  if (staleSession) {
-    const host = request.headers.get('host')
-    const staleCookieNames = request.cookies.getAll()
-      .map(c => c.name)
-      .filter(name => name.startsWith('sb-'))
+  //
+  // Two code paths end up here:
+  // A) staleSession=true: getSession() returned refresh_token_not_found directly.
+  // B) staleSession=false, session=null, but sb-* cookies exist: the SSR library's
+  //    internal _emitInitialSession IIFE acquired the lock first, detected the stale
+  //    token, called _removeSession() → applyServerStorage, which cleared the
+  //    domain-scoped cookie but NOT the old host-only cookie from before the domain
+  //    migration. We must explicitly clear both variants so the browser stops
+  //    resending the orphaned host-only cookie on every subsequent navigation.
+  const sbCookieNames = request.cookies.getAll()
+    .map(c => c.name)
+    .filter(name => name.startsWith('sb-'))
 
-    for (const name of staleCookieNames) request.cookies.delete(name)
+  if (staleSession || (!session && sbCookieNames.length > 0)) {
+    const host = request.headers.get('host')
+    for (const name of sbCookieNames) request.cookies.delete(name)
     supabaseResponse = NextResponse.next({ request })
-    for (const name of staleCookieNames) {
+    for (const name of sbCookieNames) {
       supabaseResponse.cookies.set(name, '', { maxAge: 0 })
       supabaseResponse.cookies.set(name, '', { maxAge: 0, domain: cookieDomainForHost(host) })
     }
