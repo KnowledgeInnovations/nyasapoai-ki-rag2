@@ -433,6 +433,21 @@ export async function POST(request: NextRequest) {
     }
     let queryPlan: QueryPlan | null = null
 
+    // Fire query planning in the background — result is only needed in the
+    // final SSE `done` payload (line ~1339), long after embedding + retrieval
+    // + the main Claude call have all finished. Keeping it outside Promise.all
+    // cuts ~300ms from the critical path (embedding: ~200ms vs planning: ~500ms).
+    claudeComplete({
+      maxTokens: 200,
+      messages: [{
+        role: 'user',
+        content: `Analyze this document query. Return ONLY valid JSON:
+{"query_type":"fact_lookup|trend|comparison|forecast|evidence|anomaly_detection|general","entities":["names mentioned"],"years":["years mentioned"],"reasoning":"1 sentence: what this asks for and where to look"}
+Query: "${query}"`,
+      }],
+      signal: request.signal,
+    }).then(r => { try { queryPlan = JSON.parse(extractJSON(r)) } catch {} }).catch(() => {})
+
     const [embRes, { data: docInventory }] = await Promise.all([
       fetch('https://api.openai.com/v1/embeddings', {
         method: 'POST', headers: OPENAI_HEADERS,
@@ -444,16 +459,6 @@ export async function POST(request: NextRequest) {
         .eq('status', 'ready')
         .order('created_at', { ascending: false })
         .limit(100),
-      claudeComplete({
-        maxTokens: 200,
-        messages: [{
-          role: 'user',
-          content: `Analyze this document query. Return ONLY valid JSON:
-{"query_type":"fact_lookup|trend|comparison|forecast|evidence|anomaly_detection|general","entities":["names mentioned"],"years":["years mentioned"],"reasoning":"1 sentence: what this asks for and where to look"}
-Query: "${query}"`,
-        }],
-        signal: request.signal,
-      }).then(r => { try { queryPlan = JSON.parse(extractJSON(r)) } catch {} }).catch(() => {}),
     ])
     const embData = await embRes.json()
     const queryEmbedding = embData.data[0].embedding
