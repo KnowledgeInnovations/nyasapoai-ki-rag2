@@ -472,19 +472,30 @@ Query: "${query}"`,
     /* ── 2. Hybrid retrieval (dense vector + BM25-ish FTS via RRF) ──
        Tenant isolation enforced by p_tenant_id — this is safe.
        Returns up to 30 candidates, reranked down to the top 10. */
-    // Diagnostic: log raw chunk count so we can detect RPC vs table mismatch
-    svc.from('document_chunks').select('id', { count: 'exact', head: true }).eq('tenant_id', tenantId)
-      .then(({ count, error }) => console.log(`[RAG] tenant ${tenantId} chunks in table: ${count ?? 'err'} ${error?.message ?? ''}`))
-
     const { data: hybridChunks, error: rpcError } = await svc.rpc('match_document_chunks_hybrid', {
       query_embedding: queryEmbedding, query_text: query, p_tenant_id: tenantId,
       match_count: 30,
     })
     if (rpcError) console.error('[RAG] hybrid RPC error:', JSON.stringify(rpcError))
-    console.log(`[RAG] hybrid RPC returned ${hybridChunks?.length ?? 0} candidates, error: ${rpcError?.message ?? 'none'}`)
 
     type RetrievedChunk = { id: string; document_id: string; chunk_text: string; metadata: Record<string, unknown>; similarity: number; rrf_score?: number; rerank_score?: number }
     const candidateChunks: RetrievedChunk[] = (hybridChunks ?? []) as RetrievedChunk[]
+
+    // If the hybrid RPC returned nothing (can happen when migration 016 broke
+    // the function body), fall back to a direct FTS query on document_chunks.
+    // This keeps retrieval working until the RPC is restored via rollback SQL.
+    if (!candidateChunks.length) {
+      const { data: ftsChunks } = await svc
+        .from('document_chunks')
+        .select('id, document_id, chunk_text, metadata')
+        .eq('tenant_id', tenantId)
+        .textSearch('fts', query, { type: 'websearch', config: 'english' })
+        .limit(30)
+      if (ftsChunks?.length) {
+        console.log(`[RAG] FTS fallback: ${ftsChunks.length} chunks`)
+        for (const c of ftsChunks) candidateChunks.push({ ...c, similarity: 0.5, rrf_score: 0.016 })
+      }
+    }
 
     // A query naming exactly one fiscal year (e.g. "Ministry of Health
     // allocation in 2021") can have its correct-year chunk outranked by a
@@ -528,11 +539,36 @@ Query: "${query}"`,
     const earlyQueryType = classifyQuery(query)
     const isDeepSearch = BROAD_QUERY_RX.test(query) || CROSS_DOCUMENT_RX.test(query) || earlyQueryType === 'comparison' || earlyQueryType === 'trend'
     if (isDeepSearch) {
-      const { data: perDocChunks, error: perDocError } = await svc.rpc('match_document_chunks_per_doc', {
+      let { data: perDocChunks, error: perDocError } = await svc.rpc('match_document_chunks_per_doc', {
         query_embedding: queryEmbedding, p_tenant_id: tenantId,
         match_count_per_doc: 3, match_threshold: 0.05,
       })
       if (perDocError) console.error('[RAG] per-doc RPC error:', JSON.stringify(perDocError))
+
+      // Per-doc RPC also affected by migration 016 — fall back to a direct
+      // scan that takes up to 3 chunks per document, ordered by chunk_index
+      // so we get the document's opening sections (most likely to name the
+      // fiscal year and entity totals) rather than an arbitrary subset.
+      if (!perDocChunks?.length) {
+        const { data: scanChunks } = await svc
+          .from('document_chunks')
+          .select('id, document_id, chunk_text, metadata')
+          .eq('tenant_id', tenantId)
+          .order('document_id')
+          .order('chunk_index')
+          .limit(200)
+        if (scanChunks?.length) {
+          const docCount = new Map<string, number>()
+          const sampled: RetrievedChunk[] = []
+          for (const c of scanChunks) {
+            const cnt = docCount.get(c.document_id) ?? 0
+            if (cnt < 3) { sampled.push({ ...c, similarity: 0.3, rrf_score: 0.008 }); docCount.set(c.document_id, cnt + 1) }
+          }
+          console.log(`[RAG] per-doc fallback: ${sampled.length} chunks from ${docCount.size} docs`)
+          perDocChunks = sampled as typeof perDocChunks
+        }
+      }
+
       if (perDocChunks?.length) {
         // match_document_chunks_per_doc returns rows ordered "document_id,
         // rn" — i.e. up to 3 consecutive chunks per document, documents in
