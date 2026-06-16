@@ -140,9 +140,14 @@ export async function POST(
         if (path.extname(doc.source).toLowerCase() === '.pdf') {
           send({ stage: 'tables', message: 'Extracting tables for financial facts…', progress: 90 })
           try {
+            // Pass the document's own fiscal year so tableRecordToFact can
+            // flag MTEF columns whose year exceeds the document year as
+            // forward_projection rather than letting them compete with actuals.
+            const docYearMatch = doc.title.match(/\b(19|20)\d{2}\b/)
+            const docFiscalYear = docYearMatch ? docYearMatch[0] : null
             const tableRecords = await extractTableRecordsFromPdf(buffer)
             for (const record of tableRecords) {
-              const fact = tableRecordToFact({ ...record, document_id: id }, membership.tenant_id, id)
+              const fact = tableRecordToFact({ ...record, document_id: id }, membership.tenant_id, id, docFiscalYear)
               if (fact) allFacts.push(fact)
             }
           } catch (err) {

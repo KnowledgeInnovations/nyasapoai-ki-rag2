@@ -254,6 +254,16 @@ export function extractFactsFromChunk(chunk: FactSourceChunk): FinancialFact[] {
       confidence = Math.min(75, confidence + 15)
     }
 
+    // Budget documents include multi-year MTEF tables: the 2017 budget
+    // reports 2018/2019 as projections, not actuals. When the figure's own
+    // year is beyond the document's nominal year, flag it so same-year
+    // actuals from later documents win at the confidence >= 70 gate.
+    const flags: string[] = []
+    if (f.year != null && metaFiscalYear != null && f.year > parseInt(metaFiscalYear, 10)) {
+      flags.push('forward_projection')
+      confidence = Math.min(confidence, 55)
+    }
+
     facts.push({
       tenant_id: chunk.tenant_id,
       document_id: chunk.document_id,
@@ -269,7 +279,7 @@ export function extractFactsFromChunk(chunk: FactSourceChunk): FinancialFact[] {
       section_title: sectionTitle,
       is_table: isTable,
       confidence,
-      flags: [],
+      flags,
       extraction_method: 'regex',
     })
   }
@@ -322,6 +332,7 @@ export function tableRecordToFact(
   record: TableFactRecord,
   tenantId: string,
   documentId: string,
+  documentFiscalYear?: string | null,
 ): FinancialFact | null {
   if (record.unit === '%' || record.value <= 0) return null
 
@@ -332,6 +343,21 @@ export function tableRecordToFact(
   if (record.fiscal_year) confidence += 10
   if (record.unit) confidence += 10
   confidence = Math.min(99, confidence)
+
+  // MTEF forward projection: table column year exceeds the document's own
+  // fiscal year — this is a budget estimate/projection, not a confirmed
+  // actual. Cap below the validated-facts gate so later documents' actuals
+  // take precedence (e.g. the 2017 budget's 2018 projection=61,877 loses to
+  // the 2020 budget's 2018 actual=41,625).
+  const flags: string[] = []
+  if (documentFiscalYear && record.fiscal_year) {
+    const recYear = parseInt(record.fiscal_year, 10)
+    const docYear = parseInt(documentFiscalYear, 10)
+    if (!isNaN(recYear) && !isNaN(docYear) && recYear > docYear) {
+      flags.push('forward_projection')
+      confidence = Math.min(confidence, 55)
+    }
+  }
 
   return {
     tenant_id: tenantId,
@@ -348,7 +374,7 @@ export function tableRecordToFact(
     section_title: record.table_caption,
     is_table: true,
     confidence,
-    flags: [],
+    flags,
     extraction_method: 'table',
   }
 }
@@ -480,9 +506,26 @@ export function runSanityChecks(facts: FinancialFact[]): FinancialFact[] {
       ? (distinctValues[mid - 1] + distinctValues[mid]) / 2
       : distinctValues[Math.floor(mid)]
 
+    // For even-sized groups the fractional average median is never equal to
+    // any actual value, so v === median never fires and every fact in the
+    // group gets flagged — leaving NO validated fact for that (metric, year).
+    // Guard: if no value equals the median, protect the single
+    // highest-confidence fact that's within 3× of median as a "safe anchor"
+    // so the pipeline always has at least one clean estimate per year.
+    const hasExactMedian = group.some(f => f.value_millions === median)
+    const safeAnchor: FinancialFact | null = hasExactMedian ? null : (
+      group
+        .filter(f => {
+          const ratio = Math.max(f.value_millions!, median) / Math.min(f.value_millions!, median)
+          return ratio <= 3
+        })
+        .sort((a, b) => b.confidence - a.confidence)[0] ?? null
+    )
+
     for (const f of group) {
       const v = f.value_millions!
       if (v === median) continue
+      if (f === safeAnchor) continue  // highest-confidence within-3× — keep clean
       const ratio = Math.max(v, median) / Math.min(v, median)
       if (ratio <= 3) {
         f.flags.push('alternate_estimate')
