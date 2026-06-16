@@ -2,9 +2,9 @@ import { NextRequest } from 'next/server'
 import path from 'node:path'
 import { getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { extractStructuredText, chunkPages, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
+import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
 import { canAccessTraining } from '@/lib/roles'
-import { extractFactsFromChunk, tableRecordToFact, runSanityChecks, runCrossDocumentCorroboration, type FinancialFact } from '@/lib/factExtraction'
+import { extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks, runCrossDocumentCorroboration, type FinancialFact } from '@/lib/factExtraction'
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
 
 export const maxDuration = 300 // 5 min for large documents
@@ -75,7 +75,13 @@ export async function POST(
 
         const titleLabel = `[Document: ${doc.title}]\n`
         const rawChunks  = chunkPages(pages, doc.title)
-        const chunks     = rawChunks.map(c => ({ ...c, text: titleLabel + c.text }))
+
+        // AI table cleanup — fixes OCR artifacts, misaligned columns,
+        // and broken number formatting in table blocks before embedding.
+        send({ stage: 'chunking', message: 'AI-cleaning table blocks…', progress: 28 })
+        const cleanedChunks = await aiCleanTableChunks(rawChunks).catch(() => rawChunks)
+
+        const chunks = cleanedChunks.map(c => ({ ...c, text: titleLabel + c.text }))
 
         send({ stage: 'chunking', message: `Document split into ${chunks.length} knowledge chunks`, progress: 30 })
 
@@ -142,6 +148,19 @@ export async function POST(
           } catch (err) {
             console.error('[Train] table extraction failed', err)
           }
+        }
+
+        // ── 6.5. AI-enhanced table fact extraction ────────────────
+        // Catches facts the regex pipeline misses: sector breakdowns,
+        // footnote totals, multi-year rows with non-standard labels.
+        try {
+          const aiFacts = await aiEnhanceTableFacts(cleanedChunks, membership.tenant_id, id)
+          if (aiFacts.length) {
+            send({ stage: 'tables', message: `AI extracted ${aiFacts.length} additional financial facts`, progress: 93 })
+            allFacts.push(...aiFacts)
+          }
+        } catch (err) {
+          console.error('[Train] AI table fact extraction failed', err)
         }
 
         // ── 7. Sanity-check + store financial facts ───────────────

@@ -4,6 +4,7 @@
  */
 
 import path from 'path'
+import { claudeComplete } from './claude'
 
 // The DOMMatrix/ImageData/Path2D polyfills pdf-parse needs are installed in
 // src/instrumentation.ts, which Next.js guarantees runs to completion before
@@ -271,6 +272,58 @@ export function chunkPages(
   flush()
 
   return chunks
+}
+
+// ── AI-assisted table chunk cleaning ───────────────────────────────────────
+// Sends is_table chunks (in batches of 8) to Claude to fix OCR artifacts,
+// misaligned columns, broken numbers, and garbled cell values. Non-table
+// chunks are returned unchanged. Fails gracefully — on any error the
+// original text is kept so training continues.
+const TABLE_CLEAN_BATCH = 8
+
+export async function aiCleanTableChunks(chunks: ProcessedChunk[]): Promise<ProcessedChunk[]> {
+  const tableIndexes = chunks.map((c, i) => c.is_table ? i : -1).filter(i => i >= 0)
+  if (!tableIndexes.length) return chunks
+
+  const result = [...chunks]
+
+  for (let b = 0; b < tableIndexes.length; b += TABLE_CLEAN_BATCH) {
+    const batch = tableIndexes.slice(b, b + TABLE_CLEAN_BATCH)
+    const separator = '\n---TABLE_BREAK---\n'
+    const combined = batch.map(i => chunks[i].text).join(separator)
+
+    try {
+      const cleaned = await claudeComplete({
+        maxTokens: 4096,
+        messages: [{
+          role: 'user',
+          content: `You are a PDF table formatter. Fix the formatting of each table block below.
+
+Tasks for each block:
+- Fix broken numbers (e.g. "1,23 4.56" → "1,234.56", "1 2,345" → "12,345")
+- Fix merged/split cells by restoring column alignment
+- Fix OCR errors in entity names and monetary figures
+- Remove spurious page-number artifacts or repeated headers
+- Preserve ALL numeric values and row labels exactly — never change a figure
+
+Return the fixed blocks separated by exactly the same ---TABLE_BREAK--- delimiter. Same number of blocks.
+
+${combined}`,
+        }],
+      })
+
+      const parts = cleaned.split('---TABLE_BREAK---')
+      if (parts.length === batch.length) {
+        batch.forEach((chunkIdx, j) => {
+          result[chunkIdx] = { ...result[chunkIdx], text: parts[j].trim() || result[chunkIdx].text }
+        })
+      }
+    } catch (e) {
+      console.error('[aiCleanTableChunks] batch failed, keeping original:', e)
+    }
+  }
+
+  return result
 }
 
 // ── Legacy plain-text chunking (kept for any callers that just need text) ──

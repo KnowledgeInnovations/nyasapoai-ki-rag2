@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import type { User } from '@supabase/supabase-js'
 import AppSidebar from './Sidebar'
 import AppTopNav from './TopNav'
+import AuthListener from './AuthListener'
 
 interface Props {
   user: User
@@ -40,6 +41,7 @@ export default function AppShell({ user, role, tenantName, isPlatformAdmin, chil
 
   return (
     <div className="flex overflow-hidden bg-[#f4f6fb]" style={{ height: '100dvh' }}>
+      <AuthListener />
       {/* Mobile overlay backdrop */}
       {mobileOpen && (
         <div

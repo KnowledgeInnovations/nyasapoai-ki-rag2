@@ -1,11 +1,14 @@
 /**
  * Deterministic extraction of structured financial facts from document
  * chunks at ingestion time, plus query-side filter helpers used by the
- * chat route to build a "VALIDATED FACTS" block. Nothing here calls an
- * LLM — it builds on the figure-extraction regexes in ragAnalysis.ts.
+ * chat route to build a "VALIDATED FACTS" block. Also exports
+ * aiEnhanceTableFacts which uses Claude to capture facts that the
+ * regex pipeline misses (sector breakdowns, footnote figures, etc.).
  */
 
 import { extractFigures, type Figure } from './ragAnalysis'
+import { claudeComplete, extractJSON } from './claude'
+import type { ProcessedChunk } from './documentProcess'
 
 export interface FinancialFact {
   tenant_id: string
@@ -23,7 +26,7 @@ export interface FinancialFact {
   is_table: boolean
   confidence: number
   flags: string[]
-  extraction_method: 'regex' | 'table' | 'prose'
+  extraction_method: 'regex' | 'table' | 'prose' | 'ai'
 }
 
 // One row from extract_tables.py's per-document JSON output.
@@ -674,4 +677,113 @@ export function extractQueryFilters(
   }
 
   return { years, entityHint }
+}
+
+// ── AI-enhanced table fact extraction ──────────────────────────────────────
+// After the deterministic table extraction pass, send the is_table chunks
+// to Claude to extract additional structured facts it can see but the regex
+// pipeline misses: sector breakdowns, footnote totals, partial-year figures,
+// and ministry rows not matched by MINISTRY_COL_RX. Returns FinancialFact[]
+// with extraction_method: 'ai'. Fails gracefully — returns [] on any error.
+const AI_TABLE_BATCH_CHARS = 6000
+
+interface AiFact {
+  entity: string
+  entity_type: 'national' | 'ministry' | 'sector'
+  metric: string
+  fiscal_year: string | null
+  value: number
+  unit: string
+}
+
+export async function aiEnhanceTableFacts(
+  chunks: ProcessedChunk[],
+  tenantId: string,
+  documentId: string,
+): Promise<FinancialFact[]> {
+  const tableChunks = chunks.filter(c => c.is_table && c.text.trim().length > 30)
+  if (!tableChunks.length) return []
+
+  const facts: FinancialFact[] = []
+  let batch: ProcessedChunk[] = []
+  let batchChars = 0
+
+  async function processBatch(b: ProcessedChunk[]) {
+    const combined = b.map((c, i) => `[Table ${i + 1}${c.page_number ? ` (page ${c.page_number})` : ''}]\n${c.text}`).join('\n\n')
+    try {
+      const raw = await claudeComplete({
+        maxTokens: 2048,
+        messages: [{
+          role: 'user',
+          content: `Extract financial facts from these budget document table excerpts. Return a JSON array (empty array if nothing found):
+
+[
+  {
+    "entity": "entity name (e.g. Ministry of Health, National, Education sector)",
+    "entity_type": "national|ministry|sector",
+    "metric": "allocation|total_budget|revenue|capital_expenditure|recurrent_expenditure|debt",
+    "fiscal_year": "YYYY or null",
+    "value": 1234.56,
+    "unit": "million|billion|thousand|%"
+  }
+]
+
+Rules:
+- Only include facts with a clear numeric value AND year
+- Do not invent or guess values
+- Skip percentage columns and deviation/variance columns
+- "National" entity means the whole-of-government figure
+
+Tables:
+${combined}`,
+        }],
+      })
+      const parsed: AiFact[] = JSON.parse(extractJSON(raw))
+      if (!Array.isArray(parsed)) return
+      for (const f of parsed) {
+        if (!f.entity || !f.metric || f.value == null || !Number.isFinite(f.value)) continue
+        const valueMil = toMillions(f.value, f.unit ?? 'million')
+        facts.push({
+          tenant_id: tenantId,
+          document_id: documentId,
+          chunk_id: null,
+          fiscal_year: f.fiscal_year ?? null,
+          entity: f.entity,
+          entity_type: f.entity_type ?? 'ministry',
+          metric: f.metric,
+          value: f.value,
+          unit: f.unit ?? 'million',
+          value_millions: valueMil,
+          page_number: null,
+          section_title: null,
+          is_table: true,
+          confidence: 0.75,
+          flags: [],
+          extraction_method: 'ai',
+        })
+      }
+    } catch (e) {
+      console.error('[aiEnhanceTableFacts] batch failed:', e)
+    }
+  }
+
+  for (const chunk of tableChunks) {
+    if (batchChars + chunk.text.length > AI_TABLE_BATCH_CHARS && batch.length) {
+      await processBatch(batch)
+      batch = []
+      batchChars = 0
+    }
+    batch.push(chunk)
+    batchChars += chunk.text.length
+  }
+  if (batch.length) await processBatch(batch)
+
+  return facts
+}
+
+function toMillions(value: number, unit: string): number | null {
+  if (unit === 'million') return value
+  if (unit === 'billion') return value * 1000
+  if (unit === 'thousand') return value / 1000
+  return null
 }
