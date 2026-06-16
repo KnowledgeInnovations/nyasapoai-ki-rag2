@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { normalizeRole, canDeleteDocuments } from '@/lib/roles'
+import { canDeleteDocuments } from '@/lib/roles'
 
 function svc() {
   return createServiceClient(
@@ -17,18 +17,14 @@ export async function DELETE(
 ) {
   const { id } = await params
 
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { data: membership } = await supabase
-    .from('memberships')
-    .select('tenant_id, role')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!membership) return NextResponse.json({ error: 'No workspace found' }, { status: 403 })
-  if (!canDeleteDocuments(normalizeRole(membership.role))) {
+  // Use getMembership() (reads session locally via getSession, no network call)
+  // rather than supabase.auth.getUser() (network round-trip). If the middleware
+  // just refreshed the access token for this request, the old refresh token in
+  // the route handler's cookie jar was already consumed; getUser()'s automatic
+  // re-refresh would then fail and return null → spurious 401.
+  const membership = await getMembership()
+  if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!canDeleteDocuments(membership.role)) {
     return NextResponse.json({ error: 'Only senior users can delete documents' }, { status: 403 })
   }
 
