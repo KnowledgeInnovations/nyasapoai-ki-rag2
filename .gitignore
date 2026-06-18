@@ -44,3 +44,5 @@ next-env.d.ts
 python/__pycache__/
 python/output/
 python/extract_log.txt
+
+.vercel

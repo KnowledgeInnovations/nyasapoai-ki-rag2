@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getMembership, getUser } from '@/lib/supabase/server'
+import { getMembership, getUser, invalidateMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { canManageUsers, normalizeRole, type Role } from '@/lib/roles'
 
@@ -36,6 +36,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'Failed to update role' }, { status: 500 })
   }
 
+  invalidateMembership(id)
   return NextResponse.json({ success: true })
 }
 
@@ -65,6 +66,8 @@ export async function DELETE(
     console.error('Member remove error:', error)
     return NextResponse.json({ error: 'Failed to remove member' }, { status: 500 })
   }
+
+  invalidateMembership(id)
 
   // If this user has no memberships left in any tenant, remove their auth
   // account too — otherwise Supabase Auth keeps treating the email as
