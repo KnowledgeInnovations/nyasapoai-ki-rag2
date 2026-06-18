@@ -19,15 +19,19 @@ interface HistoryItem {
   created_at: string
 }
 
-function getNavItems(role: string, isPlatformAdmin?: boolean) {
+// The platform-operator tenant (NyasapoAI's own workspace) has no end-users
+// of its own — Ask/Dashboards/Users are client-tenant-facing features and
+// are hidden for it regardless of role; it only needs Documents/Training
+// (to manage reference docs) and Tenants (cross-tenant admin).
+function getNavItems(role: string, isPlatformAdmin?: boolean, isPlatformTenant?: boolean) {
   const r = normalizeRole(role)
   return [
-    { href: '/ask',        icon: MessageSquare,   label: 'Ask AI'     },
+    ...(isPlatformTenant ? [] : [{ href: '/ask', icon: MessageSquare, label: 'Ask AI' }]),
     { href: '/documents',  icon: FileText,         label: 'Documents'  },
-    ...(canAccessTraining(r)   ? [{ href: '/training',   icon: Brain,           label: 'Training'   }] : []),
-    ...(canAccessDashboards(r) ? [{ href: '/dashboards', icon: LayoutDashboard, label: 'Dashboards' }] : []),
-    ...(canManageUsers(r)      ? [{ href: '/users',      icon: Users,           label: 'Users'      }] : []),
-    ...(isPlatformAdmin        ? [{ href: '/admin/tenants', icon: Building2,    label: 'Tenants'    }] : []),
+    ...(canAccessTraining(r)                        ? [{ href: '/training',   icon: Brain,           label: 'Training'   }] : []),
+    ...(canAccessDashboards(r) && !isPlatformTenant  ? [{ href: '/dashboards', icon: LayoutDashboard, label: 'Dashboards' }] : []),
+    ...(canManageUsers(r) && !isPlatformTenant       ? [{ href: '/users',      icon: Users,           label: 'Users'      }] : []),
+    ...(isPlatformAdmin                              ? [{ href: '/admin/tenants', icon: Building2,    label: 'Tenants'    }] : []),
     { href: '/settings',   icon: Settings,         label: 'Settings'   },
   ]
 }
@@ -36,6 +40,7 @@ interface Props {
   role: string
   tenantName: string
   isPlatformAdmin?: boolean
+  isPlatformTenant?: boolean
   collapsed: boolean
   mobileOpen: boolean
   onClose: () => void
@@ -58,11 +63,11 @@ function deriveTitle(query: string): string {
   return words.join(' ') + (q.split(/\s+/).length > 6 ? '…' : '')
 }
 
-export default function AppSidebar({ role, tenantName, isPlatformAdmin, collapsed, mobileOpen, onClose, onToggle }: Props) {
+export default function AppSidebar({ role, tenantName, isPlatformAdmin, isPlatformTenant, collapsed, mobileOpen, onClose, onToggle }: Props) {
   const pathname = usePathname()
   const router   = useRouter()
   const isAsk    = pathname.startsWith('/ask')
-  const navItems = useMemo(() => getNavItems(role, isPlatformAdmin), [role, isPlatformAdmin])
+  const navItems = useMemo(() => getNavItems(role, isPlatformAdmin, isPlatformTenant), [role, isPlatformAdmin, isPlatformTenant])
   const initials = useMemo(() => tenantInitials(tenantName), [tenantName])
 
   // Prefetch all nav routes immediately so link clicks feel instant

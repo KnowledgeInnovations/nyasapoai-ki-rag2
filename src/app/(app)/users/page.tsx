@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
-import { getMembership, getUser } from '@/lib/supabase/server'
+import { getMembership, getUser, getTenant } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { canManageUsers, normalizeRole } from '@/lib/roles'
+import { canManageUsers, isPlatformTenant, normalizeRole } from '@/lib/roles'
 import UsersClient, { type Member } from '@/components/app/UsersClient'
 
 export const metadata: Metadata = { title: 'Users — NyasapoAI' }
@@ -18,6 +18,8 @@ function svc() {
 export default async function UsersPage() {
   const [membership, user] = await Promise.all([getMembership(), getUser()])
   if (!membership || !canManageUsers(membership.role)) redirect('/ask')
+  const tenant = await getTenant(membership.tenant_id)
+  if (isPlatformTenant(tenant)) redirect('/training')
 
   const service = svc()
   const { data: memberships } = await service

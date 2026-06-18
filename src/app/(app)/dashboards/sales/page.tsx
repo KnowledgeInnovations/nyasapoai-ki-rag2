@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { FileText, MessageSquare, TrendingUp, Target } from 'lucide-react'
-import { getMembership, createClient } from '@/lib/supabase/server'
-import { canAccessDashboards } from '@/lib/roles'
+import { getMembership, getTenant, createClient } from '@/lib/supabase/server'
+import { canAccessDashboards, isPlatformTenant } from '@/lib/roles'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { CATEGORIES } from '@/lib/documentCategories'
 import DashboardShell from '@/components/app/DashboardShell'
@@ -29,6 +29,7 @@ const INSIGHTS = [
 export default async function SalesDashboard() {
   const membership = await getMembership()
   if (!membership || !canAccessDashboards(membership.role)) redirect('/ask')
+  if (isPlatformTenant(await getTenant(membership.tenant_id))) redirect('/training')
 
   const supabase = await createClient()
   const service  = svc()

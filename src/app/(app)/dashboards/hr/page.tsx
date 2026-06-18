@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { Users, UserPlus, MessageSquare, Calendar } from 'lucide-react'
-import { getMembership, createClient } from '@/lib/supabase/server'
-import { canAccessDashboards } from '@/lib/roles'
+import { getMembership, getTenant, createClient } from '@/lib/supabase/server'
+import { canAccessDashboards, isPlatformTenant } from '@/lib/roles'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import DashboardShell from '@/components/app/DashboardShell'
 import DashboardInsightsGroup from '@/components/app/DashboardInsightsGroup'
@@ -28,6 +28,7 @@ const INSIGHTS = [
 export default async function HRDashboard() {
   const membership = await getMembership()
   if (!membership || !canAccessDashboards(membership.role)) redirect('/ask')
+  if (isPlatformTenant(await getTenant(membership.tenant_id))) redirect('/training')
 
   const supabase = await createClient()
   const service  = svc()
