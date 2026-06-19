@@ -30,15 +30,27 @@ export default function SetupWorkspacePage() {
   // in, or already belong to a workspace, send them elsewhere.
   useEffect(() => {
     (async () => {
-      // Signup confirmation links redirect here with the session tokens in
-      // the URL hash using the IMPLICIT grant format. See set-password/page.tsx
-      // for why we parse the hash and call setSession() directly.
-      const hashParams = new URLSearchParams(window.location.hash.slice(1))
-      const access_token = hashParams.get('access_token')
-      const refresh_token = hashParams.get('refresh_token')
-      if (access_token && refresh_token) {
-        await supabase.auth.setSession({ access_token, refresh_token })
+      // Signup confirmation links use Supabase's PKCE flow format
+      // (?code=...), since createBrowserClient() hardcodes flowType: 'pkce'.
+      // Letting the client's own background detectSessionInUrl handle this
+      // races against our getUser() call below, so we exchange it explicitly
+      // and deterministically first.
+      const code = new URL(window.location.href).searchParams.get('code')
+      if (code) {
+        await supabase.auth.exchangeCodeForSession(code)
         window.history.replaceState(null, '', window.location.pathname)
+      } else {
+        // Older invite/recovery-style links may still arrive with tokens in
+        // the URL hash using the IMPLICIT grant format. See
+        // set-password/page.tsx for why we parse the hash and call
+        // setSession() directly rather than relying on automatic detection.
+        const hashParams = new URLSearchParams(window.location.hash.slice(1))
+        const access_token = hashParams.get('access_token')
+        const refresh_token = hashParams.get('refresh_token')
+        if (access_token && refresh_token) {
+          await supabase.auth.setSession({ access_token, refresh_token })
+          window.history.replaceState(null, '', window.location.pathname)
+        }
       }
 
       const { data: { user } } = await supabase.auth.getUser()
