@@ -1,8 +1,9 @@
 /**
- * Outbound transactional email via Zoho Mail SMTP. Separate from Supabase
- * Auth's own emails (magic link, invite, password reset) — those are sent by
- * Supabase's infrastructure and configured in the Supabase Dashboard under
- * Project Settings → Auth → SMTP Settings, not through this module.
+ * Outbound transactional email via Outlook/Microsoft 365 SMTP. Separate from
+ * Supabase Auth's own emails (magic link, invite, password reset) — those
+ * are sent by Supabase's infrastructure and configured in the Supabase
+ * Dashboard under Authentication → Emails → SMTP Settings, not through this
+ * module.
  */
 
 import nodemailer from 'nodemailer'
@@ -32,12 +33,18 @@ export interface SendEmailOptions {
 }
 
 export async function sendEmail({ to, subject, html, text, replyTo }: SendEmailOptions): Promise<void> {
-  await getTransporter().sendMail({
-    from: process.env.EMAIL_FROM,
-    to,
-    subject,
-    html,
-    text,
-    replyTo,
-  })
+  try {
+    const info = await getTransporter().sendMail({
+      from: process.env.EMAIL_FROM,
+      to,
+      subject,
+      html,
+      text,
+      replyTo,
+    })
+    console.log(`[email] sent "${subject}" to ${Array.isArray(to) ? to.join(', ') : to} — messageId: ${info.messageId}`)
+  } catch (e) {
+    console.error(`[email] failed to send "${subject}" to ${Array.isArray(to) ? to.join(', ') : to}:`, (e as Error).message)
+    throw e
+  }
 }
