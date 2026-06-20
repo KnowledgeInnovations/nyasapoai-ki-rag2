@@ -118,10 +118,18 @@ function classifyMetric(text: string, index: number, window = 80): string {
   return best ? best.metric : 'other'
 }
 
+// `weak: true` marks an entity attribution that came from extractSector()'s
+// bare keyword match against the chunk's own body text (documentProcess.ts)
+// — e.g. a passing mention of "energy crisis", "growth in agriculture", or
+// "Education Trust Fund" tags the WHOLE chunk with that sector, even when
+// the chunk's substantive content is national macro narrative ("Total
+// payments for 2000 are estimated at GH₵8,633.1 million"). Ministry-name
+// matches and explicit national-budget phrasing are reliable signals and
+// are never weak.
 function classifyEntity(
   chunkText: string,
   metadata: Record<string, unknown>,
-): { entity: string; entity_type: FinancialFact['entity_type'] } | null {
+): { entity: string; entity_type: FinancialFact['entity_type']; weak?: boolean } | null {
   const ministry = metadata.ministry as string | null
   if (ministry) return { entity: ministry, entity_type: 'ministry' }
 
@@ -131,7 +139,7 @@ function classifyEntity(
   }
 
   const sector = metadata.sector as string | null
-  if (sector) return { entity: sector, entity_type: 'sector' }
+  if (sector) return { entity: sector, entity_type: 'sector', weak: true }
 
   return null
 }
@@ -205,12 +213,21 @@ export function extractFactsFromChunk(chunk: FactSourceChunk): FinancialFact[] {
 
     let entity: string
     let entityType: FinancialFact['entity_type']
-    if (chunkEntity) {
+    // A weak (bare sector-keyword) entity tag must not override a figure
+    // whose metric is inherently a national aggregate (total_budget,
+    // revenue, debt, recurrent/capital expenditure) — a sector can't have a
+    // "total payments" or "total revenue and grants" figure of its own; that
+    // always describes the whole nation, regardless of an incidental
+    // sector-keyword mention elsewhere in the chunk.
+    if (chunkEntity && !(chunkEntity.weak && NATIONAL_AGGREGATE_METRICS.has(metric))) {
       entity = chunkEntity.entity
       entityType = chunkEntity.entity_type
     } else if (NATIONAL_AGGREGATE_METRICS.has(metric)) {
       entity = 'National'
       entityType = 'national'
+    } else if (chunkEntity) {
+      entity = chunkEntity.entity
+      entityType = chunkEntity.entity_type
     } else {
       continue
     }
