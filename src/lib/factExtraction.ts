@@ -58,7 +58,13 @@ const METRIC_PATTERNS: { metric: string; rx: RegExp }[] = [
   { metric: 'total_budget', rx: /total\s+(national\s+)?budget|total\s+(gov(?:ernmen)?t'?\.?\s+)?expenditure|total\s+payments/i },
   { metric: 'capital_expenditure', rx: /capital\s+expenditure/i },
   { metric: 'recurrent_expenditure', rx: /recurrent\s+expenditure/i },
-  { metric: 'revenue', rx: /(total\s+)?revenue/i },
+  // Requires "total" so distinct sub-categories mentioned in the same
+  // paragraph — Domestic Revenue, Tax Revenue, Non-Tax Revenue, petroleum
+  // receipts — don't collapse into the same metric as the headline
+  // aggregate. They're legitimately different figures, not alternate
+  // estimates of one another, but runSanityChecks was flagging them all
+  // as conflicting/anomalous since they previously shared metric='revenue'.
+  { metric: 'revenue', rx: /total\s+revenue(\s*(and|&)\s*grants)?/i },
   { metric: 'debt', rx: /\bdebt\b/i },
   { metric: 'allocation', rx: /allocation/i },
 ]
@@ -145,6 +151,18 @@ function isSubComponentFraction(text: string, index: number, lookahead = 150): b
   return SUB_COMPONENT_RX.test(text.slice(index, index + lookahead))
 }
 
+// Mirror of the above for the reversed phrasing — "<sub-component> are
+// estimated to constitute about N percent of Total Revenue and Grants,
+// amounting to GH¢X million" — where the "percent of total X" clause
+// precedes the figure instead of following it. Anchored to the end of the
+// lookbehind window (immediately before the figure) so it doesn't also
+// match an unrelated "percent of total X" mentioned earlier in the chunk.
+const SUB_COMPONENT_BACKWARD_RX = /(per\s*cent|percent|%)\s+of\s+total\s+(expenditure|revenue|budget|spending)\b[^.]{0,80}$/i
+
+function isSubComponentFractionBackward(text: string, index: number, lookbehind = 150): boolean {
+  return SUB_COMPONENT_BACKWARD_RX.test(text.slice(Math.max(0, index - lookbehind), index))
+}
+
 function valueToMillions(f: Figure): number | null {
   if (f.unit === 'million') return f.value
   if (f.unit === 'billion') return f.value * 1000
@@ -177,7 +195,10 @@ export function extractFactsFromChunk(chunk: FactSourceChunk): FinancialFact[] {
     if (f.value < 0) continue
 
     let metric = classifyMetric(chunk.chunk_text, f.index)
-    if (NATIONAL_AGGREGATE_METRICS.has(metric) && isSubComponentFraction(chunk.chunk_text, f.index)) {
+    if (NATIONAL_AGGREGATE_METRICS.has(metric) && (
+      isSubComponentFraction(chunk.chunk_text, f.index) ||
+      isSubComponentFractionBackward(chunk.chunk_text, f.index)
+    )) {
       metric = 'other'
     }
     if (metric === 'other') continue
