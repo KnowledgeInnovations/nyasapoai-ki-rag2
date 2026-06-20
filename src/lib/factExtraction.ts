@@ -188,13 +188,23 @@ export function extractFactsFromChunk(chunk: FactSourceChunk): FinancialFact[] {
   const pageNumber = (meta.page_number as number | null) ?? null
   const sectionTitle = (meta.section_title as string | null) ?? null
 
+  // Every stored chunk is prefixed with "[Document: <title>]\n" (see
+  // train/route.ts) for citation display — strip it before any
+  // classification. Document titles routinely embed a 4-digit year (e.g.
+  // "[Document: 2018-Budget-Statement-and-Economic-Policy]"), and that year
+  // sits well within nearestYear()'s 120-char window for any figure near the
+  // start of a chunk. Left in, it masquerades as a genuine nearby-year
+  // signal for figures that have no real year context at all — defeating
+  // the year/confidence distinction nearestYear() exists to make.
+  const bodyText = chunk.chunk_text.replace(/^\[Document:[^\]\n]*\]\n?/, '')
+
   // Entity attribution from chunk metadata/section (ministry, explicit
   // "national budget" mention, or sector keyword). May be null — in that
   // case, individual figures can still be attributed to "National" below if
   // their metric is a national-aggregate one.
-  const chunkEntity = classifyEntity(chunk.chunk_text, meta)
+  const chunkEntity = classifyEntity(bodyText, meta)
 
-  const figures = extractFigures(chunk.chunk_text).filter(
+  const figures = extractFigures(bodyText).filter(
     f => f.unit && f.unit !== '%' && f.unit !== 'percent',
   )
 
@@ -202,10 +212,10 @@ export function extractFactsFromChunk(chunk: FactSourceChunk): FinancialFact[] {
   for (const f of figures) {
     if (f.value < 0) continue
 
-    let metric = classifyMetric(chunk.chunk_text, f.index)
+    let metric = classifyMetric(bodyText, f.index)
     if (NATIONAL_AGGREGATE_METRICS.has(metric) && (
-      isSubComponentFraction(chunk.chunk_text, f.index) ||
-      isSubComponentFractionBackward(chunk.chunk_text, f.index)
+      isSubComponentFraction(bodyText, f.index) ||
+      isSubComponentFractionBackward(bodyText, f.index)
     )) {
       metric = 'other'
     }
@@ -266,7 +276,16 @@ export function extractFactsFromChunk(chunk: FactSourceChunk): FinancialFact[] {
     if (isTable) confidence += 20
     if (!(entityType === 'national' && !isTable)) confidence += 15 // entity attributed
     confidence += 15 // metric classified (metric !== 'other')
-    if (fiscalYear) confidence += 10
+    // Only credit a year that was actually found near the figure — not the
+    // document's nominal fiscal_year fallback. Budget narratives routinely
+    // restate a PRIOR year's outturn without a year token anywhere near the
+    // figure (e.g. "Total Revenue and Grants for the period amounted to
+    // GH¢28,429.2 million" — the real year, 2017, is established several
+    // sentences earlier by a comparison table, out of nearestYear()'s reach).
+    // Such a figure gets silently mislabeled with the document's year; the
+    // best available mitigation is to not let it look as trustworthy as a
+    // figure whose year is directly supported by nearby text.
+    if (f.year != null) confidence += 10
     if (f.unit === 'million' || f.unit === 'billion') confidence += 10
     // Regex extraction picks "the nearest figure within an 80-char window of
     // a metric keyword" — for table-derived chunks especially, pdfplumber
