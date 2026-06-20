@@ -238,22 +238,47 @@ export async function GET(request: NextRequest) {
     // owned by the calling user.
     const { data } = await supabase
       .from('citations')
-      .select('id, document_chunk_id, relevance_score, message_index, document_chunks(chunk_text, document_id, metadata, documents(title))')
+      .select(`
+        id, document_chunk_id, relevance_score, message_index,
+        document_id, fact_label, page_number, section_title,
+        document_chunks(chunk_text, document_id, metadata, documents(title)),
+        documents(title)
+      `)
       .eq('conversation_id', convId)
       .order('created_at', { ascending: true })
 
     const citations = (data ?? []).map(row => {
       const chunk = Array.isArray(row.document_chunks) ? row.document_chunks[0] : row.document_chunks
-      const rawDocs = chunk?.documents as { title: string } | { title: string }[] | null | undefined
+      // Fact-based citations (see migration 017) carry no document_chunk_id
+      // — fall back to their own synthetic label/document/page/section
+      // instead of a joined chunk.
+      if (!chunk) {
+        const rawDocs = row.documents as { title: string } | { title: string }[] | null | undefined
+        const docTitle = Array.isArray(rawDocs) ? rawDocs[0]?.title : rawDocs?.title
+        return {
+          id: row.id,
+          conversation_id: convId,
+          document_chunk_id: null,
+          document_id: row.document_id ?? '',
+          document_title: docTitle ?? 'Document',
+          chunk_text: row.fact_label ?? '',
+          relevance_score: row.relevance_score,
+          highlight: null,
+          page_number: row.page_number,
+          section_title: row.section_title,
+          message_index: row.message_index as number | null,
+        }
+      }
+      const rawDocs = chunk.documents as { title: string } | { title: string }[] | null | undefined
       const docTitle = Array.isArray(rawDocs) ? rawDocs[0]?.title : rawDocs?.title
-      const meta = (chunk?.metadata ?? {}) as Record<string, unknown>
+      const meta = (chunk.metadata ?? {}) as Record<string, unknown>
       return {
         id: row.id,
         conversation_id: convId,
         document_chunk_id: row.document_chunk_id,
-        document_id: chunk?.document_id ?? '',
+        document_id: chunk.document_id ?? '',
         document_title: docTitle ?? 'Document',
-        chunk_text: chunk?.chunk_text ?? '',
+        chunk_text: chunk.chunk_text ?? '',
         relevance_score: row.relevance_score,
         highlight: null,
         page_number: (meta.page_number as number | null) ?? null,
@@ -747,6 +772,17 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
       page_number: number | null; section_title: string | null
     }
     const factCitations: FactCitation[] = []
+    // Maps factCitations to insertable `citations` rows (migration 017) —
+    // document_chunk_id stays null; the synthetic description is stored in
+    // fact_label instead of being derived from a joined chunk, so these
+    // citations remain resolvable after the conversation is reloaded from
+    // history (previously they only existed in the live SSE payload).
+    const factCitationRows = (convId: string, facts: FactCitation[], messageIndex: number) =>
+      facts.map(fc => ({
+        conversation_id: convId, document_chunk_id: null, document_id: fc.document_id,
+        fact_label: fc.chunk_text, page_number: fc.page_number, section_title: fc.section_title,
+        relevance_score: fc.relevance_score, message_index: messageIndex,
+      }))
     // Resolves document titles for fact citations — fired alongside
     // chunkDetailsPromise (not awaited here) so it doesn't block the start
     // of the Claude stream; titles are patched into factCitations afterward.
@@ -1349,26 +1385,28 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
                 .single()
               if (convErr) console.error('Conv save error:', convErr.message)
               convId = conv?.id ?? null
-              if (convId && chunks.length) {
-                const { error: citationsErr } = await svc.from('citations').insert(
-                  chunks.map(c => ({
+              if (convId && (chunks.length || factCitations.length)) {
+                const { error: citationsErr } = await svc.from('citations').insert([
+                  ...chunks.map(c => ({
                     conversation_id: convId, document_chunk_id: c.id, relevance_score: c.similarity,
                     message_index: rawHistoryLength + 1,
-                  }))
-                )
+                  })),
+                  ...factCitationRows(convId, factCitations, rawHistoryLength + 1),
+                ])
                 if (citationsErr) console.error('[RAG] citations insert failed:', citationsErr)
               }
             } catch (e) { console.error('Save failed:', e) }
           } else if (existingConvId) {
             convId = existingConvId
             await appendConv(existingConvId, answer, risks, recommendations)
-            if (chunks.length) {
-              const { error: citationsErr } = await svc.from('citations').insert(
-                chunks.map(c => ({
+            if (chunks.length || factCitations.length) {
+              const { error: citationsErr } = await svc.from('citations').insert([
+                ...chunks.map(c => ({
                   conversation_id: convId, document_chunk_id: c.id, relevance_score: c.similarity,
                   message_index: rawHistoryLength + 1,
-                }))
-              )
+                })),
+                ...factCitationRows(convId, factCitations, rawHistoryLength + 1),
+              ])
               if (citationsErr) console.error('[RAG] citations insert failed:', citationsErr)
             }
           }
@@ -1399,8 +1437,9 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
             }
           })
           // VALIDATED FACTS rows cited via synthetic [n] markers (see
-          // factCitations above) — not backed by a document_chunk_id, so
-          // they aren't inserted into the citations table, only shown here.
+          // factCitations above) — not backed by a document_chunk_id, but
+          // persisted via factCitationRows() (migration 017) so they remain
+          // resolvable after the conversation is reloaded from history.
           const citations = [
             ...chunkCitations,
             ...factCitations.map(f => ({ ...f, conversation_id: convId ?? '' })),
