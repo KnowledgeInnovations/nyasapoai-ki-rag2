@@ -68,11 +68,47 @@ export async function claudeComplete({ system, messages, maxTokens = 1024, tempe
   return (data.content?.[0]?.text ?? '').trim()
 }
 
+// Scans from `start` (the index of an opening [ or {) and returns the
+// substring up to its balanced closing bracket, tracking string literals
+// (with escapes) so a bracket character inside a quoted value doesn't throw
+// off the depth count. Used to recover the JSON value itself when Claude
+// appends trailing prose after it (e.g. "[...]\n\nNo other facts found.").
+function sliceBalanced(text: string, start: number): string {
+  const open = text[start]
+  const close = open === '[' ? ']' : '}'
+  let depth = 0
+  let inString = false
+  let escape = false
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      if (escape) escape = false
+      else if (ch === '\\') escape = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') { inString = true; continue }
+    if (ch === open) depth++
+    else if (ch === close) {
+      depth--
+      if (depth === 0) return text.slice(start, i + 1)
+    }
+  }
+  return text.slice(start) // unbalanced (likely truncated) — let JSON.parse surface the real error
+}
+
 // Claude has no response_format:"json_object" mode — it sometimes wraps JSON
-// in a ```json fence despite being asked for raw JSON. Strips that fence
-// before JSON.parse.
+// in a ```json fence despite being asked for raw JSON, and sometimes adds
+// leading/trailing prose around (or instead of) a fence ("[...]\n\nNo other
+// facts found in this table."), which an anchored fence-only regex doesn't
+// strip, leaving JSON.parse to choke on the trailing text. Finds the fenced
+// block (anywhere in the response, not just spanning the whole thing) or
+// failing that, the first balanced top-level [...]/{...} and discards
+// anything outside it.
 export function extractJSON(text: string): string {
   const trimmed = text.trim()
-  const fenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/)
-  return fenceMatch ? fenceMatch[1] : trimmed
+  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+  if (fenceMatch) return fenceMatch[1]
+  const start = trimmed.search(/[[{]/)
+  return start === -1 ? trimmed : sliceBalanced(trimmed, start)
 }
