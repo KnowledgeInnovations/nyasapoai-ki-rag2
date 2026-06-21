@@ -86,8 +86,12 @@ export async function extractGenericFacts(
   // non-budget documents get.
   async function processChunk(chunk: ProcessedChunk) {
     try {
+      // Raised from 2048 alongside the same fix in factExtraction.ts's
+      // aiEnhanceTableFacts — a single chunk is less likely to produce a
+      // huge fact list, but the headroom costs nothing and avoids the same
+      // truncation/JSON-parse-failure mode for a fact-dense excerpt.
       const raw = await claudeComplete({
-        maxTokens: 2048,
+        maxTokens: 8192,
         messages: [{
           role: 'user',
           content: `Extract clearly-stated factual data points from this document excerpt — dates, amounts, names, statuses, deadlines, quantities, obligations, specifications, anything concrete and specific. Return a JSON array (empty array if nothing found):

@@ -835,8 +835,14 @@ export async function aiEnhanceTableFacts(
   async function processBatch(b: ProcessedChunk[]) {
     const combined = b.map((c, i) => `[Table ${i + 1}${c.page_number ? ` (page ${c.page_number})` : ''}]\n${c.text}`).join('\n\n')
     try {
+      // A dense budget appendix table (50-100+ ministry/sector rows) easily
+      // produces a JSON array well past 2048 tokens — Claude truncates
+      // mid-object (stop_reason: "max_tokens"), which then fails both
+      // extractJSON's closing-fence match and JSON.parse, silently dropping
+      // the entire batch's facts. 8192 covers realistic table sizes with
+      // headroom; Sonnet's default output ceiling, no special header needed.
       const raw = await claudeComplete({
-        maxTokens: 2048,
+        maxTokens: 8192,
         messages: [{
           role: 'user',
           content: `Extract financial facts from these budget document table excerpts. Return a JSON array (empty array if nothing found):
