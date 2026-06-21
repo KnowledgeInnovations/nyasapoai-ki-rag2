@@ -933,6 +933,30 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           ? { value: f.value_millions, unit: 'GH¢ million' }
           : { value: f.value, unit: f.unit }
 
+      // No budget-specific facts at all — likely a non-budget tenant or
+      // document. Check document_facts (the generic extraction fallback,
+      // see genericFactExtraction.ts) before giving up — scoped to the
+      // documents the chunk retrieval already found relevant for this
+      // query, so a tenant with several non-budget documents doesn't get
+      // unrelated facts from one document mixed into another's answer.
+      // Queried here (rather than inline below) so its document_ids can be
+      // folded into factDocIds before factDocsPromise fires.
+      let docFacts: { id: string; document_id: string; category: string | null; subject: string | null; attribute: string | null; value_text: string; unit: string | null; page_number: number | null; section_title: string | null; confidence: number }[] = []
+      if (!validFacts.length && !flaggedFacts.length) {
+        const docIds = [...new Set(chunks.map(c => c.document_id).filter(Boolean))]
+        if (docIds.length) {
+          const { data, error: docFactsError } = await svc
+            .from('document_facts')
+            .select('id, document_id, category, subject, attribute, value_text, unit, page_number, section_title, confidence')
+            .eq('tenant_id', tenantId)
+            .in('document_id', docIds)
+            .gte('confidence', 70)
+            .limit(50)
+          if (docFactsError) console.error('[RAG] document_facts query error:', JSON.stringify(docFactsError))
+          docFacts = data ?? []
+        }
+      }
+
       // Cap how many facts get their own synthetic citation to keep the
       // citation list manageable. 50 covers the full 1999-2026 national
       // total_budget series (28 years) plus headroom — previously 20 left
@@ -940,7 +964,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
       // the model to substitute an uncited (and sometimes wrong) figure for
       // those years.
       const citedFacts = validFacts.slice(0, 50)
-      const factDocIds = new Set([...citedFacts, ...analysisFacts].map(f => f.document_id).filter(Boolean))
+      const factDocIds = new Set([...citedFacts, ...analysisFacts].map(f => f.document_id).concat(docFacts.map(f => f.document_id)).filter(Boolean))
       factDocsPromise = factDocIds.size
         ? svc.from('documents').select('id, title').in('id', [...factDocIds])
         : Promise.resolve({ data: [] as { id: string; title: string }[] })
@@ -1003,8 +1027,32 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
         }
         factsBlock = '\n\n' + lines.join('\n')
       } else {
-        factsBlock = '\n\nVALIDATED FACTS: No validated facts found for the requested year/entity. ' +
-          "If the excerpts below also don't clearly support a confident figure, respond with the standard insufficient-evidence message."
+        if (docFacts.length) {
+          const lines = [
+            'EXTRACTED FACTS (from document_facts store — verified data points; cite each row with its own [n] marker):',
+            '| Subject | Attribute | Value | Source |',
+            ...docFacts.map(f => {
+              const n = nextCitation++
+              const valueDisplay = f.unit ? `${f.value_text} ${f.unit}` : f.value_text
+              factCitations.push({
+                id: `docfact-${f.id}`,
+                document_chunk_id: null,
+                document_id: f.document_id,
+                document_title: 'Document',
+                chunk_text: `${f.subject} — ${f.attribute}: ${valueDisplay}` + (f.section_title ? ` — ${f.section_title}` : ''),
+                relevance_score: f.confidence / 100,
+                highlight: null,
+                page_number: f.page_number,
+                section_title: f.section_title,
+              })
+              return `| ${f.subject} | ${f.attribute} | ${valueDisplay} | [${n}] |`
+            }),
+          ]
+          factsBlock = '\n\n' + lines.join('\n')
+        } else {
+          factsBlock = '\n\nVALIDATED FACTS: No validated facts found for the requested year/entity. ' +
+            "If the excerpts below also don't clearly support a confident figure, respond with the standard insufficient-evidence message."
+        }
       }
 
       // ── Analytical blocks (cumulative / ranking / proportion / trend /

@@ -4,8 +4,14 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { extractStructuredText, chunkPages, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
 import { normalizeRole, canUploadDocuments } from '@/lib/roles'
 import { extractFactsFromChunk, runSanityChecks, type FinancialFact } from '@/lib/factExtraction'
+import { extractGenericFacts } from '@/lib/genericFactExtraction'
 
 export const maxDuration = 300 // 5 min — extraction + embedding can take a while for large documents
+
+// Below this many budget-specific facts, a document is unlikely to be a
+// budget statement at all — see train/route.ts for the matching constant
+// and full rationale.
+const DOCUMENT_FACTS_FALLBACK_THRESHOLD = 3
 
 function svc() {
   return createServiceClient(
@@ -190,6 +196,18 @@ export async function POST(request: NextRequest) {
         runSanityChecks(allFacts)
         if (allFacts.length) {
           await serviceClient.from('financial_facts').insert(allFacts)
+        }
+
+        if (allFacts.length < DOCUMENT_FACTS_FALLBACK_THRESHOLD) {
+          try {
+            const genericFacts = await extractGenericFacts(chunks, membership.tenant_id, document.id)
+            if (genericFacts.length) {
+              await serviceClient.from('document_facts').insert(genericFacts)
+              emit({ stage: 'facts', count: allFacts.length, genericCount: genericFacts.length })
+            }
+          } catch (err) {
+            console.error('Generic fact extraction error:', err)
+          }
         }
 
         await serviceClient.from('documents').update({ status: 'ready' }).eq('id', document.id)

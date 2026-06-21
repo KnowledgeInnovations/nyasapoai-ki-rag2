@@ -6,6 +6,13 @@ import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBE
 import { canAccessTraining } from '@/lib/roles'
 import { extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks, runCrossDocumentCorroboration, type FinancialFact } from '@/lib/factExtraction'
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
+import { extractGenericFacts } from '@/lib/genericFactExtraction'
+
+// Below this many budget-specific facts, a document is unlikely to be a
+// budget statement at all (a real one yields well more from the regex pass
+// alone) — run the domain-agnostic extractor as a fallback so it still gets
+// a structured, citable fact layer instead of none.
+const DOCUMENT_FACTS_FALLBACK_THRESHOLD = 3
 
 export const maxDuration = 300 // 5 min for large documents
 
@@ -176,6 +183,19 @@ export async function POST(
           await service.from('financial_facts').insert(allFacts)
         }
         send({ stage: 'facts', message: `Extracted ${allFacts.length} financial facts`, progress: 95 })
+
+        // ── 7.4. Generic fact extraction fallback (non-budget documents) ──
+        if (allFacts.length < DOCUMENT_FACTS_FALLBACK_THRESHOLD) {
+          try {
+            const genericFacts = await extractGenericFacts(cleanedChunks, membership.tenant_id, id)
+            if (genericFacts.length) {
+              await service.from('document_facts').insert(genericFacts)
+              send({ stage: 'facts', message: `Extracted ${genericFacts.length} document facts`, progress: 96 })
+            }
+          } catch (err) {
+            console.error('[Train] generic fact extraction failed', err)
+          }
+        }
 
         // ── 7.5. Cross-document corroboration (national total_budget) ──
         // runSanityChecks above only sees this document's own facts. Now
