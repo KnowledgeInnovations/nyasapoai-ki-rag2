@@ -165,7 +165,9 @@ export default function SourceViewer({ citation, onClose }: Props) {
         <div className="shrink-0 border-t border-gray-100 px-5 py-3 flex items-center justify-between">
           <p className="text-xs text-gray-400">
             {downloadUrl
-              ? `Original document, page ${citation.page_number ?? 1}.`
+              ? citation.page_number != null
+                ? `Original document, page ${citation.page_number}.`
+                : 'Original document. Exact page not recorded for this source.'
               : 'This is the exact passage the AI used to answer your question.'}
           </p>
           <button

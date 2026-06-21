@@ -102,5 +102,4 @@ export interface RAGResponse {
   risks: string[]
   recommendations: string[]
   chart?: ChartData | null
-  reasoning?: string | null
 }

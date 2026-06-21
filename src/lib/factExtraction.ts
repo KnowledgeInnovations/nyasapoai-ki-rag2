@@ -817,6 +817,7 @@ interface AiFact {
   fiscal_year: string | null
   value: number
   unit: string
+  table: number | null
 }
 
 export async function aiEnhanceTableFacts(
@@ -834,6 +835,7 @@ export async function aiEnhanceTableFacts(
 
   async function processBatch(b: ProcessedChunk[]) {
     const combined = b.map((c, i) => `[Table ${i + 1}${c.page_number ? ` (page ${c.page_number})` : ''}]\n${c.text}`).join('\n\n')
+    let raw: string
     try {
       // A dense budget appendix table (50-100+ ministry/sector rows) easily
       // produces a JSON array well past 2048 tokens — Claude truncates
@@ -841,7 +843,7 @@ export async function aiEnhanceTableFacts(
       // extractJSON's closing-fence match and JSON.parse, silently dropping
       // the entire batch's facts. 8192 covers realistic table sizes with
       // headroom; Sonnet's default output ceiling, no special header needed.
-      const raw = await claudeComplete({
+      raw = await claudeComplete({
         maxTokens: 8192,
         messages: [{
           role: 'user',
@@ -854,7 +856,8 @@ export async function aiEnhanceTableFacts(
     "metric": "allocation|total_budget|revenue|capital_expenditure|recurrent_expenditure|debt",
     "fiscal_year": "YYYY or null",
     "value": 1234.56,
-    "unit": "million|billion|thousand|%"
+    "unit": "million|billion|thousand|%",
+    "table": 1
   }
 ]
 
@@ -863,12 +866,39 @@ Rules:
 - Do not invent or guess values
 - Skip percentage columns and deviation/variance columns
 - "National" entity means the whole-of-government figure
+- "table" is the [Table N] number this fact came from, so it can be cited back to the right page
 
 Tables:
 ${combined}`,
         }],
       })
-      const parsed: AiFact[] = JSON.parse(extractJSON(raw))
+    } catch (e) {
+      console.error('[aiEnhanceTableFacts] batch failed:', e)
+      return
+    }
+
+    let parsed: AiFact[]
+    try {
+      parsed = JSON.parse(extractJSON(raw))
+    } catch (e) {
+      // A dense enough table can still produce an array longer than 8192
+      // tokens even after the earlier truncation fix, leaving the JSON
+      // genuinely cut off mid-object (not just trailing prose extractJSON
+      // can strip). Rather than silently dropping the whole batch's facts,
+      // split it and retry each half — same total table content, smaller
+      // per-call output, much less likely to hit the ceiling. A single-chunk
+      // batch can't be split further; log and drop only that case.
+      if (b.length > 1) {
+        const mid = Math.ceil(b.length / 2)
+        await processBatch(b.slice(0, mid))
+        await processBatch(b.slice(mid))
+      } else {
+        console.error('[aiEnhanceTableFacts] batch failed:', e)
+      }
+      return
+    }
+
+    try {
       if (!Array.isArray(parsed)) return
       for (const f of parsed) {
         if (!f.entity || !f.metric || f.value == null || !Number.isFinite(f.value)) continue
@@ -910,6 +940,11 @@ ${combined}`,
           }
         }
 
+        // Claude reports which [Table N] it pulled this fact from — map back
+        // to that table's own page/section so the fact citation doesn't fall
+        // back to a misleading default (e.g. "page 1") for AI-extracted facts.
+        const sourceChunk = f.table != null ? b[f.table - 1] : undefined
+
         facts.push({
           tenant_id: tenantId,
           document_id: documentId,
@@ -921,8 +956,8 @@ ${combined}`,
           value: f.value,
           unit: f.unit ?? 'million',
           value_millions: valueMil,
-          page_number: null,
-          section_title: null,
+          page_number: sourceChunk?.page_number ?? null,
+          section_title: sourceChunk?.section_title ?? null,
           is_table: true,
           confidence,
           flags,

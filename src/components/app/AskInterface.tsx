@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import {
   Send, Sparkles,
   AlertTriangle, CheckCircle2, Paperclip,
-  Copy, Check, ShieldCheck, ChevronDown,
+  Copy, Check, ShieldCheck,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { uploadDocument } from '@/lib/uploadDocument'
@@ -132,26 +132,6 @@ function ConfidenceBadge({ score, level }: { score?: number; level?: RAGResponse
   )
 }
 
-/* ── Reasoning disclosure ────────────────────────────────── */
-function ReasoningBlock({ reasoning }: { reasoning: string }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="rounded-xl border border-gray-200 bg-gray-50 text-xs">
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        className="flex w-full items-center gap-1.5 px-3.5 py-2.5 text-left font-semibold text-gray-500 hover:text-gray-700"
-      >
-        <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 transition-transform', open && 'rotate-180')} />
-        How I approached this
-      </button>
-      {open && (
-        <p className="border-t border-gray-200 px-3.5 py-2.5 leading-relaxed text-gray-600">{reasoning}</p>
-      )}
-    </div>
-  )
-}
-
 /* ── Message bubble ──────────────────────────────────────── */
 function MessageBubble({
   msg, onCiteClick,
@@ -201,11 +181,6 @@ function MessageBubble({
         {/* Chart */}
         {!msg.streaming && msg.response?.chart && (
           <AnswerChart data={msg.response.chart} />
-        )}
-
-        {/* Reasoning */}
-        {!msg.streaming && msg.response?.reasoning && (
-          <ReasoningBlock reasoning={msg.response.reasoning} />
         )}
 
         {/* Risks */}
@@ -569,7 +544,7 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyasapo
 
       function processLine(line: string) {
         if (!line.startsWith('data: ')) return
-        let event: { t?: string; done?: boolean; answer?: string; risks?: string[]; recommendations?: string[]; citations?: RAGResponse['citations']; chart?: RAGResponse['chart']; confidence_score?: number; confidence_level?: RAGResponse['confidence_level']; reasoning?: string | null; convId?: string | null; title?: string }
+        let event: { t?: string; done?: boolean; answer?: string; risks?: string[]; recommendations?: string[]; citations?: RAGResponse['citations']; chart?: RAGResponse['chart']; confidence_score?: number; confidence_level?: RAGResponse['confidence_level']; convId?: string | null; title?: string }
         try { event = JSON.parse(line.slice(6)) } catch { return }
 
         // The user has switched to a different chat (or started a new one)
@@ -609,7 +584,6 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyasapo
               confidence_score: event.confidence_score ?? 85,
               confidence_level: event.confidence_level,
               chart:            event.chart ?? null,
-              reasoning:        event.reasoning ?? null,
             },
           }
           if (!stale) {

@@ -11,7 +11,7 @@ import {
   proportionOfTotal, detectDeviations, summarizeTrend, forecastNextYear, yoySeries,
   CUMULATIVE_RX, RANKING_RX, PROPORTION_RX, SUMMARY_RX, type FactRow,
 } from '@/lib/factsAnalysis'
-import { CLAUDE_MODEL, getAnthropicHeaders, claudeComplete, extractJSON } from '@/lib/claude'
+import { CLAUDE_MODEL, getAnthropicHeaders, claudeComplete } from '@/lib/claude'
 import type { ChartData } from '@/types'
 
 // Service-role client for document/chunk queries — bypasses RLS.
@@ -444,34 +444,6 @@ export async function POST(request: NextRequest) {
   try {
     /* ── 1. Embed query + fetch platform tenant + document inventory ── */
     const svc = getServiceClient()
-
-    // ── Query planning (reasoning engine) ─────────────────────────────
-    // Runs in parallel with embedding so it adds near-zero latency.
-    // Identifies the question's entities, years, and approach, which:
-    //   (a) surfaces a human-readable reasoning trace for the user, and
-    //   (b) supplements extractQueryFilters() for better RPC targeting.
-    interface QueryPlan {
-      query_type?: string
-      entities?: string[]
-      years?: string[]
-      reasoning?: string
-    }
-    let queryPlan: QueryPlan | null = null
-
-    // Fire query planning in the background — result is only needed in the
-    // final SSE `done` payload (line ~1339), long after embedding + retrieval
-    // + the main Claude call have all finished. Keeping it outside Promise.all
-    // cuts ~300ms from the critical path (embedding: ~200ms vs planning: ~500ms).
-    claudeComplete({
-      maxTokens: 200,
-      messages: [{
-        role: 'user',
-        content: `Analyze this document query. Return ONLY valid JSON:
-{"query_type":"fact_lookup|trend|comparison|forecast|evidence|anomaly_detection|general","entities":["names mentioned"],"years":["years mentioned"],"reasoning":"1 sentence: what this asks for and where to look"}
-Query: "${query}"`,
-      }],
-      signal: request.signal,
-    }).then(r => { try { queryPlan = JSON.parse(extractJSON(r)) } catch {} }).catch(() => {})
 
     const [embRes, { data: docInventory }] = await Promise.all([
       fetch('https://api.openai.com/v1/embeddings', {
@@ -1498,7 +1470,6 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
               done: true, answer, risks, recommendations, citations, chart: chartData,
               confidence_score: verification.confidenceScore,
               confidence_level: verification.confidenceLevel,
-              reasoning: queryPlan?.reasoning ?? null,
               convId, title,
             })}\n\n`
           ))
