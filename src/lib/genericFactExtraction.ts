@@ -149,5 +149,15 @@ ${chunk.text}`,
 
   for (const chunk of usableChunks) await processChunk(chunk)
 
-  return facts
+  // Repeated headers/footers (a report's title block, version number, etc.
+  // printed on every page) get extracted fresh from each chunk and produce
+  // exact duplicate rows — same subject+attribute+value, just from a
+  // different page. Keep the first (lowest page number) occurrence only.
+  const seen = new Set<string>()
+  return facts.filter(f => {
+    const key = `${f.subject}|${f.attribute}|${f.value_text}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
