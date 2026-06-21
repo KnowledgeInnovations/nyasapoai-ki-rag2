@@ -135,9 +135,13 @@ export default function SourceViewer({ citation, onClose }: Props) {
             <div className="flex flex-1 items-center justify-center text-gray-300">
               <Loader2 className="h-6 w-6 animate-spin" />
             </div>
-          ) : downloadUrl ? (
+          ) : downloadUrl && citation.page_number != null ? (
+            // Only jump into the PDF when we actually know which page to open
+            // — defaulting to page 1 for an unknown page silently shows the
+            // cover page as if it were the cited source, which is worse than
+            // just showing the excerpt text below.
             <div className="flex-1">
-              <PdfViewer url={downloadUrl} initialPage={citation.page_number ?? 1} />
+              <PdfViewer url={downloadUrl} initialPage={citation.page_number} />
             </div>
           ) : (
             <>
@@ -164,10 +168,8 @@ export default function SourceViewer({ citation, onClose }: Props) {
         {/* Footer */}
         <div className="shrink-0 border-t border-gray-100 px-5 py-3 flex items-center justify-between">
           <p className="text-xs text-gray-400">
-            {downloadUrl
-              ? citation.page_number != null
-                ? `Original document, page ${citation.page_number}.`
-                : 'Original document. Exact page not recorded for this source.'
+            {downloadUrl && citation.page_number != null
+              ? `Original document, page ${citation.page_number}.`
               : 'This is the exact passage the AI used to answer your question.'}
           </p>
           <button
