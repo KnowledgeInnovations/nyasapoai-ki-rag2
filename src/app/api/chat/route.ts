@@ -1298,7 +1298,19 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
              growth claim should match the actual change between the two
              cited figures. Combined with retrieval quality, this replaces
              the old hardcoded 0.85 confidence score. */
-          const retrievalScores = chunks.map(c => c.rerank_score ?? c.similarity ?? c.rrf_score ?? 0)
+          // factCitations' own relevance_score (the underlying fact's
+          // extraction confidence — see citeFact()/the EXTRACTED FACTS block
+          // above) belongs in this average alongside raw chunk similarity.
+          // Without it, an answer grounded entirely by cited financial_facts/
+          // document_facts rows (little or no real overlap with the actual
+          // retrieved chunks, e.g. a short non-budget document) was scored
+          // purely on chunk-retrieval quality — which can be coincidentally
+          // low for a small/sparse document even when the answer is fully
+          // correct and explicitly cites a verified, extracted fact.
+          const retrievalScores = [
+            ...chunks.map(c => c.rerank_score ?? c.similarity ?? c.rrf_score ?? 0),
+            ...factCitations.map(fc => fc.relevance_score),
+          ]
           const verification = verifyAnswer(answer, chunks, retrievalScores, validatedFactsForVerification)
 
           // The answer itself explicitly says the literal question can't be

@@ -510,6 +510,9 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyasapo
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setMessages(prev => [...prev, { role: 'user', text: q }])
     setLoading(true)
+    // Declared outside the try block so the catch below can still tell
+    // whether the real answer already arrived before some later error.
+    let receivedDone = false
     try {
       const isNewSession = sessionConvId === null
 
@@ -540,7 +543,6 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyasapo
       let buf = ''
       let streamText = ''
       let aiMsgAdded = false
-      let receivedDone = false
 
       function processLine(line: string) {
         if (!line.startsWith('data: ')) return
@@ -635,7 +637,12 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyasapo
         ])
       }
     } catch (e) {
-      if (streamGuardRef.current === myGuard) {
+      // The "done" event already delivered and finalized the real answer —
+      // any error past that point (e.g. the connection closing after the
+      // server has nothing left to send) is harmless stream-teardown noise,
+      // not an answer failure. Appending the generic fallback message here
+      // would show it directly after a perfectly good, complete answer.
+      if (streamGuardRef.current === myGuard && !receivedDone) {
         // Show a rate-limit notice verbatim (it tells the user what to do);
         // fall back to a generic message for anything else.
         const text = e instanceof Error && /rate limit/i.test(e.message)
