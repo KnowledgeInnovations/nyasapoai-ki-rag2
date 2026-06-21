@@ -55,7 +55,10 @@ export interface Conversation {
 export interface Citation {
   id: string
   conversation_id: string
-  document_chunk_id: string
+  // null for fact-based citations (financial_facts/document_facts rows
+  // backed by no real chunk — see migration 017) — relevance_score on those
+  // is the fact's extraction confidence (0-1), not a retrieval similarity.
+  document_chunk_id: string | null
   document_id: string
   document_title: string
   chunk_text: string

@@ -82,7 +82,17 @@ export default function SourceViewer({ citation, onClose }: Props) {
 
   if (!citation) return null
 
-  const score = matchConfidence(citation.relevance_score)
+  // Fact-based citations have no real chunk, so relevance_score on them is
+  // the underlying fact's extraction confidence (0-1) — a different scale
+  // entirely from embedding similarity, and not what "match" means. Running
+  // it through matchConfidence (calibrated for similarity's 0.20-0.55 range)
+  // would saturate at 99% for any validated fact (confidence >= 0.70),
+  // showing the same fake "99% match" regardless of whether the underlying
+  // fact's confidence was 70% or 95%. Show the real number, correctly labeled.
+  const isFactCitation = citation.document_chunk_id == null
+  const score = isFactCitation
+    ? Math.round((citation.relevance_score ?? 0) * 100)
+    : matchConfidence(citation.relevance_score)
 
   return (
     <>
@@ -115,7 +125,7 @@ export default function SourceViewer({ citation, onClose }: Props) {
                 </span>
                 {score > 0 && (
                   <span className="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                    {score}% match
+                    {score}% {isFactCitation ? 'confidence' : 'match'}
                   </span>
                 )}
               </div>
@@ -147,7 +157,7 @@ export default function SourceViewer({ citation, onClose }: Props) {
             <>
               <div className="mb-3 flex items-center justify-between">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                  Relevant excerpt
+                  {isFactCitation ? 'Extracted data point' : 'Relevant excerpt'}
                 </p>
                 {citation.highlight && (
                   <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-400">
@@ -170,7 +180,9 @@ export default function SourceViewer({ citation, onClose }: Props) {
           <p className="text-xs text-gray-400">
             {downloadUrl && citation.page_number != null
               ? `Original document, page ${citation.page_number}.`
-              : 'This is the exact passage the AI used to answer your question.'}
+              : isFactCitation
+                ? 'A verified data point extracted from this document, not a verbatim quote.'
+                : 'This is the exact passage the AI used to answer your question.'}
           </p>
           <button
             onClick={onClose}
