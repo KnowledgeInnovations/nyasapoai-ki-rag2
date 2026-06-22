@@ -383,16 +383,45 @@ export function extractFactsFromChunk(chunk: FactSourceChunk): FinancialFact[] {
 // that are billions of times too large. Records outside these bounds are
 // dropped rather than stored at low confidence, since they're parsing
 // artifacts rather than genuine (if anomalous) figures.
+//
+// ministry/sector max was 100_000 (GH¢100 billion) — found via a real
+// cumulative-allocation bug report to be far too generous: the largest
+// genuine validated single-ministry/sector figure in this corpus is
+// Ministry of Education's GH¢14,990M (2023). Above that, real district/
+// sub-item rows (DACF district transfers, "University of X", "X
+// Infrastructure" project lines) cluster at GH¢28,000-99,640M — all
+// effectively impossible (a single ministry/sub-item consuming 15-50% of
+// the ENTIRE national budget) and traceable to a unit-conversion bug (see
+// salvageImplausibleMillions below). Tightened to 20_000 — comfortable
+// headroom above the largest known-genuine figure, well below the bugged
+// cluster.
 const PLAUSIBLE_VALUE_MILLIONS: Record<'national' | 'ministry' | 'sector', [number, number]> = {
   national: [500, 500_000],
-  ministry: [0.01, 100_000],
-  sector: [0.01, 100_000],
+  ministry: [0.01, 20_000],
+  sector: [0.01, 20_000],
 }
 
-// Some table columns report raw cedi amounts (e.g. 58,904,864,627) under a
-// header/caption that says "GH¢ million", off by a factor of ~10^6 from the
-// figure's true value in millions. If the raw value is implausible but
-// dividing by 1e6 lands it back in range, prefer that reading.
+// Some table/AI-extracted rows report a raw cedi (or thousand-cedi) amount
+// under a unit label that doesn't match how the value was actually printed
+// — e.g. a column genuinely denominated in GH¢'000 gets its raw printed
+// number (already "pre-divided" by 1000 by whoever/whatever produced it)
+// relabeled 'thousand' again, so toMillions' /1000 conversion divides a
+// second time too few — net result is exactly 1000x too large (confirmed via
+// a real example: Ministry of Justice's true ~GH¢54.16M allocation stored as
+// GH¢54,161.6M from an AI-extracted row with value=54161642, unit='thousand'
+// — note 54,161,642 is exactly 1000x the true 54,161.642 a 'thousand' label
+// should imply). If the naive unit-based conversion is implausible but
+// dividing the RAW value by 1e6 lands back in range, prefer that reading —
+// this is the same correction already used by tableValueToMillions below,
+// now shared so aiEnhanceTableFacts gets it too (previously only the
+// PDF-table-geometry path had it, leaving AI-extracted rows with no
+// fallback — silently wrong instead of dropped).
+function salvageImplausibleMillions(value: number, entityType: 'national' | 'ministry' | 'sector'): number | null {
+  const [min, max] = PLAUSIBLE_VALUE_MILLIONS[entityType]
+  const salvaged = value / 1e6
+  return salvaged >= min && salvaged <= max ? salvaged : null
+}
+
 function tableValueToMillions(value: number, unit: string, entityType: TableFactRecord['entity_type']): number | null {
   let base: number | null = null
   if (unit === 'million') base = value
@@ -402,12 +431,7 @@ function tableValueToMillions(value: number, unit: string, entityType: TableFact
 
   const [min, max] = PLAUSIBLE_VALUE_MILLIONS[entityType]
   if (base >= min && base <= max) return base
-  // Raw cedi amount mislabeled as million/billion/thousand — the true value
-  // in millions is always value / 1e6 regardless of the (incorrect) unit
-  // label, since the label only affects how `base` above was derived.
-  const salvaged = value / 1e6
-  if (salvaged >= min && salvaged <= max) return salvaged
-  return null
+  return salvageImplausibleMillions(value, entityType)
 }
 
 // Converts a row from extract_tables.py's JSON output into a FinancialFact,
@@ -974,10 +998,25 @@ ${combined}`,
           }
         }
 
-        // Drop values outside the plausible range for this entity type.
+        // Drop values outside the plausible range for this entity type —
+        // unless dividing the raw value by 1e6 lands it back in range (see
+        // salvageImplausibleMillions), the same correction already applied
+        // to PDF-table-geometry-extracted facts. Without this, a unit label
+        // Claude got wrong (e.g. "thousand" on a column already printed in
+        // thousands, so the /1000 conversion above divides one time too
+        // few) silently stored a real ministry's true ~GH¢54M allocation as
+        // GH¢54,162M — 1000x too large, but still inside the old, far more
+        // permissive bound. Real example this fixed: Ministry of Justice
+        // 2023, University of Health and Allied Sciences 2024/2025.
         if (valueMil != null) {
-          const [min, max] = PLAUSIBLE_VALUE_MILLIONS[entityType as keyof typeof PLAUSIBLE_VALUE_MILLIONS] ?? PLAUSIBLE_VALUE_MILLIONS.ministry
-          if (valueMil < min || valueMil > max) continue
+          const boundsEntityType = (entityType as keyof typeof PLAUSIBLE_VALUE_MILLIONS) in PLAUSIBLE_VALUE_MILLIONS
+            ? (entityType as keyof typeof PLAUSIBLE_VALUE_MILLIONS) : 'ministry'
+          const [min, max] = PLAUSIBLE_VALUE_MILLIONS[boundsEntityType]
+          if (valueMil < min || valueMil > max) {
+            const salvaged = salvageImplausibleMillions(f.value, boundsEntityType)
+            if (salvaged == null) continue
+            valueMil = salvaged
+          }
         }
 
         // AI facts start at 75 (same base as tableRecordToFact without a
