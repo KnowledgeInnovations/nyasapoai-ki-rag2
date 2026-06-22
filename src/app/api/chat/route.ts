@@ -798,6 +798,17 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
         const latestYear = latestRow?.fiscal_year ? parseInt(latestRow.fiscal_year, 10) : new Date().getFullYear()
         relativeRange = parseRelativeYearRange(query, latestYear)
         if (relativeRange) {
+          // REPLACE years rather than appending — when the query explicitly
+          // names a relative range ("the last decade"), that's authoritative
+          // over whatever extractQueryFilters' chunkYears fallback happened
+          // to infer from incidentally-retrieved old chunks (isDeepSearch
+          // pulls a few chunks from EVERY ready document for a "trend"
+          // query, including documents a decade outside the asked-about
+          // range). Appending mixed both ranges into one `.in('fiscal_year',
+          // years)` filter, and citedFacts.slice(0, 50) — ordered oldest
+          // first — let the unwanted old years crowd out the actual decade
+          // asked about once the row count exceeded 50.
+          years.length = 0
           for (let y = relativeRange.from; y <= relativeRange.to; y++) years.push(String(y))
         }
       }
