@@ -825,6 +825,11 @@ export async function aiEnhanceTableFacts(
   tenantId: string,
   documentId: string,
   documentFiscalYear?: string | null,
+  // Invoked when a batch is dropped after exhausting the split-retry below
+  // (a single table chunk still too dense to parse) — lets a caller surface
+  // "some table facts were lost" instead of this being silent console.error
+  // noise. Optional so other callers are unaffected.
+  onBatchDropped?: (info: { tableCount: number; reason: string }) => void,
 ): Promise<FinancialFact[]> {
   const tableChunks = chunks.filter(c => c.is_table && c.text.trim().length > 30)
   if (!tableChunks.length) return []
@@ -874,6 +879,7 @@ ${combined}`,
       })
     } catch (e) {
       console.error('[aiEnhanceTableFacts] batch failed:', e)
+      onBatchDropped?.({ tableCount: b.length, reason: (e as Error).message })
       return
     }
 
@@ -894,6 +900,7 @@ ${combined}`,
         await processBatch(b.slice(mid))
       } else {
         console.error('[aiEnhanceTableFacts] batch failed:', e)
+        onBatchDropped?.({ tableCount: b.length, reason: (e as Error).message })
       }
       return
     }

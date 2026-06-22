@@ -7,12 +7,19 @@ import { canAccessTraining } from '@/lib/roles'
 import { extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks, runCrossDocumentCorroboration, type FinancialFact } from '@/lib/factExtraction'
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
 import { extractGenericFacts } from '@/lib/genericFactExtraction'
+import type { ProcessingWarning } from '@/types'
 
 // Below this many budget-specific facts, a document is unlikely to be a
 // budget statement at all (a real one yields well more from the regex pass
 // alone) — run the domain-agnostic extractor as a fallback so it still gets
 // a structured, citable fact layer instead of none.
 const DOCUMENT_FACTS_FALLBACK_THRESHOLD = 3
+
+// Number of independently-degradable steps below (table cleaning, table
+// extraction, AI table facts, generic-fact fallback, cross-doc
+// corroboration) — keeps the "N of TOTAL_STEPS degraded" summary text
+// self-documenting if a step is ever added or removed.
+const TOTAL_STEPS = 5
 
 export const maxDuration = 300 // 5 min for large documents
 
@@ -58,6 +65,10 @@ export async function POST(
         controller.enqueue(enc.encode(`data: ${JSON.stringify(payload)}\n\n`))
       }
 
+      const warnings: ProcessingWarning[] = []
+      const warn = (step: string, message: string) =>
+        warnings.push({ step, message, at: new Date().toISOString() })
+
       try {
         // ── 1. Download file from storage ────────────────────────
         send({ stage: 'downloading', message: 'Downloading file from storage…', progress: 5 })
@@ -86,7 +97,10 @@ export async function POST(
         // AI table cleanup — fixes OCR artifacts, misaligned columns,
         // and broken number formatting in table blocks before embedding.
         send({ stage: 'chunking', message: 'AI-cleaning table blocks…', progress: 28 })
-        const cleanedChunks = await aiCleanTableChunks(rawChunks).catch(() => rawChunks)
+        const cleanedChunks = await aiCleanTableChunks(rawChunks).catch((err) => {
+          warn('table_cleaning', (err as Error).message)
+          return rawChunks
+        })
 
         const chunks = cleanedChunks.map(c => ({ ...c, text: titleLabel + c.text }))
 
@@ -161,6 +175,7 @@ export async function POST(
             }
           } catch (err) {
             console.error('[Train] table extraction failed', err)
+            warn('table_extraction', (err as Error).message)
           }
         }
 
@@ -168,13 +183,17 @@ export async function POST(
         // Catches facts the regex pipeline misses: sector breakdowns,
         // footnote totals, multi-year rows with non-standard labels.
         try {
-          const aiFacts = await aiEnhanceTableFacts(cleanedChunks, membership.tenant_id, id, docFiscalYear)
+          const aiFacts = await aiEnhanceTableFacts(
+            cleanedChunks, membership.tenant_id, id, docFiscalYear,
+            ({ tableCount, reason }) => warn('ai_table_facts', `Could not parse ${tableCount} table batch(es): ${reason}`),
+          )
           if (aiFacts.length) {
             send({ stage: 'tables', message: `AI extracted ${aiFacts.length} additional financial facts`, progress: 93 })
             allFacts.push(...aiFacts)
           }
         } catch (err) {
           console.error('[Train] AI table fact extraction failed', err)
+          warn('ai_table_facts', (err as Error).message)
         }
 
         // ── 7. Sanity-check + store financial facts ───────────────
@@ -194,6 +213,7 @@ export async function POST(
             }
           } catch (err) {
             console.error('[Train] generic fact extraction failed', err)
+            warn('generic_facts_fallback', (err as Error).message)
           }
         }
 
@@ -216,20 +236,34 @@ export async function POST(
           }
         } catch (err) {
           console.error('[Train] cross-document corroboration failed', err)
+          warn('cross_doc_corroboration', (err as Error).message)
         }
 
         // ── 8. Mark document as ready ─────────────────────────────
-        await service.from('documents').update({ status: 'ready' }).eq('id', id)
+        const statusDetail = warnings.length
+          ? `${warnings.length} of ${TOTAL_STEPS} step${warnings.length === 1 ? '' : 's'} degraded`
+          : null
+        await service.from('documents').update({
+          status: 'ready', status_detail: statusDetail, processing_warnings: warnings,
+        }).eq('id', id)
 
         send({
           stage:      'complete',
           message:    `Training complete — ${chunks.length} knowledge chunks stored and ready for AI queries.`,
           progress:   100,
           chunkCount: chunks.length,
+          warnings,
         })
 
       } catch (err) {
         console.error('[Train]', err)
+        // Without this, a fatal error here left the document stuck on
+        // 'processing' forever — the SSE error event only reached whoever
+        // had the page open at the time, with no persisted record.
+        await service.from('documents')
+          .update({ status: 'failed', status_detail: (err as Error).message.slice(0, 500) })
+          .eq('id', id)
+          .then(() => {}, (e) => console.error('[Train] failed to persist failure status', e))
         send({ stage: 'error', message: (err as Error).message, progress: -1 })
       } finally {
         controller.close()

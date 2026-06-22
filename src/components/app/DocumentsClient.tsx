@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { FileText, Clock, CheckCircle2, XCircle, Lock, Pencil, Plus, Trash2, X, CheckSquare } from 'lucide-react'
+import { FileText, Clock, CheckCircle2, XCircle, Lock, Pencil, Plus, Trash2, X, CheckSquare, AlertTriangle, RefreshCw } from 'lucide-react'
 import type { Document } from '@/types'
 import { formatDate } from '@/lib/utils'
 import { CATEGORIES, buildCategory } from '@/lib/documentCategories'
@@ -23,8 +23,21 @@ interface Props {
 
 const statusConfig = {
   ready:      { icon: CheckCircle2, label: 'Ready',      cls: 'text-green-600 bg-green-50 border-green-200' },
+  degraded:   { icon: AlertTriangle, label: 'Ready (warnings)', cls: 'text-amber-600 bg-amber-50 border-amber-200' },
   processing: { icon: Clock,        label: 'Processing', cls: 'text-amber-600 bg-amber-50 border-amber-200' },
   failed:     { icon: XCircle,      label: 'Failed',     cls: 'text-red-600   bg-red-50   border-red-200'   },
+}
+
+// A document marked "ready" can still have had AI-enhancement steps fail
+// internally and continue with partial data (intentional graceful
+// degradation) — surface that instead of showing an identical green badge.
+function statusFor(doc: Document) {
+  if (doc.status === 'ready' && (doc.processing_warnings?.length ?? 0) > 0) return statusConfig.degraded
+  return statusConfig[doc.status]
+}
+
+function factCount(doc: Document) {
+  return (doc.financial_fact_count ?? 0) + (doc.document_fact_count ?? 0)
 }
 
 export default function DocumentsClient({ initialDocuments, canUpload, canDelete, initialCategories }: Props) {
@@ -51,6 +64,8 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
   // category delete state
   const [catDeleteTarget, setCatDeleteTarget] = useState<Category | null>(null)
   const [catDeleting,     setCatDeleting]     = useState(false)
+  // ids currently being retried — shows a spinner and disables the button
+  const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set())
   const router = useRouter()
 
   const getCat = (value: string | null | undefined) =>
@@ -95,6 +110,29 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
     } finally {
       setDeleting(false)
       setDeleteTarget(null)
+    }
+  }
+
+  // Self-service retry for a failed or degraded document — reuses the same
+  // POST /api/documents/[id]/train endpoint the Training page's Retrain
+  // button already calls, just without that page's full progress UI: read
+  // the SSE stream only far enough to know when it's finished, then refetch.
+  async function handleRetry(doc: Document) {
+    setRetryingIds(prev => new Set(prev).add(doc.id))
+    try {
+      const res = await fetch(`/api/documents/${doc.id}/train`, { method: 'POST' })
+      const reader = res.body?.getReader()
+      // Drain the SSE stream without parsing it — only the document's final
+      // status (refetched below) matters here, not the live progress text.
+      if (reader) {
+        let done = false
+        while (!done) ({ done } = await reader.read())
+      }
+    } catch {
+      // Surfaced via the refreshed status badge either way — no extra alert needed.
+    } finally {
+      setRetryingIds(prev => { const next = new Set(prev); next.delete(doc.id); return next })
+      router.refresh()
     }
   }
 
@@ -382,8 +420,10 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
           {/* ── Mobile card list (< md) ──────────────────────────── */}
           <div className="space-y-2.5 md:hidden">
             {filtered.map(doc => {
-              const s   = statusConfig[doc.status]
+              const s   = statusFor(doc)
               const cat = getCat(doc.department)
+              const canRetry = doc.status === 'failed' || (doc.status === 'ready' && (doc.processing_warnings?.length ?? 0) > 0)
+              const retrying = retryingIds.has(doc.id)
               return (
                 <div
                   key={doc.id}
@@ -418,10 +458,14 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
                     <p className={cn('truncate text-sm font-semibold', previewDocId === doc.id ? 'text-brand' : 'text-gray-900')}>
                       {doc.title}
                     </p>
-                    <p className="mt-0.5 truncate text-xs text-gray-400">{doc.source}</p>
+                    <p className="mt-0.5 truncate text-xs text-gray-400">
+                      {doc.source}{doc.status === 'ready' && factCount(doc) > 0 ? ` · ${factCount(doc)} facts extracted` : ''}
+                    </p>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {/* Status chip */}
-                      <span className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold', s.cls)}>
+                      <span
+                        title={doc.status_detail ?? undefined}
+                        className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold', s.cls)}>
                         <s.icon className="h-2.5 w-2.5" />{s.label}
                       </span>
                       {/* Category chip */}
@@ -435,14 +479,25 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
                     </div>
                   </div>
 
-                  {/* Delete button */}
-                  {canDelete && !selectMode && (
-                    <button
-                      onClick={e => { e.stopPropagation(); setDeleteTarget({ id: doc.id, title: doc.title }) }}
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-300 transition hover:bg-red-50 hover:text-red-500">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  )}
+                  {/* Retry + Delete buttons */}
+                  <div className="flex shrink-0 items-start gap-1">
+                    {canRetry && !selectMode && (
+                      <button
+                        onClick={e => { e.stopPropagation(); handleRetry(doc) }}
+                        disabled={retrying}
+                        title="Retry processing"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-300 transition hover:bg-amber-50 hover:text-amber-600 disabled:opacity-50">
+                        <RefreshCw className={cn('h-3.5 w-3.5', retrying && 'animate-spin')} />
+                      </button>
+                    )}
+                    {canDelete && !selectMode && (
+                      <button
+                        onClick={e => { e.stopPropagation(); setDeleteTarget({ id: doc.id, title: doc.title }) }}
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-300 transition hover:bg-red-50 hover:text-red-500">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               )
             })}
@@ -473,8 +528,10 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filtered.map(doc => {
-                  const s   = statusConfig[doc.status]
+                  const s   = statusFor(doc)
                   const cat = getCat(doc.department)
+                  const canRetry = doc.status === 'failed' || (doc.status === 'ready' && (doc.processing_warnings?.length ?? 0) > 0)
+                  const retrying = retryingIds.has(doc.id)
                   return (
                     <tr key={doc.id}
                       onClick={() => selectMode ? toggleSelect(doc.id) : setPreviewDocId(doc.id)}
@@ -504,7 +561,9 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
                           </div>
                           <div className="min-w-0">
                             <p className={cn('truncate font-semibold max-w-[220px]', previewDocId === doc.id ? 'text-brand' : 'text-gray-900')}>{doc.title}</p>
-                            <p className="truncate text-xs text-gray-400 max-w-[220px]">{doc.source}</p>
+                            <p className="truncate text-xs text-gray-400 max-w-[220px]">
+                              {doc.source}{doc.status === 'ready' && factCount(doc) > 0 ? ` · ${factCount(doc)} facts` : ''}
+                            </p>
                           </div>
                         </div>
                       </td>
@@ -521,21 +580,34 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
                         <span className="capitalize text-xs text-gray-500">{doc.sensitivity}</span>
                       </td>
                       <td className="px-5 py-3.5">
-                        <span className={cn('inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold', s.cls)}>
+                        <span
+                          title={doc.status_detail ?? undefined}
+                          className={cn('inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold', s.cls)}>
                           <s.icon className="h-3 w-3" />{s.label}
                         </span>
                       </td>
                       <td className="hidden px-5 py-3.5 text-xs text-gray-400 lg:table-cell">
                         {formatDate(doc.created_at)}
                       </td>
-                      {canDelete && (
+                      {canDelete && !selectMode && (
                         <td className="px-3 py-3.5" onClick={e => e.stopPropagation()}>
-                          <button
-                            onClick={() => setDeleteTarget({ id: doc.id, title: doc.title })}
-                            className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-300 transition hover:bg-red-50 hover:text-red-500"
-                            title="Delete document">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            {canRetry && (
+                              <button
+                                onClick={() => handleRetry(doc)}
+                                disabled={retrying}
+                                className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-300 transition hover:bg-amber-50 hover:text-amber-600 disabled:opacity-50"
+                                title="Retry processing">
+                                <RefreshCw className={cn('h-3.5 w-3.5', retrying && 'animate-spin')} />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => setDeleteTarget({ id: doc.id, title: doc.title })}
+                              className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-300 transition hover:bg-red-50 hover:text-red-500"
+                              title="Delete document">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </td>
                       )}
                     </tr>

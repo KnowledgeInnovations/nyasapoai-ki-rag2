@@ -4,6 +4,8 @@ import { getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import TrainingClient from '@/components/app/TrainingClient'
 import { canAccessTraining } from '@/lib/roles'
+import { buildFactCountMap } from '@/lib/factCounts'
+import type { ProcessingWarning } from '@/types'
 
 export const metadata: Metadata = { title: 'AI Training - NyasapoAI' }
 
@@ -27,10 +29,14 @@ export interface TrainingDoc {
   source: string
   department: string | null
   status: string
+  status_detail: string | null
+  processing_warnings: ProcessingWarning[]
   file_path: string
   created_at: string
   chunkCount: number
   lastTrainedAt: string | null
+  financialFactCount: number
+  documentFactCount: number
 }
 
 export default async function TrainingPage() {
@@ -43,9 +49,14 @@ export default async function TrainingPage() {
   // Fetch all documents
   const { data: docs } = await service
     .from('documents')
-    .select('id, title, source, department, status, file_path, created_at')
+    .select('id, title, source, department, status, status_detail, processing_warnings, file_path, created_at')
     .eq('tenant_id', tid)
     .order('created_at', { ascending: false })
+
+  const [financialFactCounts, documentFactCounts] = await Promise.all([
+    buildFactCountMap(service, 'financial_facts', tid),
+    buildFactCountMap(service, 'document_facts', tid),
+  ])
 
   // Fetch every chunk row for the tenant — paginated, since Supabase caps
   // unbounded selects at 1000 rows, which would silently hide chunk counts
@@ -79,10 +90,14 @@ export default async function TrainingPage() {
     source:       d.source,
     department:   d.department,
     status:       d.status,
+    status_detail: d.status_detail ?? null,
+    processing_warnings: (d.processing_warnings as ProcessingWarning[] | null) ?? [],
     file_path:    d.file_path,
     created_at:   d.created_at,
     chunkCount:   chunkMap.get(d.id)?.count ?? 0,
     lastTrainedAt: chunkMap.get(d.id)?.lastAt ?? null,
+    financialFactCount: financialFactCounts.get(d.id) ?? 0,
+    documentFactCount: documentFactCounts.get(d.id) ?? 0,
   }))
 
   const trainedCount   = trainingDocs.filter(d => d.chunkCount > 0).length

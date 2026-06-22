@@ -21,6 +21,16 @@ export interface Membership {
   role: UserRole
 }
 
+// One degraded step from a training run (e.g. AI table-fact extraction
+// failed and the document kept the rest of its data) — see
+// processing_warnings on Document. `step` is a fixed identifier, not
+// free text, so the UI can map it to a human label.
+export interface ProcessingWarning {
+  step: string
+  message: string
+  at: string
+}
+
 export interface Document {
   id: string
   tenant_id: string
@@ -29,6 +39,14 @@ export interface Document {
   department?: string
   sensitivity: 'public' | 'internal' | 'confidential' | 'restricted'
   status: 'processing' | 'ready' | 'failed'
+  // Failure reason, or a degraded-run summary ("2 of 5 steps degraded").
+  // Null when the most recent run was fully clean.
+  status_detail?: string | null
+  processing_warnings?: ProcessingWarning[]
+  // Computed server-side from financial_facts/document_facts counts, not a
+  // raw column — see documents/page.tsx and training/page.tsx.
+  financial_fact_count?: number
+  document_fact_count?: number
   created_at: string
   updated_at: string
 }

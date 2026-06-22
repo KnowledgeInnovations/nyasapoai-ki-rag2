@@ -65,6 +65,8 @@ create table public.documents (
                check (sensitivity in ('public', 'internal', 'confidential', 'restricted')),
   status       text not null default 'processing'
                check (status in ('processing', 'ready', 'failed')),
+  status_detail        text,                  -- failure reason, or degraded-run summary; null when fully clean
+  processing_warnings   jsonb not null default '[]'::jsonb, -- [{step, message, at}] for the most recent run
   file_path    text,                          -- Supabase Storage path
   file_size    bigint,
   mime_type    text,

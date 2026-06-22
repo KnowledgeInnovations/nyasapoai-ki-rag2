@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import {
-  Brain, CheckCircle2, AlertCircle, Clock, RefreshCw, Zap,
+  Brain, CheckCircle2, AlertCircle, AlertTriangle, Clock, RefreshCw, Zap,
   FileText, ChevronDown, ChevronUp, X, Search, Quote, Sparkles, ClipboardCheck,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
@@ -92,6 +92,24 @@ const DEPT_LABELS: Record<string, string> = {
   'design-plans':  'Design & Plans',
   'board-reports': 'Board Reports',
   general:         'General',
+}
+
+// Humanizes the fixed `step` identifiers train/route.ts pushes onto
+// processing_warnings — falls back to the raw id for anything unrecognized.
+const WARNING_STEP_LABELS: Record<string, string> = {
+  table_cleaning:           'AI table cleaning',
+  table_extraction:         'Table extraction',
+  ai_table_facts:           'AI table fact extraction',
+  generic_facts_fallback:   'Generic fact extraction',
+  cross_doc_corroboration:  'Cross-document corroboration',
+}
+
+// A document can be marked "ready" with some AI-enhancement steps having
+// silently failed and continued with partial data (intentional, see
+// train/route.ts) — surfaced here instead of looking identical to a fully
+// clean run.
+function isDegraded(doc: TrainingDoc, status: TrainStatus): boolean {
+  return (doc.processing_warnings?.length ?? 0) > 0 && status !== 'running'
 }
 
 export default function TrainingClient({ docs, trainedCount, untrainedCount, performance, lastRun }: {
@@ -337,7 +355,9 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, per
             const isRunning = s.status === 'running'
             const isDone    = s.status === 'done' || (s.status === 'idle' && doc.chunkCount > 0)
             const isFailed  = s.status === 'error' || (s.status === 'idle' && doc.status === 'failed')
+            const degraded  = isDone && isDegraded(doc, s.status)
             const chunkCount = s.status === 'done' ? s.chunks : doc.chunkCount
+            const factCount  = doc.financialFactCount + doc.documentFactCount
 
             return (
               <div
@@ -381,9 +401,10 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, per
 
                 {/* Status row */}
                 {!isRunning && (
-                  <div className="mt-3 flex items-center gap-1.5">
-                    {isDone && <><CheckCircle2 className="h-3.5 w-3.5 text-green-500" /><span className="text-[11px] font-semibold text-green-700">Trained · {chunkCount.toLocaleString()} chunks</span></>}
-                    {isFailed && !isDone && <><AlertCircle className="h-3.5 w-3.5 text-red-500" /><span className="text-[11px] font-semibold text-red-600">Failed</span></>}
+                  <div className="mt-3 flex items-center gap-1.5" title={degraded ? doc.status_detail ?? undefined : undefined}>
+                    {isDone && degraded && <><AlertTriangle className="h-3.5 w-3.5 text-amber-500" /><span className="text-[11px] font-semibold text-amber-700">Trained with warnings · {chunkCount.toLocaleString()} chunks{factCount > 0 ? ` · ${factCount} facts` : ''}</span></>}
+                    {isDone && !degraded && <><CheckCircle2 className="h-3.5 w-3.5 text-green-500" /><span className="text-[11px] font-semibold text-green-700">Trained · {chunkCount.toLocaleString()} chunks{factCount > 0 ? ` · ${factCount} facts` : ''}</span></>}
+                    {isFailed && !isDone && <><AlertCircle className="h-3.5 w-3.5 text-red-500" /><span className="text-[11px] font-semibold text-red-600" title={doc.status_detail ?? undefined}>Failed</span></>}
                     {!isDone && !isFailed && <><Clock className="h-3.5 w-3.5 text-amber-400" /><span className="text-[11px] font-semibold text-amber-600">Not trained</span></>}
                   </div>
                 )}
@@ -798,7 +819,9 @@ function DetailSheet({
   const isRunning  = state.status === 'running'
   const isDone     = state.status === 'done' || (state.status === 'idle' && doc.chunkCount > 0)
   const isFailed   = state.status === 'error' || (state.status === 'idle' && doc.status === 'failed')
+  const degraded   = isDone && isDegraded(doc, state.status)
   const chunkCount = state.status === 'done' ? state.chunks : doc.chunkCount
+  const factCount  = doc.financialFactCount + doc.documentFactCount
 
   const [logOpen, setLogOpen] = useState(true)
   const [docPerf, setDocPerf] = useState<Performance | null>(null)
@@ -848,6 +871,11 @@ function DetailSheet({
               ✓ {chunkCount.toLocaleString()} chunks trained
             </span>
           )}
+          {isDone && factCount > 0 && (
+            <span className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] font-semibold text-gray-600">
+              {factCount.toLocaleString()} fact{factCount === 1 ? '' : 's'} extracted
+            </span>
+          )}
           {doc.lastTrainedAt && (
             <span className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] text-gray-400">
               Last trained {new Date(doc.lastTrainedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -877,7 +905,16 @@ function DetailSheet({
         {/* Status */}
         {!isRunning && (
           <div className="mx-5 mt-4">
-            {isDone && (
+            {isDone && degraded && (
+              <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                <AlertTriangle className="h-5 w-5 text-amber-500" />
+                <div>
+                  <p className="text-sm font-semibold text-amber-800">Trained with warnings</p>
+                  <p className="text-xs text-amber-700">{doc.status_detail ?? 'Some extraction steps did not complete — the document still has partial data.'}</p>
+                </div>
+              </div>
+            )}
+            {isDone && !degraded && (
               <div className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-3">
                 <CheckCircle2 className="h-5 w-5 text-green-500" />
                 <div>
@@ -891,7 +928,7 @@ function DetailSheet({
                 <AlertCircle className="h-5 w-5 text-red-500" />
                 <div>
                   <p className="text-sm font-semibold text-red-800">Training failed</p>
-                  <p className="text-xs text-red-600">{state.message || 'An error occurred. Try retraining.'}</p>
+                  <p className="text-xs text-red-600">{state.message || doc.status_detail || 'An error occurred. Try retraining.'}</p>
                 </div>
               </div>
             )}
@@ -901,6 +938,28 @@ function DetailSheet({
                 <p className="text-sm font-semibold text-amber-800">Not yet trained</p>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Processing warnings — persisted, survives a page reload (unlike
+            the live-only Training Log below, which is empty until the next
+            run). Each entry is one degraded step from the most recent run. */}
+        {!isRunning && (doc.processing_warnings?.length ?? 0) > 0 && (
+          <div className="mx-5 mt-3 rounded-xl border border-amber-200 bg-amber-50/60">
+            <div className="flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider text-amber-700">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              Processing Warnings
+            </div>
+            <div className="border-t border-amber-200/60 px-4 pb-3 pt-2 space-y-1.5">
+              {doc.processing_warnings!.map((w, i) => (
+                <div key={i} className="flex items-start gap-2">
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+                  <p className="text-xs text-amber-800">
+                    <span className="font-semibold">{WARNING_STEP_LABELS[w.step] ?? w.step}:</span> {w.message}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

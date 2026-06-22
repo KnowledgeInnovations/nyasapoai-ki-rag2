@@ -5,6 +5,7 @@ import { extractStructuredText, chunkPages, embedBatch, EMBED_BATCH } from '@/li
 import { normalizeRole, canUploadDocuments } from '@/lib/roles'
 import { extractFactsFromChunk, runSanityChecks, type FinancialFact } from '@/lib/factExtraction'
 import { extractGenericFacts } from '@/lib/genericFactExtraction'
+import type { ProcessingWarning } from '@/types'
 
 export const maxDuration = 300 // 5 min — extraction + embedding can take a while for large documents
 
@@ -98,10 +99,16 @@ export async function POST(request: NextRequest) {
         controller.enqueue(enc.encode(`data: ${JSON.stringify(event)}\n\n`))
 
       const fail = async (error: string, status = 500) => {
-        await serviceClient.from('documents').update({ status: 'failed' }).eq('id', document.id)
+        await serviceClient.from('documents')
+          .update({ status: 'failed', status_detail: error.slice(0, 500) })
+          .eq('id', document.id)
         emit({ stage: 'error', error, status })
         controller.close()
       }
+
+      const warnings: ProcessingWarning[] = []
+      const warn = (step: string, message: string) =>
+        warnings.push({ step, message, at: new Date().toISOString() })
 
       try {
         emit({ stage: 'downloading' })
@@ -207,11 +214,15 @@ export async function POST(request: NextRequest) {
             }
           } catch (err) {
             console.error('Generic fact extraction error:', err)
+            warn('generic_facts_fallback', (err as Error).message)
           }
         }
 
-        await serviceClient.from('documents').update({ status: 'ready' }).eq('id', document.id)
-        emit({ stage: 'done', document: { ...document, status: 'ready' } })
+        const statusDetail = warnings.length ? `${warnings.length} step(s) degraded` : null
+        await serviceClient.from('documents').update({
+          status: 'ready', status_detail: statusDetail, processing_warnings: warnings,
+        }).eq('id', document.id)
+        emit({ stage: 'done', document: { ...document, status: 'ready' }, warnings })
         controller.close()
       } catch (err) {
         console.error('Processing error:', err)
