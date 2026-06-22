@@ -430,6 +430,90 @@ interface PositionedItem {
   height: number
 }
 
+// A landscape appendix table embedded in an otherwise-portrait budget
+// statement is drawn with every glyph's text matrix itself rotated 90°/180°/
+// 270° (independent of — though usually paired with — the PDF page's own
+// /Rotate flag), not just visually rotated by a viewer. groupLines/
+// lineToCells below assume normal text, where same-row glyphs share Y and
+// advance along +X — for rotated glyphs, the row axis and column axis are
+// swapped (and possibly mirrored) in raw (x,y), which is exactly why a
+// rotated table previously came out jumbled (row labels concatenated into
+// one line, numeric values scattered with no row/column correspondence;
+// confirmed on budget2007's Appendix 2/13, pages ~467-490, all glyphs there
+// carrying a transform of the form [0, s, -s, 0, x, y] — a clean 90°
+// rotation, s = font size).
+//
+// Fix: read each glyph's actual rotation from its own text matrix
+// [a, b, c, d, e, f] (pdfjs's `transform`) instead of assuming it's zero,
+// find the page's DOMINANT rotation (a real rotated table rotates every
+// glyph on the page together — a handful of individually-angled chart-axis
+// labels elsewhere should never trigger this), and apply the matching
+// inverse rotation to (x, y) so the existing row/column-grouping pipeline
+// sees normalized, "as if portrait" coordinates. Verified against the
+// budget2007 example above: with angle = atan2(b, a) = 90°, the inverse
+// rotation below (effectiveX = y, effectiveY = -x) correctly reproduces the
+// table's real row axis (constant raw X per row, e.g. "Real GDP Growth" and
+// its values all at x=160.08) and column axis (raw Y increasing left-to-
+// right, e.g. "2001".."2007*" at y=361.68→664.32).
+interface RawTextItem extends PositionedItem {
+  a: number
+  b: number
+}
+
+// Snaps a rotation angle (degrees, any sign/range) to the nearest multiple
+// of 90 if within `toleranceDeg`, else returns null — distinguishes a clean
+// page/table rotation from incidental skewed text (e.g. angled chart-axis
+// labels, which don't land near an axis-aligned angle and shouldn't be
+// "corrected").
+function snapToAxisAlignedAngle(angleDeg: number, toleranceDeg = 8): number | null {
+  const normalized = ((angleDeg % 360) + 360) % 360
+  const nearest = Math.round(normalized / 90) * 90
+  return Math.abs(normalized - nearest) <= toleranceDeg ? (nearest % 360) : null
+}
+
+// Finds the rotation shared by a clear majority of a page's text items
+// (>=60% of all items, not just of the axis-aligned subset — a page with
+// only a few rotated chart labels among mostly-normal text must not trigger
+// this) and returns the inverse-rotated items. Returns the input unchanged
+// (after stripping the temporary a/b fields) if no dominant non-zero
+// rotation is found — the overwhelmingly common case (a normal page).
+function normalizeRotatedItems(items: RawTextItem[]): PositionedItem[] {
+  if (!items.length) return items
+
+  const votes = new Map<number, number>()
+  for (const it of items) {
+    const angle = snapToAxisAlignedAngle(Math.atan2(it.b, it.a) * 180 / Math.PI)
+    if (angle != null) votes.set(angle, (votes.get(angle) ?? 0) + 1)
+  }
+
+  let dominantAngle = 0
+  let dominantVotes = 0
+  for (const [angle, count] of votes) {
+    if (angle !== 0 && count > dominantVotes) { dominantAngle = angle; dominantVotes = count }
+  }
+  if (dominantAngle === 0 || dominantVotes < items.length * 0.6) {
+    return items.map(it => ({ str: it.str, x: it.x, y: it.y, width: it.width, height: it.height }))
+  }
+
+  const rad = dominantAngle * Math.PI / 180
+  const cos = Math.cos(rad)
+  const sin = Math.sin(rad)
+  return items.map(({ a, b, x, y, height, ...rest }) => {
+    const itemAngle = snapToAxisAlignedAngle(Math.atan2(b, a) * 180 / Math.PI)
+    if (itemAngle !== dominantAngle) return { ...rest, x, y, height } // leave genuinely-different-angle items (rare) as-is
+    return {
+      ...rest,
+      x: x * cos + y * sin,
+      y: -x * sin + y * cos,
+      // Font size is rotation-invariant: the magnitude of the glyph's local
+      // x-axis vector (a, b). For unrotated text (b≈0) this equals |a|,
+      // the same value the old `Math.abs(transform[3])` produced — so
+      // normal pages get an identical height to before.
+      height: Math.sqrt(a * a + b * b) || height || 10,
+    }
+  })
+}
+
 interface Cell {
   text: string
   x: number
@@ -622,19 +706,22 @@ export async function extractTableRecordsFromPdf(buffer: Buffer): Promise<Omit<T
   try {
     for (let p = 1; p <= doc.numPages; p++) {
       const page = await doc.getPage(p)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const content = await page.getTextContent()
-      const items: PositionedItem[] = (content.items as any[])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rawItems: RawTextItem[] = (content.items as any[])
         .filter(it => it.str && it.str.trim())
         .map(it => ({
           str: it.str as string,
+          a: it.transform[0] as number,
+          b: it.transform[1] as number,
           x: it.transform[4] as number,
           y: it.transform[5] as number,
           width: it.width as number,
           height: (Math.abs(it.transform[3]) || it.height || 10) as number,
         }))
 
-      if (!items.length) continue
+      if (!rawItems.length) continue
+      const items = normalizeRotatedItems(rawItems)
 
       const lines = groupLines(items)
       const lineCells = lines.map(lineToCells)
