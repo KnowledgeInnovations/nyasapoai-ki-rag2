@@ -10,7 +10,7 @@
 export type QueryType = 'fact_lookup' | 'trend' | 'comparison' | 'forecast' | 'evidence' | 'anomaly_detection' | 'general'
 
 const FORECAST_RX  = /\b(predict|forecast|projection|project(ed)?|next year|upcoming year|estimate for \d{4})\b/i
-const TREND_RX     = /\b(trend|over (the|\d+) (years?|decades?)|year[\s-]?(on|over)[\s-]?year|growth|increase|decrease|change (over|from)|since \d{4}|\d{4}\s*(to|-|–|—)\s*\d{4})\b/i
+const TREND_RX     = /\b(trends?|trend(ed|ing)|over (the|\d+|the (last|past|next)) (years?|decades?)|year[\s-]?(on|over)[\s-]?year|growth|increase|decrease|change (over|from)|since \d{4}|\d{4}\s*(to|-|–|—)\s*\d{4})\b/i
 const COMPARISON_RX = /\b(compare|comparison|versus|\bvs\.?\b|difference between|relative to|against|top\s+(?:five|5|three|3|ten|10|\d+)|largest\s+percentage)\b/i
 const EVIDENCE_RX  = /\b(evidence|prove|support(ing)?\s+(this|that|the)\s+claim|cite|source(s)?\s+for|justify)\b/i
 const ANOMALY_RX   = /\b(anomal(y|ies)|suspicious|outlier|inconsistent|inconsistenc(y|ies)|irregular(it(y|ies))?|deviation(s)?|deviat(e|es|ed|ing))\b/i
