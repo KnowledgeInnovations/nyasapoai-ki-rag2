@@ -5,6 +5,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 import TrainingClient from '@/components/app/TrainingClient'
 import { canAccessTraining } from '@/lib/roles'
 import { buildFactCountMap } from '@/lib/factCounts'
+import { computeRecurringGaps, type RecurringGap } from '@/lib/extractionGaps'
 import type { ProcessingWarning } from '@/types'
 
 export const metadata: Metadata = { title: 'AI Training - NyasapoAI' }
@@ -127,6 +128,10 @@ export default async function TrainingPage() {
     .limit(1)
     .maybeSingle()
 
+  // Self-improvement, phase 1: recurring-gap flagging — read-only analysis
+  // over existing review/regression signal, see extractionGaps.ts.
+  const gaps = await computeRecurringGaps(service, tid)
+
   return (
     <TrainingClient
       docs={trainingDocs}
@@ -134,9 +139,12 @@ export default async function TrainingPage() {
       untrainedCount={untrainedCount}
       performance={performance}
       lastRun={lastRun ?? null}
+      gaps={gaps}
     />
   )
 }
+
+export type { RecurringGap }
 
 export interface SelfAssessmentRun {
   id:              string

@@ -8,6 +8,7 @@ import {
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import type { TrainingDoc, Performance, SelfAssessmentRun, RegressionResultRow } from '@/app/(app)/training/page'
+import type { RecurringGap } from '@/lib/extractionGaps'
 import { REGRESSION_QUESTIONS } from '@/lib/selfAssessment'
 
 const REGRESSION_QUESTION_COUNT = REGRESSION_QUESTIONS.length
@@ -112,12 +113,13 @@ function isDegraded(doc: TrainingDoc, status: TrainStatus): boolean {
   return (doc.processing_warnings?.length ?? 0) > 0 && status !== 'running'
 }
 
-export default function TrainingClient({ docs, trainedCount, untrainedCount, performance, lastRun }: {
+export default function TrainingClient({ docs, trainedCount, untrainedCount, performance, lastRun, gaps }: {
   docs: TrainingDoc[]
   trainedCount: number
   untrainedCount: number
   performance: Performance | null
   lastRun: SelfAssessmentRun | null
+  gaps: RecurringGap[]
 }) {
   const router = useRouter()
   const [states,    setStates]    = useState<Record<string, TrainState>>({})
@@ -340,6 +342,9 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, per
         onToggle={() => setRegressionOpen(o => !o)}
         onRun={runRegressionSuite}
       />
+
+      {/* ── Recurring gaps — self-improvement phase 1 ────────────── */}
+      <RecurringGapsCard gaps={gaps} />
 
       {/* ── Document cards — 2-col grid ──────────────────────────── */}
       {docs.length === 0 ? (
@@ -564,6 +569,63 @@ function RegressionSuiteCard({ lastRun, live, open, onToggle, onRun }: {
               <p className="mt-1.5 text-[11px] text-gray-500">{r.reason}</p>
               <p className="mt-1 text-[10px] text-gray-400">
                 Confidence {r.confidenceScore}% ({r.confidenceLevel}) · {r.citationCount} citation{r.citationCount === 1 ? '' : 's'}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Recurring Gaps Card — self-improvement phase 1 ───────────
+   Read-only: surfaces questions/categories that keep failing review or the
+   regression suite, ranked by how often they recur. Doesn't change any
+   answer — it's a prioritization aid for where re-extraction effort helps
+   most. See src/lib/extractionGaps.ts for the underlying computation. */
+function RecurringGapsCard({ gaps }: { gaps: RecurringGap[] }) {
+  const [open, setOpen] = useState(gaps.length > 0)
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-gray-50">
+            <AlertTriangle className="h-4 w-4 text-gray-500" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Recurring Gaps</p>
+            <p className="text-[11px] text-gray-400">
+              {gaps.length
+                ? `${gaps.length} question${gaps.length === 1 ? '' : 's'}/categor${gaps.length === 1 ? 'y' : 'ies'} keep failing review or the regression suite`
+                : 'No repeated failures yet — gaps need to recur at least twice to show up here'}
+            </p>
+          </div>
+        </div>
+        {gaps.length > 0 && (
+          <button
+            onClick={() => setOpen(o => !o)}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-gray-50 text-gray-500 transition hover:bg-gray-100">
+            {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </button>
+        )}
+      </div>
+
+      {open && gaps.length > 0 && (
+        <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
+          {gaps.map((g, i) => (
+            <div key={`${g.source}-${g.topic}-${i}`} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-xs font-semibold text-gray-800">
+                  {g.source === 'self_assessment' ? g.topic.replace(/_/g, ' ') : g.exampleQuestion}
+                </p>
+                <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                  {g.occurrences}× failed
+                </span>
+              </div>
+              <p className="mt-1.5 text-[11px] text-gray-500">{g.exampleReason}</p>
+              <p className="mt-1 text-[10px] text-gray-400">
+                {g.source === 'self_assessment' ? 'Regression suite' : 'Document search review'} · last seen {formatDate(g.lastSeenAt)}
               </p>
             </div>
           ))}
