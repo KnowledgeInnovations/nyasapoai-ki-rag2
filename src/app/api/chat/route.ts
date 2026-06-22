@@ -836,7 +836,15 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
       // non-budget document doesn't pull in budget rows for whatever
       // year/entity happened to be inferred from a weakly-retrieved chunk,
       // and instead falls through to the document_facts branch below.
-      const hasBudgetContext = chunks.some(c => c.metadata?.fiscal_year != null)
+      // `chunks` is reranked best-first, but can still include several
+      // low-relevance documents padding out the top 10 (isDeepSearch's
+      // per-document supplementation guarantees SOME chunk from every
+      // ready document, however weak the match) — checking the WHOLE array
+      // means one such low-relevance budget chunk among nine genuinely
+      // relevant non-budget chunks still flips this on. Only the top 3
+      // (the chunks the answer is actually likely to be built from) should
+      // count as a real signal that this question is budget-related.
+      const hasBudgetContext = chunks.slice(0, 3).some(c => c.metadata?.fiscal_year != null)
       const { data: facts, error: factsError } = hasBudgetContext
         ? await factsQuery
         : { data: [] as Awaited<typeof factsQuery>['data'], error: null }
