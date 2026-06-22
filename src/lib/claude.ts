@@ -41,22 +41,37 @@ interface ClaudeCompleteOptions {
 // ''), surfacing as "Insight temporarily unavailable" even though the org has
 // plenty of credit.
 const MAX_CLAUDE_COMPLETE_ATTEMPTS = 3
+// No caller currently passes its own `signal` — a stalled TCP connection (no
+// error, no response) on an unstable network previously hung this fetch
+// indefinitely, which is what blocked an upload/training pipeline until
+// Vercel's hard maxDuration kill rather than failing fast and retrying.
+const DEFAULT_CLAUDE_TIMEOUT_MS = 45000
 
 export async function claudeComplete({ system, messages, maxTokens = 1024, temperature = 0, signal }: ClaudeCompleteOptions): Promise<string> {
-  let res: Response
+  let res: Response | undefined
   for (let attempt = 1; attempt <= MAX_CLAUDE_COMPLETE_ATTEMPTS; attempt++) {
-    res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: getAnthropicHeaders(),
-      body: JSON.stringify({
-        model: CLAUDE_MODEL,
-        max_tokens: maxTokens,
-        temperature,
-        ...(system ? { system } : {}),
-        messages,
-      }),
-      signal,
-    })
+    try {
+      res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: getAnthropicHeaders(),
+        body: JSON.stringify({
+          model: CLAUDE_MODEL,
+          max_tokens: maxTokens,
+          temperature,
+          ...(system ? { system } : {}),
+          messages,
+        }),
+        signal: signal ?? AbortSignal.timeout(DEFAULT_CLAUDE_TIMEOUT_MS),
+      })
+    } catch (e) {
+      // A caller-provided signal aborting is the caller's own cancellation —
+      // respect it immediately rather than retrying. Anything else (our own
+      // timeout firing, or a genuine network failure) is retried below.
+      if (signal?.aborted) throw e
+      if (attempt === MAX_CLAUDE_COMPLETE_ATTEMPTS) throw e
+      await new Promise(r => setTimeout(r, attempt * 1000))
+      continue
+    }
     if (res.ok) break
     if (res.status !== 429 || attempt === MAX_CLAUDE_COMPLETE_ATTEMPTS) {
       throw new Error(`Claude API error ${res.status}: ${await res.text()}`)

@@ -333,19 +333,39 @@ export function chunkText(text: string | null | undefined, maxChars = 1500, over
 }
 
 // ── Batch embedding ────────────────────────────────────────────────
+// A stalled TCP connection (no error, no response — observed repeatedly on
+// unstable networks) previously blocked this fetch indefinitely: no timeout
+// meant a single hung request could occupy the entire serverless function
+// until Vercel's hard maxDuration kill, leaving the document stuck on
+// "processing" forever with no error ever raised to catch and record.
+// Bounding each attempt and retrying turns that into a fast, recoverable
+// failure instead.
+const EMBED_TIMEOUT_MS = 25000
+const EMBED_MAX_ATTEMPTS = 3
+
 export async function embedBatch(texts: string[]): Promise<number[][]> {
-  const res = await fetch('https://api.openai.com/v1/embeddings', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({ model: 'text-embedding-3-small', input: texts }),
-  })
-  if (!res.ok) throw new Error(`OpenAI embeddings error ${res.status}: ${await res.text()}`)
-  const data = await res.json()
-  if (!Array.isArray(data?.data)) throw new Error('OpenAI embeddings: malformed response')
-  return (data.data as { index: number; embedding: number[] }[])
-    .sort((a, b) => a.index - b.index)
-    .map(d => d.embedding)
+  let lastErr: unknown
+  for (let attempt = 1; attempt <= EMBED_MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch('https://api.openai.com/v1/embeddings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({ model: 'text-embedding-3-small', input: texts }),
+        signal: AbortSignal.timeout(EMBED_TIMEOUT_MS),
+      })
+      if (!res.ok) throw new Error(`OpenAI embeddings error ${res.status}: ${await res.text()}`)
+      const data = await res.json()
+      if (!Array.isArray(data?.data)) throw new Error('OpenAI embeddings: malformed response')
+      return (data.data as { index: number; embedding: number[] }[])
+        .sort((a, b) => a.index - b.index)
+        .map(d => d.embedding)
+    } catch (e) {
+      lastErr = e
+      if (attempt < EMBED_MAX_ATTEMPTS) await new Promise(r => setTimeout(r, attempt * 1000))
+    }
+  }
+  throw lastErr
 }
