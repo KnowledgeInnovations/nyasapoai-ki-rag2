@@ -1366,9 +1366,26 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           // purely on chunk-retrieval quality — which can be coincidentally
           // low for a small/sparse document even when the answer is fully
           // correct and explicitly cites a verified, extracted fact.
+          //
+          // Averaging over the FULL `chunks`/`factCitations` sets (every
+          // retrieved candidate, not just what the model actually cited) was
+          // a second, larger version of the same blind spot: a narrow
+          // question against a short document retrieves several low-
+          // similarity filler chunks alongside the one relevant fact, and
+          // those uncited chunks dragged the average down even though the
+          // answer never relied on them — e.g. a fully correct,
+          // document_facts-cited Technical Data Sheet answer scored 21%
+          // because 4 high-confidence fact citations got averaged against
+          // ~10 unrelated low-similarity chunks the reranker padded the
+          // top-10 with. Score the evidence actually used (citedChunks/
+          // citedFactCitations, computed above from the answer's own [n]
+          // markers); only fall back to the full retrieved set if the
+          // answer cited nothing at all, so that edge case doesn't collapse
+          // to a guaranteed near-zero score instead.
+          const hasCitedEvidence = citedChunks.length > 0 || citedFactCitations.length > 0
           const retrievalScores = [
-            ...chunks.map(c => c.rerank_score ?? c.similarity ?? c.rrf_score ?? 0),
-            ...factCitations.map(fc => fc.relevance_score),
+            ...(hasCitedEvidence ? citedChunks : chunks).map(c => c.rerank_score ?? c.similarity ?? c.rrf_score ?? 0),
+            ...(hasCitedEvidence ? citedFactCitations : factCitations).map(fc => fc.relevance_score),
           ]
           const verification = verifyAnswer(answer, chunks, retrievalScores, validatedFactsForVerification)
 

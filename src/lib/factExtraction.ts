@@ -69,6 +69,29 @@ const METRIC_PATTERNS: { metric: string; rx: RegExp }[] = [
   { metric: 'allocation', rx: /allocation/i },
 ]
 
+// Cheap, document-level signal check — counts how often budget/fiscal-
+// statement language (currency symbols, "fiscal year", ministry/MTEF
+// terminology) appears across the document's OWN text. A real Ghana budget
+// statement hits this dozens of times per page; an inflation report or a
+// business report (this system's other real tenant's document types) hits
+// it ~0 times. Used to skip the AI-driven steps of the budget-specific
+// pipeline (aiEnhanceTableFacts, extractTableRecordsFromPdf) for documents
+// that were never going to contain government budget figures, so they don't
+// burn real processing time/API calls on tables that don't match this
+// domain's shape before falling through to the generic document_facts path.
+// Deliberately cheap (one regex pass, no API call) and deliberately loose
+// (a false positive just means the budget pipeline ALSO runs — harmless,
+// since runSanityChecks already requires >=3 real facts to count for
+// anything); a false negative is the only failure mode that matters, and
+// the keyword list is broad enough that any genuine budget document trips
+// it within its first few pages.
+const BUDGET_SIGNAL_RX = /GH₵|GH¢|GHC\b|cedis|fiscal\s+year|budget\s+statement|ministry\s+of\s+finance|appropriation|total\s+expenditure|total\s+revenue|government\s+of\s+ghana|\bMTEF\b|medium[- ]term\s+expenditure|consolidated\s+fund/gi
+const BUDGET_SIGNAL_MIN_HITS = 5
+
+export function looksLikeBudgetDocument(text: string): boolean {
+  return (text.match(BUDGET_SIGNAL_RX)?.length ?? 0) >= BUDGET_SIGNAL_MIN_HITS
+}
+
 const NATIONAL_RX = /national\s+budget|total\s+budget\s+(of\s+)?(the\s+)?(government|ghana)/i
 
 // Looser than NATIONAL_RX above — only used for query-intent detection

@@ -4,7 +4,7 @@ import { getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
 import { canAccessTraining } from '@/lib/roles'
-import { extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks, runCrossDocumentCorroboration, type FinancialFact } from '@/lib/factExtraction'
+import { extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks, runCrossDocumentCorroboration, looksLikeBudgetDocument, type FinancialFact } from '@/lib/factExtraction'
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
 import { extractGenericFacts } from '@/lib/genericFactExtraction'
 import type { ProcessingWarning } from '@/types'
@@ -164,8 +164,24 @@ export async function POST(
         const docYearMatch = doc.title.match(/\b(19|20)\d{2}\b/)
         const docFiscalYear = docYearMatch ? docYearMatch[0] : null
 
+        // Cheap document-level check, computed once: does this document show
+        // ANY sign of being a government budget statement? If not, skip the
+        // two AI-driven budget-specific steps below entirely (6, 6.5) — they
+        // were never going to find a ministry/national budget figure in an
+        // inflation report or a business report, and running them anyway
+        // costs real wall-clock time (one or more Claude calls per table
+        // batch) that has previously pushed non-budget uploads past this
+        // route's maxDuration, leaving them stuck in "processing" forever.
+        // extractFactsFromChunk (the cheap regex pass, already run per chunk
+        // above) stays unconditional — it's local computation, not an API
+        // call, so there's no cost to leaving it as a safety net.
+        const budgetSignal = looksLikeBudgetDocument(chunks.map(c => c.text).join('\n'))
+        if (!budgetSignal) {
+          send({ stage: 'tables', message: 'No budget-statement signal detected — skipping budget-specific table extraction', progress: 90 })
+        }
+
         // ── 6. Table-aware fact extraction (PDFs only) ────────────
-        if (path.extname(doc.source).toLowerCase() === '.pdf') {
+        if (budgetSignal && path.extname(doc.source).toLowerCase() === '.pdf') {
           send({ stage: 'tables', message: 'Extracting tables for financial facts…', progress: 90 })
           try {
             const tableRecords = await extractTableRecordsFromPdf(buffer)
@@ -182,18 +198,20 @@ export async function POST(
         // ── 6.5. AI-enhanced table fact extraction ────────────────
         // Catches facts the regex pipeline misses: sector breakdowns,
         // footnote totals, multi-year rows with non-standard labels.
-        try {
-          const aiFacts = await aiEnhanceTableFacts(
-            cleanedChunks, membership.tenant_id, id, docFiscalYear,
-            ({ tableCount, reason }) => warn('ai_table_facts', `Could not parse ${tableCount} table batch(es): ${reason}`),
-          )
-          if (aiFacts.length) {
-            send({ stage: 'tables', message: `AI extracted ${aiFacts.length} additional financial facts`, progress: 93 })
-            allFacts.push(...aiFacts)
+        if (budgetSignal) {
+          try {
+            const aiFacts = await aiEnhanceTableFacts(
+              cleanedChunks, membership.tenant_id, id, docFiscalYear,
+              ({ tableCount, reason }) => warn('ai_table_facts', `Could not parse ${tableCount} table batch(es): ${reason}`),
+            )
+            if (aiFacts.length) {
+              send({ stage: 'tables', message: `AI extracted ${aiFacts.length} additional financial facts`, progress: 93 })
+              allFacts.push(...aiFacts)
+            }
+          } catch (err) {
+            console.error('[Train] AI table fact extraction failed', err)
+            warn('ai_table_facts', (err as Error).message)
           }
-        } catch (err) {
-          console.error('[Train] AI table fact extraction failed', err)
-          warn('ai_table_facts', (err as Error).message)
         }
 
         // ── 7. Sanity-check + store financial facts ───────────────
