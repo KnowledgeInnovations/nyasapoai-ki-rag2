@@ -36,7 +36,13 @@ function sseHeaders() {
   return { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' }
 }
 
+// Leaves 60s of the 300s maxDuration above as headroom for the remaining
+// steps (status update, response) after generic fact extraction stops —
+// see the deadline param on extractGenericFacts for why this exists.
+const PROCESSING_BUDGET_MS = 240_000
+
 export async function POST(request: NextRequest) {
+  const routeDeadline = Date.now() + PROCESSING_BUDGET_MS
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -207,7 +213,7 @@ export async function POST(request: NextRequest) {
 
         if (allFacts.length < DOCUMENT_FACTS_FALLBACK_THRESHOLD) {
           try {
-            const genericFacts = await extractGenericFacts(chunks, membership.tenant_id, document.id)
+            const genericFacts = await extractGenericFacts(chunks, membership.tenant_id, document.id, routeDeadline)
             if (genericFacts.length) {
               await serviceClient.from('document_facts').insert(genericFacts)
               emit({ stage: 'facts', count: allFacts.length, genericCount: genericFacts.length })

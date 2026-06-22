@@ -83,6 +83,16 @@ export async function extractGenericFacts(
   chunks: ProcessedChunk[],
   tenantId: string,
   documentId: string,
+  // Wall-clock cutoff (Date.now() epoch ms) — once past it, stop starting
+  // new batches and return what's accumulated so far. Batching (above) cuts
+  // the call count a lot, but a large enough document (1000+ chunks) can
+  // still add up to more than the training route's maxDuration; without a
+  // cutoff here, that document gets killed by the platform mid-call with no
+  // chance to persist a terminal status, leaving it stuck in "processing"
+  // forever — the exact incident this fallback exists to avoid. Partial
+  // generic facts (most of the document, just not literally every chunk)
+  // are far more useful than none, so this degrades rather than fails.
+  deadline = Infinity,
 ): Promise<DocumentFact[]> {
   const usableChunks = chunks.filter(c => c.text.trim().length > 30)
   if (!usableChunks.length) return []
@@ -197,6 +207,7 @@ ${combined}`,
   let batch: ProcessedChunk[] = []
   let batchChars = 0
   for (const chunk of usableChunks) {
+    if (Date.now() > deadline) break
     if (batchChars + chunk.text.length > GENERIC_FACT_BATCH_CHARS && batch.length) {
       await processBatch(batch)
       batch = []
@@ -205,7 +216,7 @@ ${combined}`,
     batch.push(chunk)
     batchChars += chunk.text.length
   }
-  if (batch.length) await processBatch(batch)
+  if (batch.length && Date.now() <= deadline) await processBatch(batch)
 
   // Repeated headers/footers (a report's title block, version number, etc.
   // printed on every page) get extracted fresh from each chunk and produce

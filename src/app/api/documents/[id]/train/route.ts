@@ -35,10 +35,16 @@ function sseHeaders() {
   return { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' }
 }
 
+// Leaves 60s of the 300s maxDuration above as headroom for the remaining
+// steps (cross-doc corroboration, status update, response) after generic
+// fact extraction stops — see the deadline param on extractGenericFacts.
+const PROCESSING_BUDGET_MS = 240_000
+
 export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const routeDeadline = Date.now() + PROCESSING_BUDGET_MS
   const { id } = await params
   const membership = await getMembership()
   if (!membership || !canAccessTraining(membership.role)) {
@@ -224,7 +230,7 @@ export async function POST(
         // ── 7.4. Generic fact extraction fallback (non-budget documents) ──
         if (allFacts.length < DOCUMENT_FACTS_FALLBACK_THRESHOLD) {
           try {
-            const genericFacts = await extractGenericFacts(cleanedChunks, membership.tenant_id, id)
+            const genericFacts = await extractGenericFacts(cleanedChunks, membership.tenant_id, id, routeDeadline)
             if (genericFacts.length) {
               await service.from('document_facts').insert(genericFacts)
               send({ stage: 'facts', message: `Extracted ${genericFacts.length} document facts`, progress: 96 })
