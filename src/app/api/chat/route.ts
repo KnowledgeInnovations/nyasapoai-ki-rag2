@@ -1307,7 +1307,38 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
             }
           }
 
-          const { answer, risks, recommendations } = parseDelimited(fullText)
+          const parsed = parseDelimited(fullText)
+
+          // Citation numbers [n] the model actually referenced in the final
+          // answer — used below to limit the Source Viewer and persisted
+          // `citations` rows to evidence the answer genuinely drew from.
+          // Without this, EVERY retrieved chunk/fact became a citation
+          // regardless of use, including low-relevance chunks the reranker
+          // only included to pad out the top 10 (e.g. a stray budget-document
+          // chunk surfacing as a "source" on a question entirely about an
+          // unrelated contract). The frontend resolves [n] markers by ARRAY
+          // POSITION (citations[n-1] — see MessageContent.tsx), so dropping
+          // unused entries requires renumbering every surviving marker to a
+          // compact 1..N sequence, not just filtering the array. verifyAnswer
+          // below still checks the answer's numbers against the FULL
+          // `chunks`/retrieval set, not just the cited subset — citing a
+          // figure isn't a precondition for it being genuinely supported by
+          // the retrieved evidence.
+          const citedIndices = new Set(
+            [parsed.answer, ...parsed.risks, ...parsed.recommendations].join(' ').match(/\[(\d+)\]/g)
+              ?.map(m => parseInt(m.slice(1, -1), 10)) ?? []
+          )
+          const sortedUsed = [...citedIndices].sort((a, b) => a - b)
+          const renumberMap = new Map(sortedUsed.map((old, i) => [old, i + 1]))
+          const renumber = (text: string) => text.replace(/\[(\d+)\]/g, (m, numStr) => {
+            const newNum = renumberMap.get(parseInt(numStr, 10))
+            return newNum != null ? `[${newNum}]` : m
+          })
+          const answer = renumber(parsed.answer)
+          const risks = parsed.risks.map(renumber)
+          const recommendations = parsed.recommendations.map(renumber)
+          const citedChunks = sortedUsed.filter(n => n <= chunks.length).map(n => chunks[n - 1])
+          const citedFactCitations = sortedUsed.filter(n => n > chunks.length).map(n => factCitations[n - chunks.length - 1])
 
           /* ── Answer verification + confidence scoring ──────────
              Deterministic second pass: every non-percentage figure in the
@@ -1434,13 +1465,13 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
                 .single()
               if (convErr) console.error('Conv save error:', convErr.message)
               convId = conv?.id ?? null
-              if (convId && (chunks.length || factCitations.length)) {
+              if (convId && (citedChunks.length || citedFactCitations.length)) {
                 const { error: citationsErr } = await svc.from('citations').insert([
-                  ...chunks.map(c => ({
+                  ...citedChunks.map(c => ({
                     conversation_id: convId, document_chunk_id: c.id, relevance_score: c.similarity,
                     message_index: rawHistoryLength + 1,
                   })),
-                  ...factCitationRows(convId, factCitations, rawHistoryLength + 1),
+                  ...factCitationRows(convId, citedFactCitations, rawHistoryLength + 1),
                 ])
                 if (citationsErr) console.error('[RAG] citations insert failed:', citationsErr)
               }
@@ -1448,13 +1479,13 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           } else if (existingConvId) {
             convId = existingConvId
             await appendConv(existingConvId, answer, risks, recommendations)
-            if (chunks.length || factCitations.length) {
+            if (citedChunks.length || citedFactCitations.length) {
               const { error: citationsErr } = await svc.from('citations').insert([
-                ...chunks.map(c => ({
+                ...citedChunks.map(c => ({
                   conversation_id: convId, document_chunk_id: c.id, relevance_score: c.similarity,
                   message_index: rawHistoryLength + 1,
                 })),
-                ...factCitationRows(convId, factCitations, rawHistoryLength + 1),
+                ...factCitationRows(convId, citedFactCitations, rawHistoryLength + 1),
               ])
               if (citationsErr) console.error('[RAG] citations insert failed:', citationsErr)
             }
@@ -1468,7 +1499,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
               fc.document_title = docTitleById.get(fc.document_id) ?? 'Document'
             }
           }
-          const chunkCitations = chunks.map(c => {
+          const chunkCitations = citedChunks.map(c => {
             const detail  = chunkDetails?.find(d => d.id === c.id)
             const rawDocs = detail?.documents as { title: string } | { title: string }[] | null
             const docTitle = Array.isArray(rawDocs) ? rawDocs[0]?.title : rawDocs?.title
@@ -1491,7 +1522,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           // resolvable after the conversation is reloaded from history.
           const citations = [
             ...chunkCitations,
-            ...factCitations.map(f => ({ ...f, conversation_id: convId ?? '' })),
+            ...citedFactCitations.map(f => ({ ...f, conversation_id: convId ?? '' })),
           ]
 
           controller.enqueue(enc.encode(
