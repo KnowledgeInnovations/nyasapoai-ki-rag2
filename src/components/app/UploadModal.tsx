@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { X, Upload, FileText, CheckCircle2, AlertCircle, Loader2, Paperclip } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { uploadDocument, type ExtractionProgress } from '@/lib/uploadDocument'
+import { uploadDocument, estimateProcessingMinutes, type ExtractionProgress } from '@/lib/uploadDocument'
 import { SENSITIVITIES } from '@/lib/documentCategories'
 import type { Category } from '@/lib/documentCategories'
 import type { Document } from '@/types'
@@ -250,6 +250,14 @@ export default function UploadModal({ onClose, onUploaded, categories }: Props) 
                       {item.status === 'uploading' && item.progress && (
                         <p className="mt-0.5 text-[11px] font-medium text-brand">{item.progress}</p>
                       )}
+                      {(item.status === 'pending' || (item.status === 'uploading' && !item.progress)) && (() => {
+                        const { lowMinutes, highMinutes } = estimateProcessingMinutes(item.file.size)
+                        return (
+                          <p className="mt-0.5 text-[11px] text-gray-400">
+                            Est. processing time: ~{lowMinutes}–{highMinutes} min
+                          </p>
+                        )
+                      })()}
                     </div>
 
                     {/* Remove / retry */}
