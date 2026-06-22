@@ -218,7 +218,8 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        const statusDetail = warnings.length ? `${warnings.length} step(s) degraded` : null
+        const degradedStepCount = new Set(warnings.map(w => w.step)).size
+        const statusDetail = degradedStepCount ? `${degradedStepCount} step(s) degraded` : null
         await serviceClient.from('documents').update({
           status: 'ready', status_detail: statusDetail, processing_warnings: warnings,
         }).eq('id', document.id)

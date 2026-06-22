@@ -502,7 +502,16 @@ export function verifyAnswer(
 
     for (const f of amounts) {
       totalNumbers++
+      // A chart/table often states its scale once in a title ("Figure 14:
+      // ... in GH¢ Million") and lists bare currency+digits per data point
+      // (e.g. "GH¢143,956") without repeating "million" on every line —
+      // the model's prose correctly re-attaches the unit ("GH¢143,956
+      // million"), which then fails a literal substring match even though
+      // the figure is exactly the one in the source. Strip a trailing
+      // scale word before the literal check as a second attempt.
+      const bareRaw = f.raw.replace(/\s*(million|billion|thousand)\b\s*$/i, '')
       const exactMatch = sourceNorm.includes(normNum(f.raw)) || sourceText.includes(f.value.toFixed(1))
+        || (bareRaw !== f.raw && sourceNorm.includes(normNum(bareRaw)))
 
       const fMs = toMillions(f)
       // Within ~0.5% of any source figure on the same (millions) scale —

@@ -830,7 +830,16 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
         factsQuery = factsQuery.ilike('entity', `%${entityHint}%`)
       }
 
-      const { data: facts, error: factsError } = await factsQuery
+      // financial_facts is a tenant-wide, budget-specific store — gate the
+      // actual query on whether the retrieved chunks are even budget-shaped
+      // (see hasBudgetContext below) so a question entirely about a
+      // non-budget document doesn't pull in budget rows for whatever
+      // year/entity happened to be inferred from a weakly-retrieved chunk,
+      // and instead falls through to the document_facts branch below.
+      const hasBudgetContext = chunks.some(c => c.metadata?.fiscal_year != null)
+      const { data: facts, error: factsError } = hasBudgetContext
+        ? await factsQuery
+        : { data: [] as Awaited<typeof factsQuery>['data'], error: null }
       if (factsError) console.error('[RAG] financial_facts query error:', JSON.stringify(factsError))
 
       const validFacts = (facts ?? []).filter(f => f.confidence >= 70 && !(f.flags as string[])?.length)
@@ -846,7 +855,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
       // Broader dataset (all entity types, no row-cap-per-entity issue) for
       // the analytical computations below.
       let analysisFacts: FactRow[] = []
-      if (wantsAnalysis) {
+      if (hasBudgetContext && wantsAnalysis) {
         const FACTS_SELECT = 'fiscal_year, entity, entity_type, metric, value, unit, value_millions, page_number, section_title, document_id, confidence, flags'
         // National facts are few (a few dozen per metric) — fetch them all,
         // unconditionally, so plausibility checks (entity allocation vs.

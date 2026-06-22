@@ -71,6 +71,15 @@ const METRIC_PATTERNS: { metric: string; rx: RegExp }[] = [
 
 const NATIONAL_RX = /national\s+budget|total\s+budget\s+(of\s+)?(the\s+)?(government|ghana)/i
 
+// Looser than NATIONAL_RX above — only used for query-intent detection
+// (extractQueryFilters below), never for classifying extracted facts, so it
+// can afford to match plain "total budget" / "total expenditure" wording
+// without requiring "of the government/ghana". Only checked once a query
+// has already failed to match any specific ministry/sector keyword, so a
+// false positive here just means "treat this as a national-level question",
+// which is the correct default for an otherwise entity-less query anyway.
+const NATIONAL_QUERY_RX = /national\s+budget|total\s+(budget|expenditure|revenue|spending)\b|overall\s+budget/i
+
 // Metrics that describe macro/national-level fiscal aggregates — when a
 // figure classifies as one of these and the chunk has no ministry/sector/
 // explicit-national context, it almost always refers to the national total
@@ -780,7 +789,7 @@ export function extractQueryFilters(
   // sector named) should only match entity_type='national' facts — without
   // this, an unfiltered facts query for the year returns every sector's
   // figures, none of which answer "what was the national total".
-  if (!entityHint && NATIONAL_RX.test(query)) {
+  if (!entityHint && NATIONAL_QUERY_RX.test(query)) {
     entityHint = 'National'
   }
 
@@ -838,7 +847,14 @@ export async function aiEnhanceTableFacts(
   let batch: ProcessedChunk[] = []
   let batchChars = 0
 
-  async function processBatch(b: ProcessedChunk[]) {
+  // Caps how many times a single dense table chunk's TEXT (not just the
+  // batch of chunks) gets split in half when even a lone chunk overflows
+  // 8192 output tokens — 2 levels takes a runaway 200+ row appendix table
+  // down to ~50-row quarters, small enough to parse, while still bounding
+  // recursion if a quarter is somehow still too dense.
+  const MAX_TEXT_SPLIT_DEPTH = 2
+
+  async function processBatch(b: ProcessedChunk[], depth = 0) {
     const combined = b.map((c, i) => `[Table ${i + 1}${c.page_number ? ` (page ${c.page_number})` : ''}]\n${c.text}`).join('\n\n')
     let raw: string
     try {
@@ -892,12 +908,25 @@ ${combined}`,
       // genuinely cut off mid-object (not just trailing prose extractJSON
       // can strip). Rather than silently dropping the whole batch's facts,
       // split it and retry each half — same total table content, smaller
-      // per-call output, much less likely to hit the ceiling. A single-chunk
-      // batch can't be split further; log and drop only that case.
+      // per-call output, much less likely to hit the ceiling.
       if (b.length > 1) {
         const mid = Math.ceil(b.length / 2)
-        await processBatch(b.slice(0, mid))
-        await processBatch(b.slice(mid))
+        await processBatch(b.slice(0, mid), depth)
+        await processBatch(b.slice(mid), depth)
+        return
+      }
+      // A single chunk is still one whole table — e.g. a 200+ row budget
+      // appendix — that alone overflows the output ceiling. Split that
+      // chunk's TEXT in half by line (not just the batch array, which is
+      // already length 1) and retry each half as its own one-chunk batch,
+      // up to MAX_TEXT_SPLIT_DEPTH levels, before finally giving up.
+      const lines = b[0].text.split('\n')
+      if (depth < MAX_TEXT_SPLIT_DEPTH && lines.length >= 6) {
+        const mid = Math.ceil(lines.length / 2)
+        const halves = [lines.slice(0, mid).join('\n'), lines.slice(mid).join('\n')]
+        for (const halfText of halves) {
+          if (halfText.trim()) await processBatch([{ ...b[0], text: halfText }], depth + 1)
+        }
       } else {
         console.error('[aiEnhanceTableFacts] batch failed:', e)
         onBatchDropped?.({ tableCount: b.length, reason: (e as Error).message })

@@ -240,8 +240,12 @@ export async function POST(
         }
 
         // ── 8. Mark document as ready ─────────────────────────────
-        const statusDetail = warnings.length
-          ? `${warnings.length} of ${TOTAL_STEPS} step${warnings.length === 1 ? '' : 's'} degraded`
+        // Count distinct DEGRADED STEPS, not total warning entries — a
+        // single step (e.g. ai_table_facts) can push multiple warnings, one
+        // per dropped batch, which must not read as "every step failed".
+        const degradedStepCount = new Set(warnings.map(w => w.step)).size
+        const statusDetail = degradedStepCount
+          ? `${degradedStepCount} of ${TOTAL_STEPS} step${degradedStepCount === 1 ? '' : 's'} degraded`
           : null
         await service.from('documents').update({
           status: 'ready', status_detail: statusDetail, processing_warnings: warnings,
