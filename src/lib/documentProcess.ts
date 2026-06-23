@@ -297,7 +297,13 @@ export async function aiCleanTableChunks(
 
   const result = [...chunks]
 
+  // Same reasoning as aiEnhanceTableFacts's outer loop: per-call retries
+  // respect `deadline`, but without also checking it here, a document with
+  // many table batches just keeps starting new ones under sustained network
+  // trouble. Stop and return what's been cleaned so far rather than grinding
+  // through every remaining batch's full retry cycle one at a time.
   for (let b = 0; b < tableIndexes.length; b += TABLE_CLEAN_BATCH) {
+    if (deadline != null && Date.now() > deadline) break
     const batch = tableIndexes.slice(b, b + TABLE_CLEAN_BATCH)
     const separator = '\n---TABLE_BREAK---\n'
     const combined = batch.map(i => chunks[i].text).join(separator)

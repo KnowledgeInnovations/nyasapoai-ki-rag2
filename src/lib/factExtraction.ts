@@ -1073,7 +1073,16 @@ ${combined}`,
     }
   }
 
+  // Per-call retries inside processBatch respect `deadline` already, but
+  // without also checking it here, a document with enough table chunks to
+  // need dozens of batches just keeps starting new ones under sustained
+  // network trouble — each one individually well-behaved, the loop as a
+  // whole unbounded. Same fix as extractGenericFacts's outer loop: stop
+  // starting new batches once the deadline is reached and return whatever
+  // was extracted so far, rather than grinding through every remaining
+  // batch's full retry-and-give-up cycle one at a time.
   for (const chunk of tableChunks) {
+    if (deadline != null && Date.now() > deadline) break
     if (batchChars + chunk.text.length > AI_TABLE_BATCH_CHARS && batch.length) {
       await processBatch(batch)
       batch = []
@@ -1082,7 +1091,7 @@ ${combined}`,
     batch.push(chunk)
     batchChars += chunk.text.length
   }
-  if (batch.length) await processBatch(batch)
+  if (batch.length && !(deadline != null && Date.now() > deadline)) await processBatch(batch)
 
   return facts
 }
