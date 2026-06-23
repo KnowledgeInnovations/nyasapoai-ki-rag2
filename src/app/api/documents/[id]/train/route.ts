@@ -72,8 +72,8 @@ export async function POST(
       }
 
       const warnings: ProcessingWarning[] = []
-      const warn = (step: string, message: string) =>
-        warnings.push({ step, message, at: new Date().toISOString() })
+      const warn = (step: string, message: string, network?: boolean) =>
+        warnings.push({ step, message, at: new Date().toISOString(), ...(network ? { network: true } : {}) })
 
       try {
         // ── 1. Download file from storage ────────────────────────
@@ -103,7 +103,10 @@ export async function POST(
         // AI table cleanup — fixes OCR artifacts, misaligned columns,
         // and broken number formatting in table blocks before embedding.
         send({ stage: 'chunking', message: 'AI-cleaning table blocks…', progress: 28 })
-        const cleanedChunks = await aiCleanTableChunks(rawChunks).catch((err) => {
+        const cleanedChunks = await aiCleanTableChunks(
+          rawChunks, routeDeadline,
+          ({ reason, network }) => warn('table_cleaning', reason, network),
+        ).catch((err) => {
           warn('table_cleaning', (err as Error).message)
           return rawChunks
         })
@@ -132,7 +135,7 @@ export async function POST(
             progress,
           })
 
-          const embeddings = await embedBatch(batch.map(c => c.text))
+          const embeddings = await embedBatch(batch.map(c => c.text), routeDeadline)
 
           const { data: inserted } = await service.from('document_chunks').insert(
             batch.map((c, j) => ({
@@ -208,7 +211,8 @@ export async function POST(
           try {
             const aiFacts = await aiEnhanceTableFacts(
               cleanedChunks, membership.tenant_id, id, docFiscalYear,
-              ({ tableCount, reason }) => warn('ai_table_facts', `Could not parse ${tableCount} table batch(es): ${reason}`),
+              ({ tableCount, reason, network }) => warn('ai_table_facts', `Could not parse ${tableCount} table batch(es): ${reason}`, network),
+              routeDeadline,
             )
             if (aiFacts.length) {
               send({ stage: 'tables', message: `AI extracted ${aiFacts.length} additional financial facts`, progress: 93 })
@@ -230,7 +234,10 @@ export async function POST(
         // ── 7.4. Generic fact extraction fallback (non-budget documents) ──
         if (allFacts.length < DOCUMENT_FACTS_FALLBACK_THRESHOLD) {
           try {
-            const genericFacts = await extractGenericFacts(cleanedChunks, membership.tenant_id, id, routeDeadline)
+            const genericFacts = await extractGenericFacts(
+              cleanedChunks, membership.tenant_id, id, routeDeadline,
+              ({ reason, network }) => warn('generic_facts_fallback', reason, network),
+            )
             if (genericFacts.length) {
               await service.from('document_facts').insert(genericFacts)
               send({ stage: 'facts', message: `Extracted ${genericFacts.length} document facts`, progress: 96 })
@@ -268,8 +275,9 @@ export async function POST(
         // single step (e.g. ai_table_facts) can push multiple warnings, one
         // per dropped batch, which must not read as "every step failed".
         const degradedStepCount = new Set(warnings.map(w => w.step)).size
+        const hadNetworkIssue = warnings.some(w => w.network)
         const statusDetail = degradedStepCount
-          ? `${degradedStepCount} of ${TOTAL_STEPS} step${degradedStepCount === 1 ? '' : 's'} degraded`
+          ? `${degradedStepCount} of ${TOTAL_STEPS} step${degradedStepCount === 1 ? '' : 's'} degraded${hadNetworkIssue ? ' (network interruption — retry recommended)' : ''}`
           : null
         await service.from('documents').update({
           status: 'ready', status_detail: statusDetail, processing_warnings: warnings,

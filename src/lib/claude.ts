@@ -31,6 +31,13 @@ interface ClaudeCompleteOptions {
   maxTokens?: number
   temperature?: number
   signal?: AbortSignal
+  // Epoch ms after which to stop retrying network-class failures and throw
+  // instead — lets a long outage degrade gracefully (caller drops this one
+  // batch, route still finishes on time) rather than retrying past Vercel's
+  // hard maxDuration kill, which would leave the document stuck "processing"
+  // forever with no persisted status at all. Callers that don't pass one
+  // get the old fixed-attempt-count behavior.
+  deadline?: number
 }
 
 // Single non-streaming completion — returns the assistant's text response.
@@ -46,10 +53,31 @@ const MAX_CLAUDE_COMPLETE_ATTEMPTS = 3
 // indefinitely, which is what blocked an upload/training pipeline until
 // Vercel's hard maxDuration kill rather than failing fast and retrying.
 const DEFAULT_CLAUDE_TIMEOUT_MS = 45000
+// Growing backoff for network-class failures when a deadline is supplied —
+// a real connectivity drop is rarely fixed in 1-2s (the old fixed backoff),
+// but most blips clear well within a minute or two, which this comfortably
+// covers without needing more than a handful of retries.
+const NETWORK_RETRY_BACKOFF_MS = [2000, 5000, 10000, 20000, 30000]
+// Leaves enough headroom for the response itself plus whatever the caller
+// still needs to do after this call returns, instead of starting a retry
+// wait that the deadline would cut off mid-sleep anyway.
+const DEADLINE_SAFETY_MARGIN_MS = 5000
 
-export async function claudeComplete({ system, messages, maxTokens = 1024, temperature = 0, signal }: ClaudeCompleteOptions): Promise<string> {
+// Anything where the request never reached/returned from the server — as
+// opposed to the server responding with an error status — is a transient
+// network condition worth waiting out, not a genuine API/content problem
+// retrying won't fix.
+export function isNetworkError(e: unknown): boolean {
+  const err = e as { name?: string; code?: string; message?: string; cause?: { code?: string } }
+  if (err?.name === 'AbortError' || err?.name === 'TimeoutError') return true
+  const code = err?.code ?? err?.cause?.code
+  if (code && ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED'].includes(code)) return true
+  return /fetch failed|network|getaddrinfo/i.test(err?.message ?? '')
+}
+
+export async function claudeComplete({ system, messages, maxTokens = 1024, temperature = 0, signal, deadline }: ClaudeCompleteOptions): Promise<string> {
   let res: Response | undefined
-  for (let attempt = 1; attempt <= MAX_CLAUDE_COMPLETE_ATTEMPTS; attempt++) {
+  for (let attempt = 1; ; attempt++) {
     try {
       res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -68,6 +96,13 @@ export async function claudeComplete({ system, messages, maxTokens = 1024, tempe
       // respect it immediately rather than retrying. Anything else (our own
       // timeout firing, or a genuine network failure) is retried below.
       if (signal?.aborted) throw e
+
+      if (deadline != null && isNetworkError(e)) {
+        const wait = NETWORK_RETRY_BACKOFF_MS[Math.min(attempt - 1, NETWORK_RETRY_BACKOFF_MS.length - 1)]
+        if (Date.now() + wait > deadline - DEADLINE_SAFETY_MARGIN_MS) throw e
+        await new Promise(r => setTimeout(r, wait))
+        continue
+      }
       if (attempt === MAX_CLAUDE_COMPLETE_ATTEMPTS) throw e
       await new Promise(r => setTimeout(r, attempt * 1000))
       continue

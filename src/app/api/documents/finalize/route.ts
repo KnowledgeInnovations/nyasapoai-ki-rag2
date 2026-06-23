@@ -113,8 +113,8 @@ export async function POST(request: NextRequest) {
       }
 
       const warnings: ProcessingWarning[] = []
-      const warn = (step: string, message: string) =>
-        warnings.push({ step, message, at: new Date().toISOString() })
+      const warn = (step: string, message: string, network?: boolean) =>
+        warnings.push({ step, message, at: new Date().toISOString(), ...(network ? { network: true } : {}) })
 
       try {
         emit({ stage: 'downloading' })
@@ -170,7 +170,7 @@ export async function POST(request: NextRequest) {
           const batch = chunks.slice(start, start + EMBED_BATCH)
           let embeddings: number[][]
           try {
-            embeddings = await embedBatch(batch.map(c => c.text))
+            embeddings = await embedBatch(batch.map(c => c.text), routeDeadline)
           } catch (embedErr) {
             console.error('Embedding error at batch', start, embedErr)
             return fail(`Embedding failed: ${(embedErr as Error).message}`)
@@ -213,7 +213,10 @@ export async function POST(request: NextRequest) {
 
         if (allFacts.length < DOCUMENT_FACTS_FALLBACK_THRESHOLD) {
           try {
-            const genericFacts = await extractGenericFacts(chunks, membership.tenant_id, document.id, routeDeadline)
+            const genericFacts = await extractGenericFacts(
+              chunks, membership.tenant_id, document.id, routeDeadline,
+              ({ reason, network }) => warn('generic_facts_fallback', reason, network),
+            )
             if (genericFacts.length) {
               await serviceClient.from('document_facts').insert(genericFacts)
               emit({ stage: 'facts', count: allFacts.length, genericCount: genericFacts.length })
@@ -225,7 +228,10 @@ export async function POST(request: NextRequest) {
         }
 
         const degradedStepCount = new Set(warnings.map(w => w.step)).size
-        const statusDetail = degradedStepCount ? `${degradedStepCount} step(s) degraded` : null
+        const hadNetworkIssue = warnings.some(w => w.network)
+        const statusDetail = degradedStepCount
+          ? `${degradedStepCount} step(s) degraded${hadNetworkIssue ? ' (network interruption — retry recommended)' : ''}`
+          : null
         await serviceClient.from('documents').update({
           status: 'ready', status_detail: statusDetail, processing_warnings: warnings,
         }).eq('id', document.id)

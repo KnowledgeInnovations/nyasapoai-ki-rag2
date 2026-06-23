@@ -4,7 +4,7 @@
  */
 
 import path from 'path'
-import { claudeComplete } from './claude'
+import { claudeComplete, isNetworkError } from './claude'
 
 // The DOMMatrix/ImageData/Path2D polyfills pdf-parse needs are installed in
 // src/instrumentation.ts, which Next.js guarantees runs to completion before
@@ -281,7 +281,17 @@ export function chunkPages(
 // original text is kept so training continues.
 const TABLE_CLEAN_BATCH = 8
 
-export async function aiCleanTableChunks(chunks: ProcessedChunk[]): Promise<ProcessedChunk[]> {
+export async function aiCleanTableChunks(
+  chunks: ProcessedChunk[],
+  // Epoch ms — passed through to claudeComplete so a transient network
+  // failure retries with growing backoff for as long as the route's
+  // remaining processing budget allows. See claudeComplete's deadline param.
+  deadline?: number,
+  // Invoked when a batch is dropped after exhausting retries (kept as the
+  // original, uncleaned text) — lets the caller surface this in
+  // processing_warnings instead of it being silent console.error noise.
+  onBatchDropped?: (info: { reason: string; network?: boolean }) => void,
+): Promise<ProcessedChunk[]> {
   const tableIndexes = chunks.map((c, i) => c.is_table ? i : -1).filter(i => i >= 0)
   if (!tableIndexes.length) return chunks
 
@@ -295,6 +305,7 @@ export async function aiCleanTableChunks(chunks: ProcessedChunk[]): Promise<Proc
     try {
       const cleaned = await claudeComplete({
         maxTokens: 4096,
+        deadline,
         messages: [{
           role: 'user',
           content: `You are a PDF table formatter. Fix the formatting of each table block below.
@@ -320,6 +331,7 @@ ${combined}`,
       }
     } catch (e) {
       console.error('[aiCleanTableChunks] batch failed, keeping original:', e)
+      onBatchDropped?.({ reason: (e as Error).message, network: isNetworkError(e) })
     }
   }
 
@@ -342,10 +354,15 @@ export function chunkText(text: string | null | undefined, maxChars = 1500, over
 // failure instead.
 const EMBED_TIMEOUT_MS = 25000
 const EMBED_MAX_ATTEMPTS = 3
+// Unlike fact extraction, a failed embed call is fatal to the whole document
+// (chunks can't be stored without their vector) — so this is the highest-
+// value place to ride out a network blip rather than fail fast. Same
+// growing-backoff idea as claudeComplete's deadline param.
+const EMBED_NETWORK_RETRY_BACKOFF_MS = [2000, 5000, 10000, 20000, 30000]
+const EMBED_DEADLINE_SAFETY_MARGIN_MS = 5000
 
-export async function embedBatch(texts: string[]): Promise<number[][]> {
-  let lastErr: unknown
-  for (let attempt = 1; attempt <= EMBED_MAX_ATTEMPTS; attempt++) {
+export async function embedBatch(texts: string[], deadline?: number): Promise<number[][]> {
+  for (let attempt = 1; ; attempt++) {
     try {
       const res = await fetch('https://api.openai.com/v1/embeddings', {
         method: 'POST',
@@ -363,9 +380,14 @@ export async function embedBatch(texts: string[]): Promise<number[][]> {
         .sort((a, b) => a.index - b.index)
         .map(d => d.embedding)
     } catch (e) {
-      lastErr = e
-      if (attempt < EMBED_MAX_ATTEMPTS) await new Promise(r => setTimeout(r, attempt * 1000))
+      if (deadline != null && isNetworkError(e)) {
+        const wait = EMBED_NETWORK_RETRY_BACKOFF_MS[Math.min(attempt - 1, EMBED_NETWORK_RETRY_BACKOFF_MS.length - 1)]
+        if (Date.now() + wait > deadline - EMBED_DEADLINE_SAFETY_MARGIN_MS) throw e
+        await new Promise(r => setTimeout(r, wait))
+        continue
+      }
+      if (attempt >= EMBED_MAX_ATTEMPTS) throw e
+      await new Promise(r => setTimeout(r, attempt * 1000))
     }
   }
-  throw lastErr
 }

@@ -29,6 +29,11 @@ export interface ProcessingWarning {
   step: string
   message: string
   at: string
+  // True when this step gave up after exhausting retries on a transient
+  // network failure (vs. a content/parse issue retrying wouldn't fix) — the
+  // distinction matters for the user: this is "retry the document, it'll
+  // probably work," not "this content has a real problem."
+  network?: boolean
 }
 
 export interface Document {

@@ -7,7 +7,7 @@
  */
 
 import { extractFigures, type Figure } from './ragAnalysis'
-import { claudeComplete, extractJSON } from './claude'
+import { claudeComplete, extractJSON, isNetworkError } from './claude'
 import type { ProcessedChunk } from './documentProcess'
 
 export interface FinancialFact {
@@ -885,7 +885,12 @@ export async function aiEnhanceTableFacts(
   // (a single table chunk still too dense to parse) — lets a caller surface
   // "some table facts were lost" instead of this being silent console.error
   // noise. Optional so other callers are unaffected.
-  onBatchDropped?: (info: { tableCount: number; reason: string }) => void,
+  onBatchDropped?: (info: { tableCount: number; reason: string; network?: boolean }) => void,
+  // Epoch ms — passed through to claudeComplete so a transient network
+  // failure retries with growing backoff for as long as the route's overall
+  // processing budget allows, instead of giving up after a couple of
+  // seconds. See claudeComplete's deadline param for the rationale.
+  deadline?: number,
 ): Promise<FinancialFact[]> {
   const tableChunks = chunks.filter(c => c.is_table && c.text.trim().length > 30)
   if (!tableChunks.length) return []
@@ -913,6 +918,7 @@ export async function aiEnhanceTableFacts(
       // headroom; Sonnet's default output ceiling, no special header needed.
       raw = await claudeComplete({
         maxTokens: 8192,
+        deadline,
         messages: [{
           role: 'user',
           content: `Extract financial facts from these budget document table excerpts. Return a JSON array (empty array if nothing found):
@@ -942,7 +948,7 @@ ${combined}`,
       })
     } catch (e) {
       console.error('[aiEnhanceTableFacts] batch failed:', e)
-      onBatchDropped?.({ tableCount: b.length, reason: (e as Error).message })
+      onBatchDropped?.({ tableCount: b.length, reason: (e as Error).message, network: isNetworkError(e) })
       return
     }
 

@@ -12,7 +12,7 @@
  */
 
 import type { ProcessedChunk } from './documentProcess'
-import { claudeComplete, extractJSON } from './claude'
+import { claudeComplete, extractJSON, isNetworkError } from './claude'
 
 export interface DocumentFact {
   tenant_id: string
@@ -93,6 +93,10 @@ export async function extractGenericFacts(
   // generic facts (most of the document, just not literally every chunk)
   // are far more useful than none, so this degrades rather than fails.
   deadline = Infinity,
+  // Invoked when a batch is dropped after exhausting retries — lets the
+  // caller surface "some document facts were lost" in processing_warnings
+  // instead of this being silent console.error noise.
+  onBatchDropped?: (info: { reason: string; network?: boolean }) => void,
 ): Promise<DocumentFact[]> {
   const usableChunks = chunks.filter(c => c.text.trim().length > 30)
   if (!usableChunks.length) return []
@@ -119,6 +123,7 @@ export async function extractGenericFacts(
       // a fact-dense batch.
       raw = await claudeComplete({
         maxTokens: 8192,
+        deadline,
         messages: [{
           role: 'user',
           content: `Extract clearly-stated factual data points from these document excerpts — dates, amounts, names, statuses, deadlines, quantities, obligations, specifications, anything concrete and specific. Return a JSON array (empty array if nothing found):
@@ -146,6 +151,7 @@ ${combined}`,
       })
     } catch (e) {
       console.error('[extractGenericFacts] batch failed:', e)
+      onBatchDropped?.({ reason: (e as Error).message, network: isNetworkError(e) })
       return
     }
 
