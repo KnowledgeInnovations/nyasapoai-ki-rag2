@@ -1456,8 +1456,19 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
               // score. verification.confidenceScore at this point IS the raw
               // retrieval component (totalNumbers === 0 and the honest-
               // insufficiency clamp didn't apply), so it doubles as that
-              // relevance floor check.
-              if (verification.confidenceScore >= 30) {
+              // relevance floor check. Set low (10, not e.g. 30) deliberately
+              // — embedding similarity between a short question and a clean
+              // definitional answer is often genuinely mediocre even for an
+              // exactly-correct citation (e.g. "what does HRMIS mean?" vs a
+              // chunk that states the expansion plainly scored 25-50 in
+              // testing despite 4 correct page citations), which is the
+              // whole gap this fix exists to close — a floor near the
+              // problem's own typical range would defeat the fix. The real
+              // safety check is `verified && issues.length === 0`: the AI
+              // actually compared the claims to real excerpts/facts and
+              // found nothing wrong. This floor only exists to exclude the
+              // true zero-relevance case (nothing matched at all).
+              if (verification.confidenceScore >= 10) {
                 verification.confidenceScore = Math.max(verification.confidenceScore, 80)
                 verification.confidenceLevel =
                   verification.confidenceScore >= 75 ? 'High' : verification.confidenceScore >= 50 ? 'Medium' : 'Low'
