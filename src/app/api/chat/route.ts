@@ -1423,7 +1423,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
              and reduce the confidence score. Runs for all query types so
              non-financial answers also get this check. */
           try {
-            const { issues } = await verifyAnswerWithAI({
+            const { issues, verified } = await verifyAnswerWithAI({
               query, answer, factsBlock, context, signal: request.signal,
             })
             if (issues.length) {
@@ -1440,6 +1440,28 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
               verification.confidenceScore = Math.max(floor, verification.confidenceScore - penalty)
               verification.confidenceLevel =
                 verification.confidenceScore >= 75 ? 'High' : verification.confidenceScore >= 50 ? 'Medium' : 'Low'
+            } else if (verified && verification.totalNumbers === 0 && !isHonestInsufficiency) {
+              // No numeric claims, so verifyAnswer() above scored this purely
+              // on chunk-retrieval similarity — which for a short, correctly-
+              // cited definitional answer can land in the 40-60s even though
+              // the citation is exactly right (cosine similarity between a
+              // question and a clean definition just isn't always high).
+              // Previously this AI pass could only ever subtract points on
+              // finding an issue, never add any when it positively confirmed
+              // the claims against VALIDATED FACTS/excerpts and found nothing
+              // wrong — a real, independent signal that was being thrown
+              // away. Only applies when the pass actually ran (verified) and
+              // retrieval wasn't essentially irrelevant, so a citation that's
+              // barely related can't ride a lenient/missed AI check to a high
+              // score. verification.confidenceScore at this point IS the raw
+              // retrieval component (totalNumbers === 0 and the honest-
+              // insufficiency clamp didn't apply), so it doubles as that
+              // relevance floor check.
+              if (verification.confidenceScore >= 30) {
+                verification.confidenceScore = Math.max(verification.confidenceScore, 80)
+                verification.confidenceLevel =
+                  verification.confidenceScore >= 75 ? 'High' : verification.confidenceScore >= 50 ? 'Medium' : 'Low'
+              }
             }
           } catch (e) {
             if (e instanceof Error && e.name === 'AbortError') throw e

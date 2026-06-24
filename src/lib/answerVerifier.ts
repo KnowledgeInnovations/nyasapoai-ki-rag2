@@ -24,6 +24,14 @@ function getOpenAIHeaders() {
 
 export interface AnswerVerificationResult {
   issues: string[]
+  // False when the call itself failed/skipped (network error, empty
+  // response) rather than genuinely running and finding nothing wrong —
+  // both cases return issues: [], but only a real, completed pass is
+  // trustworthy evidence a caller can use to RAISE confidence rather than
+  // just refrain from lowering it. See chat/route.ts's use of this for
+  // non-numeric answers, where retrieval similarity alone previously had
+  // no way to reflect an independently confirmed-accurate citation.
+  verified: boolean
 }
 
 interface VerifyAnswerWithAIArgs {
@@ -220,7 +228,7 @@ export async function verifyAnswerWithAI(
     if (!res.ok) throw new Error(`OpenAI API error ${res.status}: ${await res.text()}`)
     const data = await res.json()
     const raw = data.choices?.[0]?.message?.content ?? ''
-    if (!raw) return { issues: [] }
+    if (!raw) return { issues: [], verified: false }
 
     const parsed = JSON.parse(raw)
     const issues: string[] = (Array.isArray(parsed.issues) ? parsed.issues : [])
@@ -231,10 +239,10 @@ export async function verifyAnswerWithAI(
       .filter((i: string) => !isFalseStatedValue(i, answer))
       .filter((i: string) => !isDeviationMedianIssue(i, answer))
       .filter((i: string) => !isUnsupportedSubjectiveCritique(i))
-    return { issues }
+    return { issues, verified: true }
   } catch (e) {
     if (e instanceof Error && e.name === 'AbortError') throw e
     console.error('[RAG] AI verifier failed:', e)
-    return { issues: [] }
+    return { issues: [], verified: false }
   }
 }
