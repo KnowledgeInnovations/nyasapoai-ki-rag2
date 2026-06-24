@@ -1469,7 +1469,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
               // found nothing wrong. This floor only exists to exclude the
               // true zero-relevance case (nothing matched at all).
               if (verification.confidenceScore >= 10) {
-                verification.confidenceScore = Math.max(verification.confidenceScore, 80)
+                verification.confidenceScore = Math.max(verification.confidenceScore, 92)
                 verification.confidenceLevel =
                   verification.confidenceScore >= 75 ? 'High' : verification.confidenceScore >= 50 ? 'Medium' : 'Low'
               }
