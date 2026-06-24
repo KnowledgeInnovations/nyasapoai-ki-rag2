@@ -758,6 +758,42 @@ export function runCrossDocumentCorroboration<T extends FinancialFact & { id: st
   return changed
 }
 
+// A budget document published in year Y typically also reports an MTEF
+// outyear projection for Y+1/Y+2/Y+3 (flagged forward_projection at
+// extraction time) — so by the time Y itself arrives, financial_facts holds
+// several DIFFERENT documents' forecasts of year Y's allocation alongside
+// that year's own actual budget document. All of them share the same
+// (entity_type, entity, metric, fiscal_year) key, so they look like
+// unresolved conflicts (driving confidence down) even though only one of
+// them — the actual year's own figure — should be authoritative; the
+// others are stale forecasts a later, better-informed document superseded.
+// Only fires when a genuine same-year actual exists in the group; a
+// forward_projection fact with no actual-year counterpart yet (e.g. this
+// year's own budget hasn't been processed) is left untouched, since it's
+// still the best available estimate.
+export function supersedeForwardProjections<T extends FinancialFact & { id: string }>(facts: T[]): T[] {
+  const changed: T[] = []
+  const groups = new Map<string, T[]>()
+  for (const f of facts) {
+    if (!f.fiscal_year || f.value_millions == null) continue
+    const key = `${f.entity_type}|${f.entity}|${f.metric}|${f.fiscal_year}`
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(f)
+  }
+  for (const group of groups.values()) {
+    const hasActual = group.some(f => !f.flags.includes('forward_projection'))
+    if (!hasActual) continue
+    for (const f of group) {
+      if (f.flags.includes('forward_projection') && !f.flags.includes('superseded_by_actual')) {
+        f.flags.push('superseded_by_actual')
+        f.confidence = Math.min(f.confidence, 40)
+        changed.push(f)
+      }
+    }
+  }
+  return changed
+}
+
 // ── Query-side filter helpers ───────────────────────────────────────
 
 const QUERY_YEAR_RX = /\b(19|20)\d{2}\b/g

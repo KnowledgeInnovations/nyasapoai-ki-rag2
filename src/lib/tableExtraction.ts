@@ -343,6 +343,21 @@ function extractMinistryTable(
     .filter(i => i !== entityCol && ALLOCATION_COL_RX.test(header[i]) && !SKIP_COL_RX.test(header[i]))
   if (!allocCols.length) return []
 
+  // A table that breaks each ministry's allocation into funding-source
+  // columns (GoG/IGF/ABFA/Donor) AND also reports an explicit Total column
+  // is reporting parts and a whole, not several alternative readings of the
+  // same figure — extracting all of them as `metric: 'allocation'` makes the
+  // Total look like it "conflicts" with each component (and with itself
+  // across different tables that break the total down differently), when
+  // only the Total is actually the ministry's allocation. When a Total
+  // column is present alongside others, keep ONLY it as 'allocation';
+  // the components go under 'allocation_component' so they're still
+  // captured but don't collide with the canonical figure. A table with NO
+  // explicit Total (just GoG/IGF/Donor breakdown) keeps current behavior —
+  // there's no single better source to prefer.
+  const totalCols = allocCols.filter(i => /total/i.test(header[i]))
+  const useOnlyTotal = totalCols.length > 0 && totalCols.length < allocCols.length
+
   const records: RawTableRecord[] = []
   for (const row of table.slice(dataStart)) {
     if (entityCol >= row.length) continue
@@ -363,7 +378,7 @@ function extractMinistryTable(
         page_number: pageNumber,
         entity,
         entity_type: 'ministry',
-        metric: 'allocation',
+        metric: useOnlyTotal && !totalCols.includes(colIdx) ? 'allocation_component' : 'allocation',
         fiscal_year: year,
         value,
         unit,

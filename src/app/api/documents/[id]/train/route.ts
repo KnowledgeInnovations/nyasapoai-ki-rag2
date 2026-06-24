@@ -4,7 +4,7 @@ import { getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
 import { canAccessTraining } from '@/lib/roles'
-import { extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks, runCrossDocumentCorroboration, looksLikeBudgetDocument, type FinancialFact } from '@/lib/factExtraction'
+import { extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks, runCrossDocumentCorroboration, supersedeForwardProjections, looksLikeBudgetDocument, type FinancialFact } from '@/lib/factExtraction'
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
 import { extractGenericFacts } from '@/lib/genericFactExtraction'
 import type { ProcessingWarning } from '@/types'
@@ -268,6 +268,26 @@ export async function POST(
         } catch (err) {
           console.error('[Train] cross-document corroboration failed', err)
           warn('cross_doc_corroboration', (err as Error).message)
+        }
+
+        // ── 7.6. Supersede stale forward-projections (ministry/sector) ──
+        // This document may BE the actual-year budget for a fiscal year
+        // other documents only had forward-looking MTEF projections for —
+        // re-check the full ministry/sector series so those older
+        // projections stop competing with the real figure.
+        try {
+          const { data: allMinistrySector } = await service
+            .from('financial_facts')
+            .select('*')
+            .eq('tenant_id', membership.tenant_id)
+            .in('entity_type', ['ministry', 'sector'])
+          const changed = supersedeForwardProjections((allMinistrySector ?? []) as (FinancialFact & { id: string })[])
+          for (const f of changed) {
+            await service.from('financial_facts').update({ flags: f.flags, confidence: f.confidence }).eq('id', f.id)
+          }
+        } catch (err) {
+          console.error('[Train] forward-projection supersession failed', err)
+          warn('forward_projection_supersession', (err as Error).message)
         }
 
         // ── 8. Mark document as ready ─────────────────────────────
