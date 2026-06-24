@@ -1276,8 +1276,14 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
     // transient 429 even though the account has plenty of credit (rate
     // limits are a per-minute throughput cap, independent of balance).
     // Retry a couple of times with backoff before giving up.
+    // temperature: 0 — confirmed live that 0.2 here was producing real
+    // run-to-run wording variance (different number formatting, different
+    // subset/order of cited figures) for the IDENTICAL question, which then
+    // cascades into verifyAnswer()'s literal/near-literal matching: the same
+    // "education budget 2026" question scored 30/45/60 across 5 consecutive
+    // runs purely from this, not from any change in the underlying data.
     const claudeBody = JSON.stringify({
-      model: CLAUDE_MODEL, temperature: 0.2, max_tokens: isDeepSearch ? 1600 : 800, stream: true,
+      model: CLAUDE_MODEL, temperature: 0, max_tokens: isDeepSearch ? 1600 : 800, stream: true,
       system: systemPrompt,
       messages: [
         ...historyMsgs,
