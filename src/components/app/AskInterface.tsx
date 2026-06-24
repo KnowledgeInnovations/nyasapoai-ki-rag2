@@ -220,15 +220,8 @@ function MessageBubble({
 }
 
 /* ── Welcome screen ──────────────────────────────────────── */
-const SUGGESTIONS = [
-  { text: 'What are our top project risks this quarter?',        category: 'Risk' },
-  { text: 'Summarise the latest board report',                   category: 'Summary' },
-  { text: 'Which contracts are expiring in the next 90 days?',  category: 'Legal' },
-  { text: 'What is the current status of our flagship project?', category: 'Projects' },
-]
-
-function WelcomeScreen({ greeting, firstName, tenantName, onSuggest }: {
-  greeting: string; firstName: string; tenantName: string; onSuggest: (q: string) => void
+function WelcomeScreen({ greeting, firstName, tenantName }: {
+  greeting: string; firstName: string; tenantName: string
 }) {
   return (
     <div className="flex min-h-full flex-col items-center justify-center px-4 py-10">
@@ -237,17 +230,6 @@ function WelcomeScreen({ greeting, firstName, tenantName, onSuggest }: {
         <p className="mt-1.5 text-center text-sm text-gray-500">
           Ask anything across your {tenantName} documents.
         </p>
-
-        {/* Always 2×2 grid — works on all screen sizes */}
-        <div className="mt-6 grid grid-cols-2 gap-2.5">
-          {SUGGESTIONS.map(s => (
-            <button key={s.text} onClick={() => onSuggest(s.text)}
-              className="group flex flex-col items-start rounded-2xl border border-gray-200 bg-white p-3.5 text-left shadow-sm transition hover:border-brand/30 hover:bg-brand-light/40 hover:shadow-md active:scale-[0.98]">
-              <span className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-brand">{s.category}</span>
-              <p className="text-xs leading-snug text-gray-700">{s.text}</p>
-            </button>
-          ))}
-        </div>
 
         <p className="mt-5 hidden text-center text-xs text-gray-400 sm:block">
           Press <kbd className="rounded border border-gray-200 bg-white px-1.5 py-0.5 font-mono text-[10px] shadow-sm">Enter</kbd> to send ·{' '}
@@ -661,7 +643,7 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyasapo
       {/* Messages — min-h-0 fixes flex overflow on iOS Safari */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto bg-[#f8f9fc]" style={{ WebkitOverflowScrolling: 'touch' }}>
         {messages.length === 0 ? (
-          <WelcomeScreen greeting={greeting} firstName={firstName} tenantName={tenantName} onSuggest={submit} />
+          <WelcomeScreen greeting={greeting} firstName={firstName} tenantName={tenantName} />
         ) : (
           <div className="mx-auto max-w-3xl space-y-6 px-3 py-6 sm:px-6 sm:py-8">
             {messages.map((msg, i) => (

@@ -53,9 +53,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'This subdomain is already taken.' }, { status: 409 })
   }
 
+  // Seed the allowed-invite-domains list from the creator's own email
+  // domain — protects a new tenant from day one with no manual setup.
+  // A senior admin can add more domains (or none, for unrestricted) later
+  // via Settings.
+  const creatorDomain = user.email?.split('@')[1]?.toLowerCase()
+
   const { data: tenant, error: tenantError } = await service
     .from('tenants')
-    .insert({ name: orgName, subdomain })
+    .insert({ name: orgName, subdomain, email_domains: creatorDomain ? [creatorDomain] : [] })
     .select('id, name, subdomain')
     .single()
 

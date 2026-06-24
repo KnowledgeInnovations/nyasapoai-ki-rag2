@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getMembership } from '@/lib/supabase/server'
+import { getMembership, getTenant } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { canManageUsers, normalizeRole, type Role } from '@/lib/roles'
 
@@ -73,6 +73,20 @@ export async function POST(request: NextRequest) {
 
   const { email, role } = await request.json() as { email?: string; role?: Role }
   if (!email) return NextResponse.json({ error: 'Email is required' }, { status: 400 })
+
+  // Tenant-scoped domain restriction (empty list = unrestricted, the
+  // default for any tenant that hasn't opted in via Settings). Platform
+  // tenant is exempt — its admins legitimately span different domains.
+  const tenant = await getTenant(membership.tenant_id)
+  const allowedDomains = tenant?.email_domains ?? []
+  if (!tenant?.is_platform && allowedDomains.length > 0) {
+    const emailDomain = email.trim().toLowerCase().split('@')[1] ?? ''
+    if (!allowedDomains.includes(emailDomain)) {
+      return NextResponse.json({
+        error: `This workspace only allows invites from: ${allowedDomains.join(', ')}`,
+      }, { status: 400 })
+    }
+  }
 
   const service = svc()
 

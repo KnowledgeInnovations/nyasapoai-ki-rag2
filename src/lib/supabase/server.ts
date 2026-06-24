@@ -19,7 +19,7 @@ const TENANT_TTL     = 300_000 // 5 min — tenant name/subdomain rarely changes
 
 const userCache       = new Map<string, Entry<User | null>>()
 const membershipCache = new Map<string, Entry<{ tenant_id: string; role: Role } | null>>()
-const tenantCache      = new Map<string, Entry<{ id: string; name: string; subdomain: string; description: string | null; is_platform: boolean } | null>>()
+const tenantCache      = new Map<string, Entry<{ id: string; name: string; subdomain: string; description: string | null; is_platform: boolean; email_domains: string[] } | null>>()
 const subdomainTenantCache = new Map<string, Entry<{ id: string; name: string; subdomain: string } | null>>()
 
 /** Derive a compact, unique cache key from the Supabase session cookies. */
@@ -118,11 +118,11 @@ export const getTenant = cache(async (tenantId: string) => {
   const supabase = await createClient()
   const { data } = await supabase
     .from('tenants')
-    .select('id, name, subdomain, description, is_platform')
+    .select('id, name, subdomain, description, is_platform, email_domains')
     .eq('id', tenantId)
     .single()
 
-  const val = data as { id: string; name: string; subdomain: string; description: string | null; is_platform: boolean } | null
+  const val = data as { id: string; name: string; subdomain: string; description: string | null; is_platform: boolean; email_domains: string[] } | null
   evict(tenantCache)
   tenantCache.set(tenantId, { v: val, exp: Date.now() + TENANT_TTL })
   return val
@@ -159,4 +159,11 @@ export const getTenantBySubdomain = cache(async (subdomain: string) => {
 // value for up to MEMBERSHIP_TTL.
 export function invalidateMembership(userId: string) {
   membershipCache.delete(userId)
+}
+
+// Drop a tenant's cached row immediately — call after updating it (e.g.
+// email_domains) via the service client, which bypasses getTenant()'s
+// normal read-through caching.
+export function invalidateTenant(tenantId: string) {
+  tenantCache.delete(tenantId)
 }
