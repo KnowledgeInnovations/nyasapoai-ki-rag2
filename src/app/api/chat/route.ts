@@ -516,8 +516,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // A dense breakdown question (e.g. "what was the education budget" —
+    // spanning the ministry total, GETFund, and a dozen named sub-programmes
+    // each on a different page) cites more figures than the standard top-10
+    // window can supply literal source text for, so verifyAnswer() can't
+    // confirm numbers that are genuinely in the document but outside the
+    // window — scoring an accurate, well-cited answer as low-confidence.
+    // Widened to 16 only for this question shape; the extra candidates are
+    // already-scored output from the same 30-candidate rerank call (no added
+    // retrieval cost), so this only adds prompt/verification tokens, not
+    // latency from a second round-trip.
+    // Naming a whole sector/ministry rather than one specific line item is
+    // itself the density signal — "education budget" inherently spans the
+    // ministry total, GETFund, and a dozen named sub-programmes scattered
+    // across many pages, even though the question text gives no other hint
+    // of that (the model only decides to enumerate them once it starts
+    // answering, by which point retrieval has already happened).
+    const SECTOR_RX = /\b(education|health|agricult(?:ure|ural)|roads?|highways?|energy|water|sanitation|security|defen[cs]e|interior|justice|employment|labou?r|social\s+protection|gender|housing|transport|tourism|trade|industry|sports|youth|environment|sanitation|local\s+government)\b/i
+    const isDenseBreakdownQuery = /\bbreakdown\b|\ballocations?\b.{0,15}\b(sub[- ]?programmes?|programmes?|items?|components?)\b|\b(full|detailed|complete)\b.{0,15}\b(allocation|budget|breakdown)\b/i.test(query)
+      || (SECTOR_RX.test(query) && /\b(budget|allocation|spending|spent|funding|expenditure)\b/i.test(query))
     const chunks: RetrievedChunk[] = candidateChunks.length
-      ? await rerankChunks(query, candidateChunks, 10)
+      ? await rerankChunks(query, candidateChunks, isDenseBreakdownQuery ? 16 : 10)
       : []
 
     if (chunks.length) {
