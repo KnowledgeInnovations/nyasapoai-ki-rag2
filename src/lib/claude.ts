@@ -71,8 +71,13 @@ export function isNetworkError(e: unknown): boolean {
   const err = e as { name?: string; code?: string; message?: string; cause?: { code?: string } }
   if (err?.name === 'AbortError' || err?.name === 'TimeoutError') return true
   const code = err?.code ?? err?.cause?.code
-  if (code && ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED'].includes(code)) return true
-  return /fetch failed|network|getaddrinfo/i.test(err?.message ?? '')
+  if (code && ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'UND_ERR_SOCKET'].includes(code)) return true
+  // "terminated" is undici's message when the underlying connection is
+  // aborted/closed mid-request (observed live: a document_chunks fetch that
+  // failed this way wasn't recognized as network-class, so it skipped
+  // straight to "not found" instead of retrying — same failure mode this
+  // whole classifier exists to catch, just a message format it didn't cover).
+  return /fetch failed|network|getaddrinfo|terminated|socket hang up|other side closed/i.test(err?.message ?? '')
 }
 
 export async function claudeComplete({ system, messages, maxTokens = 1024, temperature = 0, signal, deadline }: ClaudeCompleteOptions): Promise<string> {
