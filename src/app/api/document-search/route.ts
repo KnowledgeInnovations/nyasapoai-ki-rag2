@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
   // AI-generated). Only VALIDATED facts (confidence >= 70, no flags) qualify.
   const facts = await lookupFacts(svc, tenantId, question, documentId)
 
-  let results: ResultDoc[] = []
+  const results: ResultDoc[] = []
 
   if (keywords.length) {
     // Step 1: identify relevant documents.

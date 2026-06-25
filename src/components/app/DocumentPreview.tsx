@@ -65,15 +65,16 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function DocumentPreview({ docId, onClose }: Props) {
   const [data,    setData]    = useState<PreviewData | null>(null)
-  const [loading, setLoading] = useState(false)
+  // The parent renders this with key={docId}, so a different document is a
+  // fresh mount — initializing from docId directly (rather than flipping it
+  // true inside the effect below) means the very first render already shows
+  // the spinner instead of a one-frame flash of the previous doc's empty state.
+  const [loading, setLoading] = useState(!!docId)
   const [error,   setError]   = useState(false)
   const [view,    setView]    = useState<'original' | 'indexed'>('original')
 
   useEffect(() => {
     if (!docId) return
-    setLoading(true)
-    setError(false)
-    setView('original')
     fetch(`/api/documents/preview?id=${docId}`)
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(d => setData(d))

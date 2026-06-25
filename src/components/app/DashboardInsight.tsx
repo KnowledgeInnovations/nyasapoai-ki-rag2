@@ -64,7 +64,14 @@ export default function DashboardInsight({ question, label }: Props) {
       .catch(() => { setError(true); setLoading(false) })
   }
 
-  useEffect(() => { load(false) }, [question]) // eslint-disable-line react-hooks/exhaustive-deps
+  // load() is shared with the manual refresh button below, where its
+  // synchronous setLoading/setError resets are genuinely needed — for this
+  // mount-time call they're a no-op (loading/error already start at
+  // true/false), but splitting load() into two variants just to satisfy the
+  // linter on a call that already matches initial state isn't worth the
+  // duplication.
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
+  useEffect(() => { load(false) }, [question])
 
   const cfg = data ? SENTIMENT_CONFIG[data.sentiment] : SENTIMENT_CONFIG.neutral
 

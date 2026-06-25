@@ -745,7 +745,9 @@ export async function extractTableRecordsFromPdf(buffer: Buffer): Promise<Omit<T
       for (const block of findTableBlocks(lineCells)) {
         const caption = nearbyCaption(lineCells, block.startIdx, block.endIdx)
         const table = blockToTable(block.lines)
-        let { header, dataStart } = mergeHeader(table)
+        const mergedHeader = mergeHeader(table)
+        let header = mergedHeader.header
+        const dataStart = mergedHeader.dataStart
         const hasYear = header.some(h => detectYear(h))
         if (!hasYear && lastHeaderWithYears && lastHeaderWithYears.length === header.length) {
           header = lastHeaderWithYears

@@ -46,3 +46,11 @@ python/output/
 python/extract_log.txt
 
 .vercel
+
+# local test/debug artifacts — auth cookies and one-off maintenance script
+# logs accumulate at the repo root during local testing and should never
+# reach a commit (test-session-cookie.txt in particular is a live session
+# credential, not just disposable output).
+test-session-cookie.txt
+*-log.txt
+*-log[0-9].txt

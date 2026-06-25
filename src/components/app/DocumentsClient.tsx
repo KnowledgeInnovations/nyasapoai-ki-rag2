@@ -43,7 +43,13 @@ function factCount(doc: Document) {
 export default function DocumentsClient({ initialDocuments, canUpload, canDelete, initialCategories }: Props) {
   const [documents, setDocuments]   = useState<Document[]>(initialDocuments)
 
-  // Sync with server data when router.refresh() completes
+  // Sync with server data when router.refresh() completes. `documents` also
+  // takes local-only optimistic updates elsewhere in this component (e.g.
+  // delete/upload), so it can't be derived from initialDocuments during
+  // render, and remounting the whole component via `key` on every refresh
+  // would also reset filters/open modals/preview state — this really is
+  // "synchronize local state with an external data source changing".
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setDocuments(initialDocuments) }, [initialDocuments])
   const [categories, setCategories] = useState<Category[]>(
     () => initialCategories.map(c => buildCategory(c.value, c.label, c.description, c.iconName, c.colorName, c.dbId, c.isCustom))
@@ -638,6 +644,7 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
       )}
 
       <DocumentPreview
+        key={previewDocId}
         docId={previewDocId}
         onClose={() => setPreviewDocId(null)}
       />

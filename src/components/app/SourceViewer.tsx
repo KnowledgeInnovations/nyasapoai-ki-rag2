@@ -67,8 +67,13 @@ export default function SourceViewer({ citation, onClose }: Props) {
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
   const [loadingFile, setLoadingFile] = useState(false)
 
+  // Can't fix this by keying/remounting the panel on citation change (the
+  // usual fix for this pattern) — the panel has a slide-in mount animation,
+  // and clicking between citations while it's already open should update
+  // its content in place, not replay the slide-in every time.
   useEffect(() => {
     if (!citation) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDownloadUrl(null)
       return
     }
@@ -151,7 +156,7 @@ export default function SourceViewer({ citation, onClose }: Props) {
             // cover page as if it were the cited source, which is worse than
             // just showing the excerpt text below.
             <div className="flex-1">
-              <PdfViewer url={downloadUrl} initialPage={citation.page_number} />
+              <PdfViewer key={citation.id} url={downloadUrl} initialPage={citation.page_number} />
             </div>
           ) : (
             <>

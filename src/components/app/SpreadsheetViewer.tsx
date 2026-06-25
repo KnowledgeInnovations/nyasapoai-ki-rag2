@@ -29,9 +29,15 @@ export default function SpreadsheetViewer({ url }: Props) {
         if (!res.ok) throw new Error('download failed')
         const arrayBuffer = await res.arrayBuffer()
         const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+        // sheet_to_html does not escape cell content — a crafted cell value
+        // (e.g. containing a raw <script> or onerror= attribute) would
+        // otherwise execute for anyone who previews a malicious upload.
+        // Tenants can upload arbitrary spreadsheets, so this is untrusted
+        // input from the moment it's parsed, not just a display nicety.
+        const { default: DOMPurify } = await import('dompurify')
         const parsed = workbook.SheetNames.map(name => ({
           name,
-          html: XLSX.utils.sheet_to_html(workbook.Sheets[name], { header: '', footer: '' }),
+          html: DOMPurify.sanitize(XLSX.utils.sheet_to_html(workbook.Sheets[name], { header: '', footer: '' })),
         }))
         if (!cancelled) setSheets(parsed)
       } catch {

@@ -16,14 +16,18 @@ export default function DocxViewer({ url }: Props) {
 
     async function render() {
       try {
-        const [{ default: mammoth }, res] = await Promise.all([
+        const [{ default: mammoth }, { default: DOMPurify }, res] = await Promise.all([
           import('mammoth'),
+          import('dompurify'),
           fetch(url),
         ])
         if (!res.ok) throw new Error('download failed')
         const arrayBuffer = await res.arrayBuffer()
         const { value } = await mammoth.convertToHtml({ arrayBuffer })
-        if (!cancelled) setHtml(value)
+        // mammoth converts to a clean semantic subset rather than passing
+        // through raw embedded HTML, so this is lower-risk than the xlsx
+        // case — sanitizing anyway for defense in depth on untrusted uploads.
+        if (!cancelled) setHtml(DOMPurify.sanitize(value))
       } catch {
         if (!cancelled) setError(true)
       }

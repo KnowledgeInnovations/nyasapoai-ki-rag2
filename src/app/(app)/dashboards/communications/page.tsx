@@ -33,6 +33,9 @@ export default async function CommunicationsDashboard() {
   const supabase = await createClient()
   const service  = svc()
   const tid      = membership.tenant_id
+  // Server Component rendered once per request, not memoized/re-invoked
+  // like a Client Component — the purity rule has no special case for this.
+  // eslint-disable-next-line react-hooks/purity
   const weekAgo  = new Date(Date.now() - 7 * 86_400_000).toISOString()
 
   const [

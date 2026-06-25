@@ -33,11 +33,6 @@ export default function PdfViewer({ url, initialPage = 1 }: Props) {
     return () => observer.disconnect()
   }, [])
 
-  useEffect(() => {
-    setPageNumber(initialPage)
-    setError(false)
-  }, [url, initialPage])
-
   return (
     <div className="flex h-full flex-col">
       <div ref={containerRef} className="flex-1 overflow-auto rounded-2xl border border-gray-100 bg-gray-50 p-4">
