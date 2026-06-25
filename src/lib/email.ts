@@ -1,9 +1,9 @@
 /**
- * Outbound transactional email via Outlook/Microsoft 365 SMTP. Separate from
- * Supabase Auth's own emails (magic link, invite, password reset) — those
- * are sent by Supabase's infrastructure and configured in the Supabase
- * Dashboard under Authentication → Emails → SMTP Settings, not through this
- * module.
+ * Outbound transactional email via Outlook/Microsoft 365 SMTP. Used directly
+ * for the 2FA code email, and also by src/app/api/auth/send-email-hook —
+ * Supabase's auth emails (magic link, invite, password reset, etc.) are
+ * intercepted by that hook and sent through here too, instead of Supabase's
+ * own mailer, so everything goes out through the same relay.
  */
 
 import nodemailer from 'nodemailer'
