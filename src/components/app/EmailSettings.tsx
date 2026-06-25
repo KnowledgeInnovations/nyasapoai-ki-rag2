@@ -39,7 +39,15 @@ export default function EmailSettings({ email }: Props) {
       // require proving you are who you say you are, and changing the
       // email is just as sensitive as changing the password (it's the
       // account's login identity).
-      const { error: reauthErr } = await supabase.auth.signInWithPassword({ email, password })
+      //
+      // Look up the live email instead of trusting the `email` prop: it's
+      // passed down from the server-rendered page load, so right after a
+      // confirmed email change it can still be the old address until the
+      // page is hard-refreshed — reauthenticating against a stale email
+      // fails and gets misreported as "wrong password."
+      const { data: liveUser } = await supabase.auth.getUser()
+      const liveEmail = liveUser.user?.email ?? email
+      const { error: reauthErr } = await supabase.auth.signInWithPassword({ email: liveEmail, password })
       if (reauthErr) { setError('Current password is incorrect.'); return }
 
       const { error: updateErr } = await supabase.auth.updateUser(
