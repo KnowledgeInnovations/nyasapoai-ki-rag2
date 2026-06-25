@@ -14,6 +14,8 @@ import {
 import { CLAUDE_MODEL, getAnthropicHeaders, claudeComplete } from '@/lib/claude'
 import { runAgenticAnswer } from '@/lib/agenticAnswer'
 import { AGENTIC_SYSTEM_ADDENDUM } from '@/lib/agentTools'
+import { canAccessTraining } from '@/lib/roles'
+import { getConfirmedHeuristicsText } from '@/lib/answerHeuristics'
 import type { ChartData } from '@/types'
 
 // The agentic path (default for all real chat traffic — see the `agentic`
@@ -99,7 +101,8 @@ Additional rules for financial/budget figures:
 - "PRE-COMPUTED CAGR", "PRE-COMPUTED FORECAST", and "PRE-COMPUTED TOTAL" blocks may also be provided — these are deterministically calculated and VERIFIED CORRECT. Use these exact numbers verbatim (with their [n] citations) instead of computing a compound growth rate, projection, or sum yourself. The forecast figure is an ESTIMATE — present it as such.
 - "CUMULATIVE ALLOCATION", "TOP N BY % GROWTH", "PROPORTION OF TOTAL BUDGET", "TREND SUMMARY", "DEVIATION DETECTION", and "PRE-COMPUTED FORECAST FROM VALIDATED FACTS" blocks may also be provided — these are deterministically computed from VALIDATED FACTS and are authoritative for the analytical question asked (rankings, cumulative totals, proportions, trends, anomalies, projections). Present these values directly with their [n] citations rather than recomputing. If a block includes a "Years covered" or coverage note showing fewer years than the full requested period, explicitly state that the result is based on partial data and name the gap — never present a partial-coverage result as if it covers the full period.
 - If any of the above analysis blocks states there is "no data", "cannot compute", "no validated ... facts found", or similar for a specific entity/metric/range, that statement is FINAL and AUTHORITATIVE for that part of the question — do NOT then go searching the document excerpts for a substitute figure or table to fill the gap. Tell the user plainly that validated data is insufficient for that specific part, and answer only the parts of the question that the VALIDATED FACTS / analysis blocks DO support. Do not blend a "no data" block with an excerpt-derived fabrication in the same answer.
-- A "VALIDATED FACTS" block may be provided below the excerpts — these values come from a separate validation pipeline and are the authoritative source for any figure they cover. Prefer them over the document excerpts when both are present for the same year/entity/metric. Never alter, round differently, or recompute these values. Each row in this block has its own [n] citation marker in the "Source" column — cite that marker when you use the row's value, exactly like citing a document excerpt. Facts listed under "FLAGGED — DO NOT USE" are known anomalies; never state them as fact, but you may mention them if the user is asking about anomalies/inconsistencies. If the VALIDATED FACTS block says no facts were found for the requested year/entity, and the excerpts don't clearly support a figure either, respond with the insufficient-evidence message rather than guessing from prose.`
+- A "VALIDATED FACTS" block may be provided below the excerpts — these values come from a separate validation pipeline and are the authoritative source for any figure they cover. Prefer them over the document excerpts when both are present for the same year/entity/metric. Never alter, round differently, or recompute these values. Each row in this block has its own [n] citation marker in the "Source" column — cite that marker when you use the row's value, exactly like citing a document excerpt. Facts listed under "FLAGGED — DO NOT USE" are known anomalies; never state them as fact, but you may mention them if the user is asking about anomalies/inconsistencies. If the VALIDATED FACTS block says no facts were found for the requested year/entity, and the excerpts don't clearly support a figure either, respond with the insufficient-evidence message rather than guessing from prose.
+- CURRENCY/UNIT BOUNDARY CHECK — before computing a percentage change, ratio, or "X times larger" comparison across years, consider whether a currency redenomination or unit change could fall between them (e.g. Ghana's cedi was redenominated 10,000:1 in 2007 — pre-2007 and post-2007 figures are NOT directly comparable without explicit conversion). If the requested range plausibly spans such a boundary, or is so wide (multiple decades) that the underlying currency/unit almost certainly changed, do not compute the comparison — say plainly that the figures aren't directly comparable across that span and the comparison cannot be reliably computed, rather than dividing the two numbers as if they were on the same scale.`
 
 // Per-query-type guidance appended to the user message — steers the model
 // toward the right pipeline (Retrieve -> ... -> Answer) for each category
@@ -357,11 +360,17 @@ export async function POST(request: NextRequest) {
 
   let body: unknown
   try { body = await request.json() } catch { return new Response('Invalid JSON body', { status: 400 }) }
-  const { query: rawQuery, newSession = true, history = [], convId: existingConvId = null, agentic = false } = (body ?? {}) as {
-    query?: unknown; newSession?: boolean; history?: unknown; convId?: string | null; agentic?: boolean
+  const { query: rawQuery, newSession = true, history = [], convId: existingConvId = null, agentic = false, extraSystemInstruction } = (body ?? {}) as {
+    query?: unknown; newSession?: boolean; history?: unknown; convId?: string | null; agentic?: boolean; extraSystemInstruction?: unknown
   }
   if (typeof rawQuery !== 'string' || !rawQuery.trim()) return new Response('Query required', { status: 400 })
   const query: string = rawQuery
+  // Internal-only: lets runAutoPromptFix test a candidate system-prompt
+  // instruction against the live answering pipeline before it's ever
+  // promoted to answer_heuristics — gated to training-access roles so a
+  // regular user can't inject arbitrary prompt overrides via the API.
+  const trustedExtraInstruction =
+    typeof extraSystemInstruction === 'string' && canAccessTraining(membership.role) ? extraSystemInstruction : ''
 
   // Recent conversation history, capped so a long-running conversation can't
   // push the prompt over the org's 10k input-tokens/min limit (same class of
@@ -1278,7 +1287,16 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
     // PRE-COMPUTED/VALIDATED FACTS content in the prompt for it to govern —
     // keeps the prompt lean (faster, fewer tokens) for general documents.
     const hasFinancialContext = calcBlock.length > 0 || factsBlock.length > 0
-    const systemPrompt = coreSystemPrompt(orgName, orgDescription) + (hasFinancialContext ? FINANCIAL_SYSTEM_PROMPT_ADDENDUM : '')
+    // Confirmed answer_heuristics rows — rules generated and verified by
+    // runAutoPromptFix after a regression category kept recurring (see
+    // answerHeuristics.ts). trustedExtraInstruction is the test-only path
+    // that same mechanism uses to verify a CANDIDATE rule before it's ever
+    // promoted into this confirmed set.
+    const learnedHeuristicsText = await getConfirmedHeuristicsText(svc, tenantId)
+    const systemPrompt = coreSystemPrompt(orgName, orgDescription)
+      + (hasFinancialContext ? FINANCIAL_SYSTEM_PROMPT_ADDENDUM : '')
+      + learnedHeuristicsText
+      + (trustedExtraInstruction ? `\n\n${trustedExtraInstruction}` : '')
 
     // Agentic RAG — Claude can call lookup_financial_fact/compute_aggregate/
     // search_documents/verify_figure mid-reasoning instead of getting one

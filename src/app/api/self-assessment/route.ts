@@ -4,6 +4,8 @@ import { getUser, getMembership } from '@/lib/supabase/server'
 import { canAccessTraining } from '@/lib/roles'
 import { REGRESSION_QUESTIONS, scoreRegressionAnswer, type RegressionResult } from '@/lib/selfAssessment'
 import { runAutoReprocess } from '@/lib/autoReprocess'
+import { runAutoPromptFix } from '@/lib/answerHeuristics'
+import { computeRecurringGaps } from '@/lib/extractionGaps'
 
 export const maxDuration = 300
 
@@ -133,6 +135,27 @@ export async function POST(request: NextRequest) {
         results,
       })
       if (error) console.error('[SelfAssessment] insert failed:', error)
+
+      // Self-improvement phase 3: for recurring category gaps, generate a
+      // candidate system-prompt rule and verify it against the WHOLE suite
+      // (10 chat calls) before promoting it — see answerHeuristics.ts. Runs
+      // BEFORE auto-reprocess deliberately: re-extraction (below) can burn
+      // the entire remaining budget on a single slow document (observed
+      // live, 30s-9min per attempt) and starve this phase every time if it
+      // goes second. Categories like currency_boundary/insufficiency have
+      // no document to re-extract anyway, so reprocess wouldn't have helped
+      // them even with unlimited budget — this phase gets first claim on
+      // whatever time is actually available, reprocess gets whatever's left.
+      try {
+        send({ stage: 'auto_prompt_fix_starting' })
+        const gaps = await computeRecurringGaps(svc, membership.tenant_id)
+        const promptFixable = gaps
+          .filter(g => g.source === 'self_assessment')
+          .map(g => ({ category: g.topic, exampleQuestion: g.exampleQuestion, exampleReason: g.exampleReason }))
+        await runAutoPromptFix(svc, membership.tenant_id, origin, cookie, promptFixable, a => send({ stage: 'auto_prompt_fix', ...a }), requestDeadline)
+      } catch (e) {
+        console.error('[SelfAssessment] auto-prompt-fix failed:', e)
+      }
 
       // Self-improvement phase 2: re-extract documents behind any recurring
       // gap this run (or prior runs) surfaced, then re-test. Runs after the

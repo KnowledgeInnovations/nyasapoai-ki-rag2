@@ -46,7 +46,7 @@ export async function computeRecurringGaps(
   svc: SupabaseClient,
   tenantId: string,
 ): Promise<RecurringGap[]> {
-  const [reviewsRes, assessmentsRes] = await Promise.all([
+  const [reviewsRes, assessmentsRes, heuristicsRes] = await Promise.all([
     svc.from('search_reviews')
       .select('question, verdict, reasoning, created_at')
       .eq('tenant_id', tenantId)
@@ -59,7 +59,13 @@ export async function computeRecurringGaps(
       .is('document_id', null)
       .order('created_at', { ascending: false })
       .limit(20),
+    // Categories runAutoPromptFix already confirmed a fix for (see
+    // answerHeuristics.ts) are excluded below — old failures from before
+    // the fix would otherwise keep a category showing as "recurring" for
+    // up to 20 more runs even after it's actually resolved.
+    svc.from('answer_heuristics').select('category').eq('tenant_id', tenantId).eq('status', 'confirmed'),
   ])
+  const confirmedCategories = new Set((heuristicsRes.data ?? []).map(r => r.category))
 
   const gaps: RecurringGap[] = []
 
@@ -114,6 +120,7 @@ export async function computeRecurringGaps(
   }
   for (const [category, g] of categoryGroups) {
     if (g.count < MIN_OCCURRENCES) continue
+    if (confirmedCategories.has(category)) continue
     gaps.push({
       source: 'self_assessment',
       topic: category,
