@@ -4,11 +4,14 @@ export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { CheckCircle2, ArrowRight, Loader2 } from 'lucide-react'
+import { CheckCircle2, MailCheck, ArrowRight, Loader2 } from 'lucide-react'
+
+type State = 'checking' | 'confirmed' | 'pending-other' | 'error'
 
 export default function ConfirmEmailChangePage() {
   const supabase = createClient()
-  const [state, setState] = useState<'checking' | 'confirmed' | 'invalid'>('checking')
+  const [state, setState] = useState<State>('checking')
+  const [detail, setDetail] = useState('')
 
   useEffect(() => {
     // Same hash-token shape as the recovery/invite links (see
@@ -21,13 +24,31 @@ export default function ConfirmEmailChangePage() {
 
     if (access_token && refresh_token) {
       supabase.auth.setSession({ access_token, refresh_token }).then(({ data, error }) => {
-        setState(data.session && !error ? 'confirmed' : 'invalid')
+        setState(data.session && !error ? 'confirmed' : 'error')
         window.history.replaceState(null, '', window.location.pathname)
       })
       return
     }
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setState('invalid')
+
+    // When "Secure email change" is enabled, Supabase requires confirming
+    // from BOTH the old and new address. Clicking the FIRST link redirects
+    // here with no tokens at all — just an informational `message` (no
+    // `error`) saying to also confirm the other inbox. Without this branch
+    // that case fell through to the generic "expired" state, which is
+    // wrong: nothing failed, the user just isn't done yet.
+    const queryParams = new URLSearchParams(window.location.search)
+    const errorDescription = queryParams.get('error_description') ?? hashParams.get('error_description')
+    const message = queryParams.get('message') ?? hashParams.get('message')
+    if (errorDescription) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setDetail(errorDescription)
+      setState('error')
+    } else if (message) {
+      setDetail(message)
+      setState('pending-other')
+    } else {
+      setState('error')
+    }
   }, [supabase])
 
   return (
@@ -44,10 +65,18 @@ export default function ConfirmEmailChangePage() {
                 <CheckCircle2 className="h-7 w-7 text-emerald-600" />
               </div>
               <h2 className="text-xl font-extrabold text-gray-900">Email confirmed</h2>
-              <p className="text-sm text-gray-500">
-                Your email address has been updated. If your workspace requires confirmation from both
-                addresses, check your other inbox too.
-              </p>
+              <p className="text-sm text-gray-500">Your email address has been updated.</p>
+              <a href="/settings" className="inline-flex items-center gap-2 text-sm font-semibold text-brand hover:text-brand-dark">
+                Back to Settings <ArrowRight className="h-4 w-4" />
+              </a>
+            </div>
+          ) : state === 'pending-other' ? (
+            <div className="space-y-3 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-light">
+                <MailCheck className="h-7 w-7 text-brand" />
+              </div>
+              <h2 className="text-xl font-extrabold text-gray-900">Almost there</h2>
+              <p className="text-sm text-gray-500">{detail || 'This link was confirmed. Check your other inbox for one more confirmation link to finish the change.'}</p>
               <a href="/settings" className="inline-flex items-center gap-2 text-sm font-semibold text-brand hover:text-brand-dark">
                 Back to Settings <ArrowRight className="h-4 w-4" />
               </a>
@@ -56,7 +85,7 @@ export default function ConfirmEmailChangePage() {
             <div className="space-y-3 text-center">
               <h2 className="text-xl font-extrabold text-gray-900">Link expired</h2>
               <p className="text-sm text-gray-500">
-                This confirmation link is invalid or has expired. Request the email change again from Settings.
+                {detail || 'This confirmation link is invalid or has expired. Request the email change again from Settings.'}
               </p>
               <a href="/settings" className="inline-flex items-center gap-2 text-sm font-semibold text-brand hover:text-brand-dark">
                 Back to Settings <ArrowRight className="h-4 w-4" />
