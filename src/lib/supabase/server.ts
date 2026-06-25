@@ -172,6 +172,38 @@ export const getTenantBySubdomain = cache(async (subdomain: string) => {
   return data
 })
 
+// ── touchLastActive — debounced "is this person actually using the app
+// right now" signal for the Users admin page ────────────────────────
+// auth.users.last_sign_in_at only updates on sign-in, not on ongoing use —
+// useless here since sessions persist 400 days (see middleware.ts), so a
+// user signed in a week ago and active every day since would wrongly look
+// "pending"/stale by that field alone. memberships.last_active_at is
+// touched on every protected-route request instead. Debounced per-process
+// (same pattern as the caches above) so this doesn't add a DB write to
+// every single page navigation — only once per ACTIVITY_DEBOUNCE_MS per
+// user. Needs the service client: memberships has no UPDATE policy in RLS
+// (only "read own"), since no normal user-facing flow should ever write to
+// it directly.
+const ACTIVITY_DEBOUNCE_MS = 60_000
+const lastActivityWrite = new Map<string, Entry<true>>()
+
+export async function touchLastActive(userId: string, tenantId: string): Promise<void> {
+  const hit = lastActivityWrite.get(userId)
+  if (hit && hit.exp > Date.now()) return
+
+  evict(lastActivityWrite)
+  lastActivityWrite.set(userId, { v: true, exp: Date.now() + ACTIVITY_DEBOUNCE_MS })
+
+  const service = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  )
+  await service.from('memberships')
+    .update({ last_active_at: new Date().toISOString() })
+    .eq('user_id', userId).eq('tenant_id', tenantId)
+}
+
 // Drop a user's cached membership (role/tenant) immediately — call after
 // updating or removing a membership row via the service client, which
 // bypasses getMembership()'s normal read-through caching. Without this, the

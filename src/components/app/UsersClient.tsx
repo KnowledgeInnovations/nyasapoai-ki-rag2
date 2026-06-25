@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2, Trash2, UserPlus, CheckCircle2 } from 'lucide-react'
 import { ROLE_LABELS, type Role } from '@/lib/roles'
+import { cn, formatRelativeTime } from '@/lib/utils'
 
 export interface Member {
   id:        string
@@ -12,6 +13,7 @@ export interface Member {
   role:      Role
   createdAt: string
   status:    'active' | 'pending'
+  lastActiveAt: string | null
 }
 
 interface Props {
@@ -20,6 +22,62 @@ interface Props {
 }
 
 const ROLES: Role[] = ['senior', 'middle', 'junior']
+
+// "Active now" — within this window, treated as genuinely online rather
+// than just "recently used the app".
+const ONLINE_THRESHOLD_MS = 5 * 60 * 1000
+
+const ROLE_BADGES: Record<Role, string> = {
+  senior: 'bg-gold/15 text-yellow-700 border-gold/30',
+  middle: 'bg-brand-light text-brand border-brand/20',
+  junior: 'bg-gray-100 text-gray-600 border-gray-200',
+}
+
+function initialsFor(name: string, email: string): string {
+  const trimmed = name.trim()
+  if (trimmed) {
+    const words = trimmed.split(/\s+/).filter(Boolean)
+    return words.length === 1 ? words[0].slice(0, 2).toUpperCase() : (words[0][0] + words[1][0]).toUpperCase()
+  }
+  return email.slice(0, 2).toUpperCase()
+}
+
+// "Current time" as actual state, refreshed periodically, rather than a
+// raw Date.now() read during render — keeps the purity rule happy AND
+// means "Active now" visibly ages into "Active 6m ago" if the page is left
+// open, instead of freezing at whatever it was at initial page load.
+function useNow(intervalMs = 30_000): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), intervalMs)
+    return () => clearInterval(t)
+  }, [intervalMs])
+  return now
+}
+
+function ActivityDot({ member, now }: { member: Member; now: number }) {
+  if (member.status === 'pending') {
+    return (
+      <span className="flex items-center gap-1.5 text-xs text-amber-600">
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> Invite pending
+      </span>
+    )
+  }
+  if (!member.lastActiveAt) {
+    return (
+      <span className="flex items-center gap-1.5 text-xs text-gray-400">
+        <span className="h-1.5 w-1.5 rounded-full bg-gray-300" /> No activity yet
+      </span>
+    )
+  }
+  const isOnline = now - new Date(member.lastActiveAt).getTime() < ONLINE_THRESHOLD_MS
+  return (
+    <span className={cn('flex items-center gap-1.5 text-xs', isOnline ? 'text-emerald-600' : 'text-gray-400')}>
+      <span className={cn('h-1.5 w-1.5 rounded-full', isOnline ? 'bg-emerald-500' : 'bg-gray-300')} />
+      {isOnline ? 'Active now' : `Active ${formatRelativeTime(member.lastActiveAt)}`}
+    </span>
+  )
+}
 
 export default function UsersClient({ members, currentUserId }: Props) {
   const router = useRouter()
@@ -89,11 +147,35 @@ export default function UsersClient({ members, currentUserId }: Props) {
     setInviting(false)
   }
 
+  const now = useNow()
+  const onlineCount = list.filter(m => m.lastActiveAt && now - new Date(m.lastActiveAt).getTime() < ONLINE_THRESHOLD_MS).length
+  const pendingCount = list.filter(m => m.status === 'pending').length
+
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6">
       <div>
         <h1 className="text-xl font-bold text-gray-900">Users</h1>
         <p className="mt-1 text-sm text-gray-500">Manage workspace members and their roles.</p>
+      </div>
+
+      {/* Stats strip */}
+      <div className="flex flex-wrap gap-3">
+        <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm shadow-sm">
+          <span className="font-bold text-gray-900">{list.length}</span>
+          <span className="text-gray-500">{list.length === 1 ? 'member' : 'members'}</span>
+        </div>
+        <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm shadow-sm">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          <span className="font-bold text-gray-900">{onlineCount}</span>
+          <span className="text-gray-500">active now</span>
+        </div>
+        {pendingCount > 0 && (
+          <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm shadow-sm">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+            <span className="font-bold text-gray-900">{pendingCount}</span>
+            <span className="text-gray-500">invite{pendingCount === 1 ? '' : 's'} pending</span>
+          </div>
+        )}
       </div>
 
       {/* Invite */}
@@ -153,17 +235,19 @@ export default function UsersClient({ members, currentUserId }: Props) {
         <div className="divide-y divide-gray-100">
           {list.map(member => (
             <div key={member.id} className="flex items-center gap-4 px-6 py-4">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="truncate text-sm font-semibold text-gray-900">{member.name || member.email}</p>
-                  {member.status === 'pending' && (
-                    <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
-                      Invite pending
-                    </span>
-                  )}
-                </div>
-                <p className="truncate text-xs text-gray-500">{member.email}</p>
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand text-sm font-bold text-white shadow-sm shadow-brand/20">
+                {initialsFor(member.name, member.email)}
               </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-gray-900">{member.name || member.email}</p>
+                <p className="truncate text-xs text-gray-500">{member.email}</p>
+                <div className="mt-1">
+                  <ActivityDot member={member} now={now} />
+                </div>
+              </div>
+              <span className={cn('hidden shrink-0 rounded-lg border px-2.5 py-1 text-xs font-semibold sm:inline-flex', ROLE_BADGES[member.role])}>
+                {ROLE_LABELS[member.role]}
+              </span>
               <select
                 value={member.role}
                 disabled={updatingId === member.id || member.id === currentUserId}

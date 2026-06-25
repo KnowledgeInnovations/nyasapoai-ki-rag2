@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { getUser, getMembership, getTenant, createClient, getSessionId } from '@/lib/supabase/server'
+import { getUser, getMembership, getTenant, createClient, getSessionId, touchLastActive } from '@/lib/supabase/server'
 import { subdomainFromHost, tenantUrlForHost, rootUrlForHost } from '@/lib/domain'
 import { isSessionEmailMfaVerified } from '@/lib/emailMfa'
 import AppShell from '@/components/app/AppShell'
@@ -35,6 +35,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const membership = await getMembership()
   if (!membership) redirect('/auth/setup-workspace')
+  await touchLastActive(user.id, membership.tenant_id)
   const role = membership.role
   const tenant = await getTenant(membership.tenant_id)
   const tenantName = tenant?.name ?? 'NyasapoAI'

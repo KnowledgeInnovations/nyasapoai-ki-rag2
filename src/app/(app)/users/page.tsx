@@ -24,7 +24,7 @@ export default async function UsersPage() {
   const service = svc()
   const { data: memberships } = await service
     .from('memberships')
-    .select('user_id, role, created_at, users:user_id (id, email, name)')
+    .select('user_id, role, created_at, last_active_at, users:user_id (id, email, name)')
     .eq('tenant_id', membership.tenant_id)
     .order('created_at', { ascending: true })
 
@@ -32,6 +32,7 @@ export default async function UsersPage() {
     user_id: string
     role: string
     created_at: string
+    last_active_at: string | null
     users: { id: string; email: string; name: string | null } | { id: string; email: string; name: string | null }[] | null
   }
 
@@ -58,6 +59,7 @@ export default async function UsersPage() {
       role:      normalizeRole(m.role),
       createdAt: m.created_at,
       status:    authStatusById.get(m.user_id) ?? 'pending',
+      lastActiveAt: m.last_active_at,
     }
   })
 

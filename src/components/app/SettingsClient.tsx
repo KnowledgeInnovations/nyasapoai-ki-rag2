@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { normalizeRole, ROLE_LABELS, ROLE_DESCRIPTIONS, canUploadDocuments } from '@/lib/roles'
 import PasswordSettings from './PasswordSettings'
 import TwoFactorSettings from './TwoFactorSettings'
+import EmailSettings from './EmailSettings'
 
 interface Props {
   email: string
@@ -141,6 +142,7 @@ export default function SettingsClient({ email, name, role, emailDomains, isPlat
         {/* Active tab content */}
         <div className="min-w-0 flex-1 space-y-6">
           {activeTab === 'profile' && (
+            <>
             <section className="overflow-hidden rounded-3xl border border-gray-200/80 bg-white p-6 shadow-2xl shadow-black/5 md:p-8">
               <div className="mb-6 flex flex-wrap items-center gap-4 rounded-2xl border border-gray-100 bg-gray-50/60 p-5">
                 <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-brand text-lg font-bold text-white shadow-md shadow-brand/20">
@@ -182,6 +184,8 @@ export default function SettingsClient({ email, name, role, emailDomains, isPlat
                 </button>
               </form>
             </section>
+            <EmailSettings email={email} />
+            </>
           )}
 
           {activeTab === 'security' && (
