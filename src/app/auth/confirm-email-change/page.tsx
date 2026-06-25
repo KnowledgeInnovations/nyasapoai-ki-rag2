@@ -30,6 +30,25 @@ export default function ConfirmEmailChangePage() {
       return
     }
 
+    // With "Secure email change" off, Supabase now issues a PKCE `?code=`
+    // instead of hash tokens. createBrowserClient()'s automatic
+    // detectSessionInUrl exchange apparently isn't completing it here (most
+    // likely because the code verifier it needs lives in localStorage from
+    // wherever the change was requested, and this link is opened in a
+    // different tab/device) — so the code sits unconsumed and this page
+    // never sees a session. Exchange it explicitly instead of relying on
+    // auto-detection, and surface the real error if it still fails.
+    const queryParamsForCode = new URLSearchParams(window.location.search)
+    const code = queryParamsForCode.get('code')
+    if (code) {
+      supabase.auth.exchangeCodeForSession(code).then(({ data, error }) => {
+        setState(data.session && !error ? 'confirmed' : 'error')
+        if (error) setDetail(error.message)
+        window.history.replaceState(null, '', window.location.pathname)
+      })
+      return
+    }
+
     // When "Secure email change" is enabled, Supabase requires confirming
     // from BOTH the old and new address. Clicking the FIRST link redirects
     // here with no tokens at all — just an informational `message` (no
