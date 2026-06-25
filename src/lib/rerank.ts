@@ -28,6 +28,19 @@ export interface RankableChunk {
   rrf_score?: number
 }
 
+// Used to truncate to the first 300 characters before scoring relevance.
+// That blindly missed relevant content in long flat-list chunks (acronym
+// glossaries, tables) where the matching entry can be anywhere — confirmed
+// live: a 1338-char acronym-list chunk had "GAIMS" at character 1006, so
+// the reranker's old 300-char preview never showed it the term at all and
+// scored the chunk irrelevant, even though the candidate-pool supplement
+// (chat/route.ts) had correctly retrieved it for containing that exact
+// acronym. Now sends the full chunk, unmodified except for whitespace
+// flattening — no length cap.
+function buildPreview(text: string): string {
+  return text.replace(/\s+/g, ' ')
+}
+
 export interface RerankedChunk extends RankableChunk {
   rerank_score: number
 }
@@ -42,7 +55,7 @@ export async function rerankChunks<T extends RankableChunk>(
   }
 
   const list = chunks
-    .map((c, i) => `[${i + 1}] ${c.chunk_text.replace(/\s+/g, ' ').slice(0, 300)}`)
+    .map((c, i) => `[${i + 1}] ${buildPreview(c.chunk_text)}`)
     .join('\n\n')
 
   try {

@@ -534,6 +534,33 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // An acronym lookup (e.g. "what is the meaning of GAIMS") can miss
+    // entirely even though the exact term is in the knowledge base: the FTS
+    // leg's websearch_to_tsquery ANDs every non-stopword together, so a word
+    // like "meaning" that never appears near "GAIMS" in the source forces
+    // zero FTS matches — confirmed live, "GAIMS" alone matches 4 chunks but
+    // "what is the meaning of GAIMS" matches 0. The vector leg alone isn't
+    // reliable either (a long flat acronym-list chunk's embedding doesn't
+    // strongly represent any single entry within it). Pull in any chunk
+    // containing the literal acronym directly, bypassing both legs' ranking
+    // — this only ADDS candidates, same safety property as the fiscal-year
+    // supplement above.
+    const acronymTokens = [...new Set(query.match(/\b[A-Z]{2,8}\b/g) ?? [])]
+    if (acronymTokens.length) {
+      const { data: acronymChunks } = await svc
+        .from('document_chunks')
+        .select('id, document_id, chunk_text, metadata')
+        .eq('tenant_id', tenantId)
+        .or(acronymTokens.map(t => `chunk_text.ilike.%${t}%`).join(','))
+        .limit(15)
+      if (acronymChunks?.length) {
+        const seen = new Set(candidateChunks.map(c => c.id))
+        for (const c of acronymChunks) {
+          if (!seen.has(c.id)) { candidateChunks.push({ ...c, similarity: 0.5, rrf_score: 0.016 }); seen.add(c.id) }
+        }
+      }
+    }
+
     // A dense breakdown question (e.g. "what was the education budget" —
     // spanning the ministry total, GETFund, and a dozen named sub-programmes
     // each on a different page) cites more figures than the standard top-10
