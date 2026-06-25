@@ -651,7 +651,7 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
 
       {/* ── Category delete confirmation ────────────────────── */}
       {catDeleteTarget && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
           <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 border border-red-200">
               <Trash2 className="h-5 w-5 text-red-500" />
@@ -680,7 +680,7 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
 
       {/* ── Delete confirmation ─────────────────────────────── */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
           <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 border border-red-200">
               <Trash2 className="h-5 w-5 text-red-500" />
@@ -709,7 +709,7 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
 
       {/* ── Bulk delete confirmation ─────────────────────────── */}
       {bulkDeleteOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
           <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 border border-red-200">
               <Trash2 className="h-5 w-5 text-red-500" />

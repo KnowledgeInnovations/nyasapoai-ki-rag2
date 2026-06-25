@@ -124,7 +124,7 @@ export default function UploadModal({ onClose, onUploaded, categories }: Props) 
   const canUpload    = pendingCount > 0 && !!category && !uploading
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
       <div className="w-full max-w-xl rounded-3xl bg-white shadow-2xl flex flex-col max-h-[90vh]">
 
         {/* Header */}

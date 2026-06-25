@@ -678,9 +678,9 @@ function SearchSheet({
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-0 z-[500] bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="fixed inset-x-0 bottom-0 z-50 max-h-[85dvh] overflow-y-auto rounded-t-3xl border-t border-gray-200 bg-white shadow-2xl">
+      <div className="fixed inset-x-0 bottom-0 z-[510] max-h-[85dvh] overflow-y-auto rounded-t-3xl border-t border-gray-200 bg-white shadow-2xl">
         <div className="mx-auto mt-3 h-1 w-10 rounded-full bg-gray-300" />
 
         <div className="flex items-start justify-between gap-3 px-5 pb-4 pt-4">
@@ -900,10 +900,10 @@ function DetailSheet({
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-0 z-[500] bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
       {/* Sheet — slides up from bottom */}
-      <div className="fixed inset-x-0 bottom-0 z-50 max-h-[85dvh] overflow-y-auto rounded-t-3xl border-t border-gray-200 bg-white shadow-2xl">
+      <div className="fixed inset-x-0 bottom-0 z-[510] max-h-[85dvh] overflow-y-auto rounded-t-3xl border-t border-gray-200 bg-white shadow-2xl">
         {/* Handle */}
         <div className="mx-auto mt-3 h-1 w-10 rounded-full bg-gray-300" />
 

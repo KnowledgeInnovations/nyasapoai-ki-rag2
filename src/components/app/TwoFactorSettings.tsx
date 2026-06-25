@@ -264,7 +264,7 @@ export default function TwoFactorSettings() {
       </div>
 
       {confirmDisable && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
           <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl shadow-black/10">
             <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-xl border border-red-200 bg-red-50">
               <ShieldOff className="h-5 w-5 text-red-500" />
