@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { CheckCircle2, Loader2, X, Plus } from 'lucide-react'
 import { normalizeRole, ROLE_LABELS, ROLE_DESCRIPTIONS, canUploadDocuments } from '@/lib/roles'
+import PasswordSettings from './PasswordSettings'
+import TwoFactorSettings from './TwoFactorSettings'
 
 interface Props {
   email: string
@@ -148,6 +150,12 @@ export default function SettingsClient({ email, name, role, emailDomains, isPlat
           </button>
         </form>
       </section>
+
+      {/* Password */}
+      <PasswordSettings email={email} />
+
+      {/* Two-Factor Authentication */}
+      <TwoFactorSettings />
 
       {/* Workspace */}
       <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">

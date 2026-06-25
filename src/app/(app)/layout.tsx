@@ -1,12 +1,24 @@
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
-import { getUser, getMembership, getTenant } from '@/lib/supabase/server'
+import { getUser, getMembership, getTenant, createClient } from '@/lib/supabase/server'
 import { subdomainFromHost, tenantUrlForHost, rootUrlForHost } from '@/lib/domain'
 import AppShell from '@/components/app/AppShell'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await getUser()
   if (!user) redirect('/auth/login')
+
+  // Defense in depth for 2FA: LoginClient.tsx already forces the TOTP
+  // step-up client-side, but a session can reach this layout at aal1 with a
+  // verified factor still pending if that client-side step was skipped
+  // (e.g. the tab closed right after signInWithPassword, then was reopened
+  // straight to a protected route with the already-valid aal1 cookie).
+  // getAuthenticatorAssuranceLevel() reads the already-fetched session
+  // locally — no extra Auth API round trip.
+  const supabase = await createClient()
+  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+  if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') redirect('/auth/mfa-challenge')
+
   const membership = await getMembership()
   if (!membership) redirect('/auth/setup-workspace')
   const role = membership.role

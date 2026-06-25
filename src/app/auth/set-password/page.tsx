@@ -13,6 +13,7 @@ export default function SetPasswordPage() {
 
   const [checking, setChecking] = useState(true)
   const [validSession, setValidSession] = useState(false)
+  const [linkType, setLinkType]   = useState<string | null>(null)
   const [password, setPassword]   = useState('')
   const [confirm, setConfirm]     = useState('')
   const [showPwd, setShowPwd]     = useState(false)
@@ -32,6 +33,11 @@ export default function SetPasswordPage() {
     const hashParams = new URLSearchParams(window.location.hash.slice(1))
     const access_token = hashParams.get('access_token')
     const refresh_token = hashParams.get('refresh_token')
+    // Supabase tags both invite and password-recovery links with the same
+    // hash shape, distinguished only by `type` — used below to show
+    // "reset your password" copy instead of "set up your account" copy.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLinkType(hashParams.get('type'))
 
     if (access_token && refresh_token) {
       supabase.auth.setSession({ access_token, refresh_token }).then(({ data, error }) => {
@@ -98,9 +104,9 @@ export default function SetPasswordPage() {
               <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100">
                 <CheckCircle2 className="h-7 w-7 text-emerald-600" />
               </div>
-              <h2 className="text-xl font-extrabold text-gray-900">Password set</h2>
+              <h2 className="text-xl font-extrabold text-gray-900">Password {linkType === 'recovery' ? 'reset' : 'set'}</h2>
               <p className="text-sm text-gray-500">
-                Your password has been set. Redirecting you to sign in…
+                Your password has been {linkType === 'recovery' ? 'reset' : 'set'}. Redirecting you to sign in…
               </p>
               <a href="/auth/login" className="inline-flex items-center gap-2 text-sm font-semibold text-brand hover:text-brand-dark">
                 Go to sign in <ArrowRight className="h-4 w-4" />
@@ -108,20 +114,23 @@ export default function SetPasswordPage() {
             </div>
           ) : !validSession ? (
             <div className="space-y-3 text-center">
-              <h2 className="text-xl font-extrabold text-gray-900">Invite link expired</h2>
+              <h2 className="text-xl font-extrabold text-gray-900">{linkType === 'recovery' ? 'Reset link expired' : 'Invite link expired'}</h2>
               <p className="text-sm text-gray-500">
-                This invitation link is invalid or has expired. Ask your workspace admin to send a new invite,
-                or sign in if you already have a password.
+                {linkType === 'recovery'
+                  ? 'This password reset link is invalid or has expired. Request a new one from the sign-in page.'
+                  : 'This invitation link is invalid or has expired. Ask your workspace admin to send a new invite, or sign in if you already have a password.'}
               </p>
-              <a href="/auth/login" className="inline-flex items-center gap-2 text-sm font-semibold text-brand hover:text-brand-dark">
-                Go to sign in <ArrowRight className="h-4 w-4" />
+              <a href={linkType === 'recovery' ? '/auth/forgot-password' : '/auth/login'} className="inline-flex items-center gap-2 text-sm font-semibold text-brand hover:text-brand-dark">
+                {linkType === 'recovery' ? 'Request a new link' : 'Go to sign in'} <ArrowRight className="h-4 w-4" />
               </a>
             </div>
           ) : (
             <div className="space-y-6">
               <div>
-                <h2 className="text-2xl font-extrabold text-gray-900">Set your password</h2>
-                <p className="mt-1 text-sm text-gray-500">Choose a password to finish setting up your account.</p>
+                <h2 className="text-2xl font-extrabold text-gray-900">{linkType === 'recovery' ? 'Reset your password' : 'Set your password'}</h2>
+                <p className="mt-1 text-sm text-gray-500">
+                  {linkType === 'recovery' ? 'Choose a new password for your account.' : 'Choose a password to finish setting up your account.'}
+                </p>
               </div>
 
               {error && (
@@ -166,8 +175,8 @@ export default function SetPasswordPage() {
                 <button type="submit" disabled={loading}
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-3.5 text-sm font-bold text-white shadow-lg shadow-brand/20 transition hover:bg-brand-dark disabled:opacity-60">
                   {loading
-                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Setting password…</>
-                    : <>Set password & continue <ArrowRight className="h-4 w-4" /></>}
+                    ? <><Loader2 className="h-4 w-4 animate-spin" /> {linkType === 'recovery' ? 'Resetting password…' : 'Setting password…'}</>
+                    : linkType === 'recovery' ? <>Reset password <ArrowRight className="h-4 w-4" /></> : <>Set password & continue <ArrowRight className="h-4 w-4" /></>}
                 </button>
               </form>
             </div>

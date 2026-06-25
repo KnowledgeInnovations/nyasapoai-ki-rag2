@@ -4,6 +4,7 @@ import { useState, Suspense } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, ArrowRight, CheckCircle2, Loader2, Mail } from 'lucide-react'
+import TotpChallengeForm from './TotpChallengeForm'
 
 const HOME_URL = '/'
 
@@ -33,8 +34,31 @@ function LoginForm({ tenant }: FormProps) {
   const [loading, setLoading]       = useState(false)
   const [magicSent, setMagicSent]   = useState(false)
   const [mode, setMode]             = useState<'password' | 'magic'>('password')
+  const [needsMfa, setNeedsMfa]     = useState(false)
 
   const supabase = createClient()
+
+  // Shared by the direct-success path and the post-MFA-verification path —
+  // signInWithPassword() already returns a valid (aal1) session, but a user
+  // with a verified authenticator factor isn't actually done until they've
+  // stepped up to aal2 (handled by the caller before this runs).
+  async function finishLogin() {
+    if (tenant) {
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data: membership } = await supabase
+        .from('memberships')
+        .select('tenant_id')
+        .eq('user_id', user!.id)
+        .maybeSingle()
+
+      if (membership?.tenant_id !== tenant.id) {
+        await supabase.auth.signOut()
+        setError(`This account isn't part of the ${tenant.name} workspace.`)
+        return
+      }
+    }
+    router.push('/ask')
+  }
 
   async function handlePassword(e: React.SyntheticEvent) {
     e.preventDefault()
@@ -44,22 +68,16 @@ function LoginForm({ tenant }: FormProps) {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) { setError(error.message); return }
 
-      if (tenant) {
-        const { data: { user } } = await supabase.auth.getUser()
-        const { data: membership } = await supabase
-          .from('memberships')
-          .select('tenant_id')
-          .eq('user_id', user!.id)
-          .maybeSingle()
-
-        if (membership?.tenant_id !== tenant.id) {
-          await supabase.auth.signOut()
-          setError(`This account isn't part of the ${tenant.name} workspace.`)
-          return
-        }
+      // A verified TOTP factor means nextLevel is aal2 while the session
+      // signInWithPassword just created is only aal1 — the user isn't
+      // actually signed in yet until they clear that step-up.
+      const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+      if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
+        setNeedsMfa(true)
+        return
       }
 
-      router.push('/ask')
+      await finishLogin()
     } catch {
       setError('Something went wrong. Please try again.')
     } finally {
@@ -83,6 +101,15 @@ function LoginForm({ tenant }: FormProps) {
     } finally {
       setLoading(false)
     }
+  }
+
+  if (needsMfa) {
+    return (
+      <TotpChallengeForm
+        onVerified={finishLogin}
+        onCancel={async () => { await supabase.auth.signOut(); setNeedsMfa(false); setPassword('') }}
+      />
+    )
   }
 
   if (magicSent) {
@@ -146,7 +173,12 @@ function LoginForm({ tenant }: FormProps) {
           </div>
 
           <div className="space-y-1.5">
-            <label className="block text-sm font-semibold text-gray-700">Password</label>
+            <div className="flex items-center justify-between">
+              <label className="block text-sm font-semibold text-gray-700">Password</label>
+              <a href="/auth/forgot-password" className="text-xs font-medium text-brand transition hover:text-brand-dark">
+                Forgot password?
+              </a>
+            </div>
             <div className="relative">
               <input
                 type={showPwd ? 'text' : 'password'}
