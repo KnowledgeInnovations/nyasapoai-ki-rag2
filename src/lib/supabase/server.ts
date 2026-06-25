@@ -88,6 +88,26 @@ export const getUser = cache(async () => {
   return user
 })
 
+// ── getSessionId — the JWT's session_id claim ──────────────────
+// Stable across token refreshes within one login, distinct per sign-in.
+// Used to key email_mfa_verified_sessions (see emailMfa.ts) — the closest
+// equivalent we can produce for a factor type (email) Supabase's own aal
+// system has no knowledge of. Decoded locally, not signature-verified —
+// consistent with src/lib/supabase/middleware.ts's existing routing-only
+// JWT decoding; actual authentication is still enforced by getUser() before
+// any of this ever runs.
+export const getSessionId = cache(async (): Promise<string | null> => {
+  const supabase = await createClient()
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) return null
+  try {
+    const payload = JSON.parse(Buffer.from(session.access_token.split('.')[1], 'base64url').toString('utf8'))
+    return payload.session_id ?? null
+  } catch {
+    return null
+  }
+})
+
 // ── getMembership — cached 5 min across requests ───────────────
 export const getMembership = cache(async () => {
   const user = await getUser()

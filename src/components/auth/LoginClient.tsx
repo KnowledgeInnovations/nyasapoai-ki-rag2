@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, ArrowRight, CheckCircle2, Loader2, Mail } from 'lucide-react'
 import TotpChallengeForm from './TotpChallengeForm'
+import EmailOtpChallengeForm from './EmailOtpChallengeForm'
 
 const HOME_URL = '/'
 
@@ -35,6 +36,7 @@ function LoginForm({ tenant }: FormProps) {
   const [magicSent, setMagicSent]   = useState(false)
   const [mode, setMode]             = useState<'password' | 'magic'>('password')
   const [needsMfa, setNeedsMfa]     = useState(false)
+  const [needsEmailMfa, setNeedsEmailMfa] = useState(false)
 
   const supabase = createClient()
 
@@ -67,6 +69,17 @@ function LoginForm({ tenant }: FormProps) {
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) { setError(error.message); return }
+
+      // Email-based 2FA is a custom mechanism Supabase's own aal system has
+      // no knowledge of (see emailMfa.ts) — checked via user_metadata, set
+      // when the user chose "Email" over an authenticator app in Settings.
+      // Mutually exclusive with TOTP, so only one of these two branches
+      // should ever apply for a given account.
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user?.user_metadata?.email_mfa_enabled) {
+        setNeedsEmailMfa(true)
+        return
+      }
 
       // A verified TOTP factor means nextLevel is aal2 while the session
       // signInWithPassword just created is only aal1 — the user isn't
@@ -108,6 +121,16 @@ function LoginForm({ tenant }: FormProps) {
       <TotpChallengeForm
         onVerified={finishLogin}
         onCancel={async () => { await supabase.auth.signOut(); setNeedsMfa(false); setPassword('') }}
+      />
+    )
+  }
+
+  if (needsEmailMfa) {
+    return (
+      <EmailOtpChallengeForm
+        email={email}
+        onVerified={finishLogin}
+        onCancel={async () => { await supabase.auth.signOut(); setNeedsEmailMfa(false); setPassword('') }}
       />
     )
   }

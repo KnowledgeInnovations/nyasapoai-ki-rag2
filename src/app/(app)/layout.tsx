@@ -1,23 +1,37 @@
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
-import { getUser, getMembership, getTenant, createClient } from '@/lib/supabase/server'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { getUser, getMembership, getTenant, createClient, getSessionId } from '@/lib/supabase/server'
 import { subdomainFromHost, tenantUrlForHost, rootUrlForHost } from '@/lib/domain'
+import { isSessionEmailMfaVerified } from '@/lib/emailMfa'
 import AppShell from '@/components/app/AppShell'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await getUser()
   if (!user) redirect('/auth/login')
 
-  // Defense in depth for 2FA: LoginClient.tsx already forces the TOTP
-  // step-up client-side, but a session can reach this layout at aal1 with a
-  // verified factor still pending if that client-side step was skipped
-  // (e.g. the tab closed right after signInWithPassword, then was reopened
-  // straight to a protected route with the already-valid aal1 cookie).
-  // getAuthenticatorAssuranceLevel() reads the already-fetched session
-  // locally — no extra Auth API round trip.
-  const supabase = await createClient()
-  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-  if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') redirect('/auth/mfa-challenge')
+  // Defense in depth for 2FA: LoginClient.tsx already forces the step-up
+  // client-side (TOTP or email, whichever the account uses), but a session
+  // can reach this layout without having completed it if that client-side
+  // step was skipped (e.g. the tab closed right after signInWithPassword,
+  // then was reopened straight to a protected route with the already-valid
+  // cookie).
+  if (user.user_metadata?.email_mfa_enabled) {
+    // Email has no Supabase-native aal concept — checked against our own
+    // verified-sessions table instead (see emailMfa.ts).
+    const sessionId = await getSessionId()
+    const verified = sessionId && await isSessionEmailMfaVerified(
+      createServiceClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { autoRefreshToken: false, persistSession: false } }),
+      sessionId,
+    )
+    if (!verified) redirect('/auth/mfa-challenge')
+  } else {
+    // getAuthenticatorAssuranceLevel() reads the already-fetched session
+    // locally — no extra Auth API round trip.
+    const supabase = await createClient()
+    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') redirect('/auth/mfa-challenge')
+  }
 
   const membership = await getMembership()
   if (!membership) redirect('/auth/setup-workspace')
