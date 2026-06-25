@@ -1369,7 +1369,14 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           verification.confidenceScore = Math.max(floor, verification.confidenceScore - penalty)
           verification.confidenceLevel = verification.confidenceScore >= 75 ? 'High' : verification.confidenceScore >= 50 ? 'Medium' : 'Low'
         } else if (verified && verification.totalNumbers === 0 && !isHonestInsufficiency && verification.confidenceScore >= 10) {
-          verification.confidenceScore = Math.max(verification.confidenceScore, 92)
+          // Mirrors the non-agentic branch's fix below — scale the boosted
+          // floor within 90-99 using the retrieval signal instead of a flat
+          // 92, so AI-verified-clean answers aren't all identical.
+          const avgSignal = agenticRetrievalScores.length
+            ? agenticRetrievalScores.reduce((s, v) => s + v, 0) / agenticRetrievalScores.length
+            : 0
+          const boosted = 90 + Math.round(Math.max(0, Math.min(1, avgSignal)) * 9)
+          verification.confidenceScore = Math.max(verification.confidenceScore, boosted)
           verification.confidenceLevel = verification.confidenceScore >= 75 ? 'High' : verification.confidenceScore >= 50 ? 'Medium' : 'Low'
         }
       } catch (e) {
@@ -1687,8 +1694,18 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
               // actually compared the claims to real excerpts/facts and
               // found nothing wrong. This floor only exists to exclude the
               // true zero-relevance case (nothing matched at all).
+              // Originally raised straight to a flat 92 — but that meant
+              // every AI-verified-clean definitional answer read as the
+              // exact same number, which users noticed and reasonably read
+              // as a hardcoded/fake score. Scale the floor within 90-99
+              // using the same retrieval signal instead, so a stronger match
+              // (more/cleaner citations) can read higher than a borderline one.
               if (verification.confidenceScore >= 10) {
-                verification.confidenceScore = Math.max(verification.confidenceScore, 92)
+                const avgSignal = retrievalScores.length
+                  ? retrievalScores.reduce((s, v) => s + v, 0) / retrievalScores.length
+                  : 0
+                const boosted = 90 + Math.round(Math.max(0, Math.min(1, avgSignal)) * 9)
+                verification.confidenceScore = Math.max(verification.confidenceScore, boosted)
                 verification.confidenceLevel =
                   verification.confidenceScore >= 75 ? 'High' : verification.confidenceScore >= 50 ? 'Medium' : 'Low'
               }
