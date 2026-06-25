@@ -309,7 +309,6 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyasapo
         }),
       })))
     } catch {}
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Restored sessions (from localStorage or the sidebar history) start with
@@ -511,7 +510,7 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyasapo
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: q, newSession: isNewSession, history, convId: sessionConvId }),
+        body: JSON.stringify({ query: q, newSession: isNewSession, history, convId: sessionConvId, agentic: true }),
       })
       if (!res.ok || !res.body) {
         // Surface the server's specific message (e.g. rate-limit notice)

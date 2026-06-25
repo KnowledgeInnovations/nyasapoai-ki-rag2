@@ -12,7 +12,16 @@ import {
   CUMULATIVE_RX, RANKING_RX, PROPORTION_RX, SUMMARY_RX, type FactRow,
 } from '@/lib/factsAnalysis'
 import { CLAUDE_MODEL, getAnthropicHeaders, claudeComplete } from '@/lib/claude'
+import { runAgenticAnswer } from '@/lib/agenticAnswer'
+import { AGENTIC_SYSTEM_ADDENDUM } from '@/lib/agentTools'
 import type { ChartData } from '@/types'
+
+// The agentic path (default for all real chat traffic — see the `agentic`
+// branch below) can take several Claude round-trips plus tool execution per
+// request; without an explicit override here, this route falls back to
+// whatever Vercel's platform default is, which is comfortably shorter than
+// a multi-iteration tool-calling loop can need under real load.
+export const maxDuration = 90
 
 // Service-role client for document/chunk queries — bypasses RLS.
 // Tenant isolation is enforced by p_tenant_id in the RPC, so this is safe.
@@ -348,8 +357,8 @@ export async function POST(request: NextRequest) {
 
   let body: unknown
   try { body = await request.json() } catch { return new Response('Invalid JSON body', { status: 400 }) }
-  const { query: rawQuery, newSession = true, history = [], convId: existingConvId = null } = (body ?? {}) as {
-    query?: unknown; newSession?: boolean; history?: unknown; convId?: string | null
+  const { query: rawQuery, newSession = true, history = [], convId: existingConvId = null, agentic = false } = (body ?? {}) as {
+    query?: unknown; newSession?: boolean; history?: unknown; convId?: string | null; agentic?: boolean
   }
   if (typeof rawQuery !== 'string' || !rawQuery.trim()) return new Response('Query required', { status: 400 })
   const query: string = rawQuery
@@ -555,10 +564,12 @@ export async function POST(request: NextRequest) {
     const earlyQueryType = classifyQuery(query)
     const isDeepSearch = BROAD_QUERY_RX.test(query) || CROSS_DOCUMENT_RX.test(query) || earlyQueryType === 'comparison' || earlyQueryType === 'trend'
     if (isDeepSearch) {
-      let { data: perDocChunks, error: perDocError } = await svc.rpc('match_document_chunks_per_doc', {
+      const perDocRes = await svc.rpc('match_document_chunks_per_doc', {
         query_embedding: queryEmbedding, p_tenant_id: tenantId,
         match_count_per_doc: 3, match_threshold: 0.05, p_platform_tenant_id: null,
       })
+      let perDocChunks = perDocRes.data
+      const perDocError = perDocRes.error
       if (perDocError) console.error('[RAG] per-doc RPC error:', JSON.stringify(perDocError))
 
       // Per-doc RPC also affected by migration 016 — fall back to a direct
@@ -1268,6 +1279,144 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
     // keeps the prompt lean (faster, fewer tokens) for general documents.
     const hasFinancialContext = calcBlock.length > 0 || factsBlock.length > 0
     const systemPrompt = coreSystemPrompt(orgName, orgDescription) + (hasFinancialContext ? FINANCIAL_SYSTEM_PROMPT_ADDENDUM : '')
+
+    // Agentic RAG — Claude can call lookup_financial_fact/compute_aggregate/
+    // search_documents/verify_figure mid-reasoning instead of getting one
+    // fixed prompt, reusing the same retrieved chunks/facts-block context
+    // computed above. No token-level streaming is possible here (the full
+    // answer only exists once the tool loop finishes), so the word-by-word
+    // reveal below is cosmetic (via the same streamWords() helper the
+    // small-talk/early-return branches use) rather than a true token
+    // stream — but the SSE shape, citation extraction/renumbering, and
+    // conversation persistence below all mirror the non-agentic streaming
+    // branch exactly, so the frontend (which only knows how to consume one
+    // SSE format) doesn't need to know which path produced the answer.
+    if (agentic) {
+      const result = await runAgenticAnswer({
+        systemPrompt: systemPrompt + AGENTIC_SYSTEM_ADDENDUM,
+        userMessage: `${inventoryText}\n\nDOCUMENT EXCERPTS FROM SEARCH:\n${context}${calcBlock}${factsBlock}${guidanceBlock}\n\nQuestion: ${query}`,
+        toolCtx: { svc, tenantId },
+        history: historyMsgs,
+      })
+      const parsed = parseDelimited(result.answerText)
+      const agenticRisks = [...parsed.risks]
+
+      // Confidence scoring mirrors the existing pipeline's logic (same
+      // verifyAnswer/verifyAnswerWithAI calls, same honest-insufficiency
+      // clamp, same definitional-answer boost) rather than inventing new
+      // scoring — kept as a separate inline block rather than refactoring
+      // the existing ~150-line scoring section in place, to avoid risking
+      // a regression in the production-critical non-agentic path while
+      // this is still a local-only test branch.
+      const agenticRetrievalScores = chunks.map(c => c.rerank_score ?? c.similarity ?? c.rrf_score ?? 0)
+      const verification = verifyAnswer(parsed.answer, chunks, agenticRetrievalScores, validatedFactsForVerification)
+      const isHonestInsufficiency = /\b(insufficient evidence|cannot (?:be )?(?:reliably |responsibly )?(?:computed|produced|determined|calculated|constructed|derived|established|summarized|compute|produce|determine|calculate|construct|derive|establish|summarize)|no validated [\w\s/-]{0,40}?(?:facts|figures|allocations?|data)|does not contain (?:a )?(?:consolidated|sufficient)|not (?:enough|sufficient) (?:data|information|evidence))\b/i.test(parsed.answer)
+      if (isHonestInsufficiency) {
+        verification.confidenceScore = Math.max(20, Math.min(74, verification.confidenceScore))
+        verification.confidenceLevel = verification.confidenceScore >= 75 ? 'High' : verification.confidenceScore >= 50 ? 'Medium' : 'Low'
+      }
+      try {
+        const { issues, verified } = await verifyAnswerWithAI({ query, answer: parsed.answer, factsBlock, context, signal: request.signal })
+        if (issues.length) {
+          agenticRisks.push(...issues)
+          const penalty = isHonestInsufficiency ? Math.min(10, 5 * issues.length) : Math.min(30, 15 * issues.length)
+          const floor = isHonestInsufficiency ? 20 : 1
+          verification.confidenceScore = Math.max(floor, verification.confidenceScore - penalty)
+          verification.confidenceLevel = verification.confidenceScore >= 75 ? 'High' : verification.confidenceScore >= 50 ? 'Medium' : 'Low'
+        } else if (verified && verification.totalNumbers === 0 && !isHonestInsufficiency && verification.confidenceScore >= 10) {
+          verification.confidenceScore = Math.max(verification.confidenceScore, 92)
+          verification.confidenceLevel = verification.confidenceScore >= 75 ? 'High' : verification.confidenceScore >= 50 ? 'Medium' : 'Low'
+        }
+      } catch (e) {
+        if (e instanceof Error && e.name === 'AbortError') throw e
+      }
+      if (INVENTORY_QUERY_RX.test(query)) {
+        verification.confidenceScore = 95
+        verification.confidenceLevel = 'High'
+      }
+      if (!INVENTORY_QUERY_RX.test(query) && !isHonestInsufficiency && verification.totalNumbers > 0 && verification.confidenceScore < 25) {
+        agenticRisks.unshift('Confidence is very low — most figures in this answer could not be verified against the source documents or validated facts. Treat this answer as unreliable and verify the underlying documents manually.')
+        verification.confidenceLevel = 'Low'
+      }
+
+      // Citation extraction/renumbering — identical logic to the non-agentic
+      // branch below (lines ~1431-1445), since both cite [n] markers against
+      // the SAME numbered `chunks`/`factCitations` context built above.
+      const agenticCitedIndices = new Set(
+        [parsed.answer, ...agenticRisks, ...parsed.recommendations].join(' ').match(/\[(\d+)\]/g)
+          ?.map(m => parseInt(m.slice(1, -1), 10)) ?? []
+      )
+      const agenticSortedUsed = [...agenticCitedIndices].sort((a, b) => a - b)
+      const agenticRenumberMap = new Map(agenticSortedUsed.map((old, i) => [old, i + 1]))
+      const agenticRenumber = (text: string) => text.replace(/\[(\d+)\]/g, (m, numStr) => {
+        const newNum = agenticRenumberMap.get(parseInt(numStr, 10))
+        return newNum != null ? `[${newNum}]` : m
+      })
+      const finalAnswer = agenticRenumber(parsed.answer)
+      const finalRisks = agenticRisks.map(agenticRenumber)
+      const finalRecommendations = parsed.recommendations.map(agenticRenumber)
+      const agenticCitedChunks = agenticSortedUsed.filter(n => n <= chunks.length).map(n => chunks[n - 1])
+      const agenticCitedFactCitations = agenticSortedUsed.filter(n => n > chunks.length).map(n => factCitations[n - chunks.length - 1])
+
+      let agenticConvId: string | null = null
+      if (newSession) {
+        agenticConvId = await saveConv(finalAnswer, finalRisks, finalRecommendations, verification.confidenceScore / 100)
+      } else if (existingConvId) {
+        agenticConvId = existingConvId
+        await appendConv(existingConvId, finalAnswer, finalRisks, finalRecommendations)
+      }
+      if (agenticConvId && (agenticCitedChunks.length || agenticCitedFactCitations.length)) {
+        const { error: citationsErr } = await svc.from('citations').insert([
+          ...agenticCitedChunks.map(c => ({
+            conversation_id: agenticConvId, document_chunk_id: c.id, relevance_score: c.similarity,
+            message_index: rawHistoryLength + 1,
+          })),
+          ...factCitationRows(agenticConvId, agenticCitedFactCitations, rawHistoryLength + 1),
+        ])
+        if (citationsErr) console.error('[RAG] agentic citations insert failed:', citationsErr)
+      }
+
+      const [{ data: agenticChunkDetails }, { data: agenticFactDocs }] = await Promise.all([chunkDetailsPromise, factDocsPromise])
+      if (factCitations.length) {
+        const docTitleById = new Map((agenticFactDocs ?? []).map(d => [d.id, d.title]))
+        for (const fc of factCitations) {
+          fc.document_title = docTitleById.get(fc.document_id) ?? 'Document'
+        }
+      }
+      const agenticChunkCitations = agenticCitedChunks.map(c => {
+        const detail  = agenticChunkDetails?.find(d => d.id === c.id)
+        const rawDocs = detail?.documents as { title: string } | { title: string }[] | null
+        const docTitle = Array.isArray(rawDocs) ? rawDocs[0]?.title : rawDocs?.title
+        const meta = c.metadata ?? {}
+        return {
+          id: c.id, conversation_id: agenticConvId ?? '',
+          document_chunk_id: c.id as string | null,
+          document_id: c.document_id,
+          document_title: docTitle ?? 'Document',
+          chunk_text: c.chunk_text,
+          relevance_score: c.similarity,
+          highlight: findHighlightSpan(c.chunk_text, query),
+          page_number: (meta.page_number as number | null) ?? null,
+          section_title: (meta.section_title as string | null) ?? null,
+        }
+      })
+      const agenticCitations = [
+        ...agenticChunkCitations,
+        ...agenticCitedFactCitations.map(f => ({ ...f, conversation_id: agenticConvId ?? '' })),
+      ]
+
+      return new Response(
+        new ReadableStream({ async start(c) {
+          await streamWords(c, enc, finalAnswer, {
+            risks: finalRisks, recommendations: finalRecommendations, citations: agenticCitations,
+            chart: chartData,
+            confidence_score: verification.confidenceScore, confidence_level: verification.confidenceLevel,
+            convId: agenticConvId, title,
+          })
+        }}),
+        { headers: sseHeaders() }
+      )
+    }
 
     /* ── 5. Stream from Claude ──────────────────────────────── */
     // Large multi-document ("deep search") prompts can push this single

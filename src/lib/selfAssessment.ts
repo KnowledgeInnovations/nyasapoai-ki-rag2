@@ -116,6 +116,10 @@ export interface RegressionResult {
   confidenceScore: number
   confidenceLevel: string
   citationCount: number
+  // Distinct document_ids cited by the answer — lets a failing result be
+  // traced back to specific documents (e.g. for an auto-reprocess trigger)
+  // instead of only a category label with no actionable target.
+  documentIds: string[]
   passed: boolean
   reason: string
 }

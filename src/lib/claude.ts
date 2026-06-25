@@ -80,6 +80,38 @@ export function isNetworkError(e: unknown): boolean {
   return /fetch failed|network|getaddrinfo|terminated|socket hang up|other side closed/i.test(err?.message ?? '')
 }
 
+// Generic retry-on-network-error wrapper for any operation that returns a
+// Supabase-style { data, error } result (or throws) — used by the standalone
+// corpus-maintenance script (refacts-all.ts) and the auto-reprocess trigger
+// (autoReprocess.ts) so a transient connectivity blip mid-run is retried
+// with growing backoff instead of being misread as "document not found" / a
+// genuine empty result. Non-network errors are not retried — they won't
+// resolve themselves by waiting.
+const RETRY_BACKOFF_MS = [2000, 5000, 10000, 20000, 30000]
+export async function withRetry<T>(
+  fn: () => PromiseLike<{ data: T; error: unknown } | { data: null; error: unknown }>,
+  label: string,
+): Promise<{ data: T | null; error: unknown }> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fn()
+      if (res.error && isNetworkError(res.error) && attempt <= RETRY_BACKOFF_MS.length) {
+        console.error(`  [${label}] network error, retrying:`, (res.error as Error).message)
+        await new Promise(r => setTimeout(r, RETRY_BACKOFF_MS[attempt - 1]))
+        continue
+      }
+      return res
+    } catch (e) {
+      if (isNetworkError(e) && attempt <= RETRY_BACKOFF_MS.length) {
+        console.error(`  [${label}] network error, retrying:`, (e as Error).message)
+        await new Promise(r => setTimeout(r, RETRY_BACKOFF_MS[attempt - 1]))
+        continue
+      }
+      throw e
+    }
+  }
+}
+
 export async function claudeComplete({ system, messages, maxTokens = 1024, temperature = 0, signal, deadline }: ClaudeCompleteOptions): Promise<string> {
   let res: Response | undefined
   for (let attempt = 1; ; attempt++) {

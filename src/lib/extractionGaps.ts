@@ -27,6 +27,11 @@ export interface RecurringGap {
   lastSeenAt: string
   exampleQuestion: string
   exampleReason: string
+  // Distinct document_ids the failing self_assessment answers cited, deduped
+  // across occurrences. Empty for search_review gaps (no per-document
+  // attribution exists for those) or if no failing run cited any document.
+  // This is what makes a gap auto-reprocessable rather than just visible.
+  documentIds: string[]
 }
 
 function normalizeQuestion(q: string): string {
@@ -80,6 +85,7 @@ export async function computeRecurringGaps(
       lastSeenAt: g.lastSeenAt,
       exampleQuestion: g.question,
       exampleReason: g.reasoning,
+      documentIds: [],
     })
   }
 
@@ -89,8 +95,9 @@ export async function computeRecurringGaps(
     query: string
     passed: boolean
     reason: string
+    documentIds?: string[]
   }
-  const categoryGroups = new Map<string, { count: number; lastSeenAt: string; query: string; reason: string }>()
+  const categoryGroups = new Map<string, { count: number; lastSeenAt: string; query: string; reason: string; documentIds: Set<string> }>()
   for (const run of assessmentsRes.data ?? []) {
     const results = (run.results ?? []) as SelfAssessmentResult[]
     for (const r of results) {
@@ -99,8 +106,9 @@ export async function computeRecurringGaps(
       if (existing) {
         existing.count++
         if (run.created_at > existing.lastSeenAt) existing.lastSeenAt = run.created_at
+        for (const id of r.documentIds ?? []) existing.documentIds.add(id)
       } else {
-        categoryGroups.set(r.category, { count: 1, lastSeenAt: run.created_at, query: r.query, reason: r.reason })
+        categoryGroups.set(r.category, { count: 1, lastSeenAt: run.created_at, query: r.query, reason: r.reason, documentIds: new Set(r.documentIds ?? []) })
       }
     }
   }
@@ -113,6 +121,7 @@ export async function computeRecurringGaps(
       lastSeenAt: g.lastSeenAt,
       exampleQuestion: g.query,
       exampleReason: g.reason,
+      documentIds: [...g.documentIds],
     })
   }
 

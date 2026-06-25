@@ -3,6 +3,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { getUser, getMembership } from '@/lib/supabase/server'
 import { canAccessTraining } from '@/lib/roles'
 import { REGRESSION_QUESTIONS, scoreRegressionAnswer, type RegressionResult } from '@/lib/selfAssessment'
+import { runAutoReprocess } from '@/lib/autoReprocess'
 
 export const maxDuration = 300
 
@@ -43,6 +44,11 @@ export async function POST(request: NextRequest) {
   const enc = new TextEncoder()
   const origin = request.nextUrl.origin
   const cookie = request.headers.get('cookie') ?? ''
+  // maxDuration above is 300s for the WHOLE request, and the regression
+  // suite (10 sequential /api/chat calls) runs before auto-reprocess even
+  // starts — this deadline is anchored to request start so auto-reprocess
+  // only gets whatever's actually left, not a fixed budget of its own.
+  const requestDeadline = Date.now() + 280_000
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -56,7 +62,7 @@ export async function POST(request: NextRequest) {
           const res = await fetch(`${origin}/api/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', cookie },
-            body: JSON.stringify({ query: question.query, newSession: false }),
+            body: JSON.stringify({ query: question.query, newSession: false, agentic: true }),
           })
           if (!res.ok || !res.body) throw new Error(`/api/chat returned ${res.status}`)
 
@@ -67,7 +73,7 @@ export async function POST(request: NextRequest) {
             answer?: string
             confidence_score?: number
             confidence_level?: string
-            citations?: unknown[]
+            citations?: { document_id?: string }[]
           } | null = null
 
           while (true) {
@@ -89,19 +95,20 @@ export async function POST(request: NextRequest) {
           const confidenceScore = done?.confidence_score ?? 0
           const confidenceLevel = done?.confidence_level ?? 'Low'
           const citationCount = done?.citations?.length ?? 0
+          const documentIds = [...new Set((done?.citations ?? []).map(c => c.document_id).filter((id): id is string => !!id))]
 
           const { passed, reason } = scoreRegressionAnswer(question, answer, confidenceScore, confidenceLevel, citationCount)
 
           const result: RegressionResult = {
             id: question.id, category: question.category, query: question.query,
-            answer, confidenceScore, confidenceLevel, citationCount, passed, reason,
+            answer, confidenceScore, confidenceLevel, citationCount, documentIds, passed, reason,
           }
           results.push(result)
           send({ stage: 'result', ...result })
         } catch (e) {
           const result: RegressionResult = {
             id: question.id, category: question.category, query: question.query,
-            answer: '', confidenceScore: 0, confidenceLevel: 'Low', citationCount: 0,
+            answer: '', confidenceScore: 0, confidenceLevel: 'Low', citationCount: 0, documentIds: [],
             passed: false, reason: `Request failed: ${(e as Error).message}`,
           }
           results.push(result)
@@ -126,6 +133,18 @@ export async function POST(request: NextRequest) {
         results,
       })
       if (error) console.error('[SelfAssessment] insert failed:', error)
+
+      // Self-improvement phase 2: re-extract documents behind any recurring
+      // gap this run (or prior runs) surfaced, then re-test. Runs after the
+      // results above are saved so computeRecurringGaps sees this run's
+      // failures too. Failures here are logged but don't fail the request —
+      // the regression suite's own results are already saved either way.
+      try {
+        send({ stage: 'auto_reprocess_starting' })
+        await runAutoReprocess(svc, membership.tenant_id, origin, cookie, a => send({ stage: 'auto_reprocess', ...a }), requestDeadline)
+      } catch (e) {
+        console.error('[SelfAssessment] auto-reprocess failed:', e)
+      }
 
       send({ stage: 'complete', total, passed, accuracy, avgConfidence })
       controller.close()
