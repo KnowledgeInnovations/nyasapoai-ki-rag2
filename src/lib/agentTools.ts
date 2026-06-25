@@ -19,6 +19,7 @@ import {
   summarizeTrend, forecastNextYear, type FactRow,
 } from './factsAnalysis'
 import { computeDocumentReliability } from './sourceReliability'
+import { lookupResolution, recordResolution, type ResolutionPattern } from './factResolutions'
 
 const FACTS_SELECT = 'fiscal_year, entity, entity_type, metric, value, unit, value_millions, page_number, section_title, document_id, confidence, flags'
 
@@ -29,10 +30,12 @@ const FACTS_SELECT = 'fiscal_year, entity, entity_type, metric, value, unit, val
 // situation, or that it should prefer verifying over guessing.
 export const AGENTIC_SYSTEM_ADDENDUM = `
 
-You have tools available: lookup_financial_fact, compute_aggregate, search_documents, verify_figure. Use them deliberately, not reflexively:
+You have tools available: lookup_financial_fact, compute_aggregate, search_documents, verify_figure, record_resolution. Use them deliberately, not reflexively:
 - If the document excerpts already contain a clear, well-cited figure, you do not need to call a tool just to double-check something obvious — that wastes a turn.
 - Before stating a specific number that is NOT already verbatim in an excerpt shown to you (e.g. you are about to round, recompute, or recall it from a structured block), call verify_figure first. If it comes back unsupported or conflicting, say so in your answer rather than asserting the number with confidence.
 - When lookup_financial_fact or verify_figure return conflicting values from different source documents, each conflicting entry includes that document's reliability_score (the fraction of ITS OWN extracted figures that came out clean elsewhere, not a judgment on this specific figure) — treat it as a tie-breaker, not proof. Prefer the higher-reliability source if you must pick one, but disclose the conflict either way.
+- If lookup_financial_fact returns a previous_resolution field, this exact conflict was already resolved before — use that resolution directly (cite its reasoning) instead of re-deriving it from scratch. Don't call record_resolution again for the same entity/metric/year unless you've genuinely found new evidence that changes the answer.
+- If lookup_financial_fact returned conflicting_or_flagged values (no previous_resolution) and you've worked out which one is actually correct and why, call record_resolution to save that reasoning — this is the system's own permanent memory, not a scratch note, so the same conflict never needs to be re-reasoned from zero again. Pick the resolution_pattern that genuinely matches your reasoning; if none of the structured patterns fit, use "other" rather than forcing a mismatch.
 - For "how much / what was the total / cumulative / top N / proportion / trend / forecast" style questions, call compute_aggregate rather than summing or comparing numbers yourself — your own arithmetic over many rows is exactly the kind of step that should be delegated to a deterministic tool.
 - If the initial excerpts don't actually cover what's being asked, call search_documents with a focused, narrower query rather than answering from a weak match.
 - You have a limited number of tool-call rounds. Once you have enough to answer responsibly — including being explicit about what you couldn't confirm — stop calling tools and answer.`
@@ -94,6 +97,29 @@ export const AGENT_TOOLS = [
       required: ['value', 'entity'],
     },
   },
+  {
+    name: 'record_resolution',
+    description: 'Save a conflict resolution permanently so this exact (entity, metric, fiscal_year) conflict never needs to be re-reasoned from scratch again — this is the system\'s own persistent memory, not a scratch note. Only call this after you have genuinely worked out which of several conflicting/flagged figures is correct and why, using lookup_financial_fact or verify_figure first.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        entity: { type: 'string', description: 'Entity name, e.g. "Ministry of Education" or "National"' },
+        entity_type: { type: 'string', enum: ['national', 'ministry', 'sector'] },
+        metric: { type: 'string', description: 'e.g. "allocation", "total_budget"' },
+        fiscal_year: { type: 'string', description: '4-digit fiscal year, e.g. "2009"' },
+        resolved_value_millions: { type: 'number', description: 'The figure you determined to be correct, in millions' },
+        unit: { type: 'string', description: 'e.g. "million" or "billion" — whatever unit the resolved figure is denominated in' },
+        resolution_pattern: {
+          type: 'string',
+          enum: ['prefer_corroborated_over_flagged', 'prefer_actual_over_projection', 'prefer_higher_confidence', 'other'],
+          description: 'prefer_corroborated_over_flagged: you chose a figure corroborated by document text or cross-document agreement over one flagged as a duplicate/alternate/anomalous extraction, even if the flagged one had a higher raw confidence number. prefer_actual_over_projection: you chose an actual reported figure over a forward projection/forecast for the same year. prefer_higher_confidence: you simply went with whichever validated figure had higher confidence, no deeper pattern. other: your reasoning does not cleanly match any of the above.',
+        },
+        reasoning: { type: 'string', description: 'A concise explanation of why this value is correct, for future reference' },
+        confidence: { type: 'number', description: 'Your confidence (0-100) in this resolution' },
+      },
+      required: ['entity', 'entity_type', 'metric', 'fiscal_year', 'resolved_value_millions', 'resolution_pattern', 'reasoning', 'confidence'],
+    },
+  },
 ]
 
 // ── Shared fact-fetching (mirrors chat/route.ts's validFacts pattern) ───
@@ -139,6 +165,27 @@ export async function executeLookupFinancialFact(ctx: AgentToolContext, input: {
   const flaggedDocIds = [...new Set(flagged.map(f => f.document_id).filter((id): id is string => !!id))]
   const reliability = flaggedDocIds.length ? await computeDocumentReliability(ctx.svc, ctx.tenantId, flaggedDocIds) : new Map()
 
+  // Resolution memory — only meaningful for a specific (entity_type, metric,
+  // fiscal_year) triple, so only attempted when a fiscal_year was given and
+  // at least one fact (clean or flagged) exists to derive entity_type from.
+  // This is the system checking its OWN persistent memory before asking
+  // Claude to re-derive a conflict it may have already resolved.
+  let previousResolution
+  if (input.fiscal_year && input.metric) {
+    const sample = clean[0] ?? flagged[0]
+    if (sample) {
+      const resolution = await lookupResolution(ctx.svc, ctx.tenantId, {
+        entity: input.entity, entityType: sample.entity_type, metric: input.metric, fiscalYear: input.fiscal_year,
+      })
+      if (resolution) {
+        previousResolution = {
+          resolved_value_millions: resolution.resolvedValueMillions, unit: resolution.unit,
+          reasoning: resolution.reasoning, confidence: resolution.confidence, resolved_at: resolution.resolvedAt,
+        }
+      }
+    }
+  }
+
   return {
     validated: clean.slice(0, 20).map(f => ({
       entity: f.entity, metric: f.metric, fiscal_year: f.fiscal_year,
@@ -150,10 +197,24 @@ export async function executeLookupFinancialFact(ctx: AgentToolContext, input: {
       value_millions: f.value_millions, flags: f.flags, confidence: f.confidence,
       source_reliability: f.document_id ? reliability.get(f.document_id)?.reliabilityScore : undefined,
     })),
+    previous_resolution: previousResolution,
     note: clean.length === 0
       ? 'No validated figure found for this entity/metric/year. Do not guess — say so, or check flagged values below for context only (never state a flagged value as fact).'
       : undefined,
   }
+}
+
+export async function executeRecordResolution(ctx: AgentToolContext, input: {
+  entity: string; entity_type: string; metric: string; fiscal_year: string
+  resolved_value_millions: number; unit?: string; resolution_pattern: ResolutionPattern
+  reasoning: string; confidence: number
+}) {
+  await recordResolution(ctx.svc, ctx.tenantId, {
+    entity: input.entity, entityType: input.entity_type, metric: input.metric, fiscalYear: input.fiscal_year,
+    resolvedValueMillions: input.resolved_value_millions, unit: input.unit,
+    resolutionPattern: input.resolution_pattern, reasoning: input.reasoning, confidence: input.confidence,
+  })
+  return { saved: true }
 }
 
 export async function executeComputeAggregate(ctx: AgentToolContext, input: {
@@ -266,6 +327,7 @@ export async function executeAgentTool(ctx: AgentToolContext, name: string, inpu
     case 'compute_aggregate': return executeComputeAggregate(ctx, input as Parameters<typeof executeComputeAggregate>[1])
     case 'search_documents': return executeSearchDocuments(ctx, input as { query: string })
     case 'verify_figure': return executeVerifyFigure(ctx, input as { value: number; entity: string; fiscal_year?: string })
+    case 'record_resolution': return executeRecordResolution(ctx, input as Parameters<typeof executeRecordResolution>[1])
     default: return { error: `Unknown tool: ${name}` }
   }
 }

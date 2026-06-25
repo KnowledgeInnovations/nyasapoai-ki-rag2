@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import { createClient } from '@supabase/supabase-js'
-import { runCrossDocumentCorroboration, supersedeForwardProjections, type FinancialFact } from './src/lib/factExtraction'
+import { runCrossDocumentCorroboration, supersedeForwardProjections, applyLearnedHeuristics, type FinancialFact } from './src/lib/factExtraction'
 import { reExtractDocumentFacts } from './src/lib/reExtract'
 
 const env: Record<string, string> = {}
@@ -46,6 +46,14 @@ async function main() {
     await svc.from('financial_facts').update({ flags: f.flags, confidence: f.confidence }).eq('id', f.id)
   }
   console.log(`superseded ${superseded.length} stale forward-projection rows`)
+
+  console.log('\n=== learned heuristics (no-op unless a pattern is confirmed) ===')
+  const { data: allFacts } = await svc.from('financial_facts').select('*').eq('tenant_id', TENANT_ID)
+  const learned = await applyLearnedHeuristics(svc, TENANT_ID, (allFacts ?? []) as (FinancialFact & { id: string })[])
+  for (const f of learned) {
+    await svc.from('financial_facts').update({ flags: f.flags, confidence: f.confidence }).eq('id', f.id)
+  }
+  console.log(`demoted ${learned.length} rows via confirmed learned heuristics`)
   console.log('=== DONE ===')
 }
 

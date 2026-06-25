@@ -6,8 +6,10 @@
  * regex pipeline misses (sector breakdowns, footnote figures, etc.).
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { extractFigures, type Figure } from './ragAnalysis'
 import { claudeComplete, extractJSON, isNetworkError } from './claude'
+import { isPatternConfirmed } from './factResolutions'
 import type { ProcessedChunk } from './documentProcess'
 
 export interface FinancialFact {
@@ -786,6 +788,63 @@ export function supersedeForwardProjections<T extends FinancialFact & { id: stri
     for (const f of group) {
       if (f.flags.includes('forward_projection') && !f.flags.includes('superseded_by_actual')) {
         f.flags.push('superseded_by_actual')
+        f.confidence = Math.min(f.confidence, 40)
+        changed.push(f)
+      }
+    }
+  }
+  return changed
+}
+
+// Heuristic promotion — the part of the self-improvement loop that's
+// genuinely "the system's own brain" rather than a cache. The agentic loop
+// (see agentTools.ts's record_resolution tool) saves each individual
+// conflict resolution it works out into fact_resolutions. Once the SAME
+// structured resolution_pattern has been confirmed independently across
+// enough distinct entities for a tenant (see isPatternConfirmed), it's no
+// longer "the LLM noticed this once" — it's evidence of a general rule,
+// safe to apply deterministically to the WHOLE corpus going forward,
+// independent of whether Claude is even involved in a given answer.
+//
+// Only 'prefer_corroborated_over_flagged' has a promotion implemented here.
+// 'prefer_actual_over_projection' already has its own deterministic
+// mechanism (supersedeForwardProjections above) — a confirmed pattern of
+// that type is corroborating evidence the existing rule is right, not a
+// new rule to add. 'prefer_higher_confidence' and 'other' don't generalize
+// into a sound rule (the first is just "do what confidence already says";
+// the second is unstructured by definition) — confirmed counts for those
+// are surfaced via computeRecurringPatterns for a human to look at, never
+// auto-applied.
+//
+// Promotion logic, once confirmed: for any (entity_type, entity, metric,
+// fiscal_year) group with more than one fact, a fact carrying MORE flags
+// than another fact in the same group is, by the confirmed pattern,
+// probably wrong even if its raw confidence number is higher — demote it.
+// A new 'demoted_by_learned_heuristic' flag (distinct from whatever
+// extraction-time flag(s) it already carries) makes this traceable as a
+// learned-rule demotion rather than an original extraction-time judgment.
+export async function applyLearnedHeuristics<T extends FinancialFact & { id: string }>(
+  svc: SupabaseClient,
+  tenantId: string,
+  facts: T[],
+): Promise<T[]> {
+  const confirmed = await isPatternConfirmed(svc, tenantId, 'prefer_corroborated_over_flagged')
+  if (!confirmed) return []
+
+  const changed: T[] = []
+  const groups = new Map<string, T[]>()
+  for (const f of facts) {
+    if (!f.fiscal_year || f.value_millions == null) continue
+    const key = `${f.entity_type}|${f.entity}|${f.metric}|${f.fiscal_year}`
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(f)
+  }
+  for (const group of groups.values()) {
+    if (group.length < 2) continue
+    const minFlagCount = Math.min(...group.map(f => f.flags.length))
+    for (const f of group) {
+      if (f.flags.length > minFlagCount && !f.flags.includes('demoted_by_learned_heuristic')) {
+        f.flags.push('demoted_by_learned_heuristic')
         f.confidence = Math.min(f.confidence, 40)
         changed.push(f)
       }

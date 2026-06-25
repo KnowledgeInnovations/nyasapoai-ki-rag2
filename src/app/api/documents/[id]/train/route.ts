@@ -4,7 +4,7 @@ import { getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
 import { canAccessTraining } from '@/lib/roles'
-import { extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks, runCrossDocumentCorroboration, supersedeForwardProjections, looksLikeBudgetDocument, type FinancialFact } from '@/lib/factExtraction'
+import { extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks, runCrossDocumentCorroboration, supersedeForwardProjections, applyLearnedHeuristics, looksLikeBudgetDocument, type FinancialFact } from '@/lib/factExtraction'
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
 import { extractGenericFacts } from '@/lib/genericFactExtraction'
 import type { ProcessingWarning } from '@/types'
@@ -288,6 +288,26 @@ export async function POST(
         } catch (err) {
           console.error('[Train] forward-projection supersession failed', err)
           warn('forward_projection_supersession', (err as Error).message)
+        }
+
+        // ── 7.7. Apply learned heuristics, if confirmed for this tenant ──
+        // A no-op until the agentic loop's record_resolution tool has
+        // confirmed the same resolution pattern across enough distinct
+        // entities for this tenant (see isPatternConfirmed) — at that point
+        // it's no longer "the LLM noticed this once" but a rule worth
+        // applying deterministically across the whole corpus.
+        try {
+          const { data: allFacts } = await service
+            .from('financial_facts')
+            .select('*')
+            .eq('tenant_id', membership.tenant_id)
+          const changed = await applyLearnedHeuristics(service, membership.tenant_id, (allFacts ?? []) as (FinancialFact & { id: string })[])
+          for (const f of changed) {
+            await service.from('financial_facts').update({ flags: f.flags, confidence: f.confidence }).eq('id', f.id)
+          }
+        } catch (err) {
+          console.error('[Train] learned-heuristic promotion failed', err)
+          warn('learned_heuristic_promotion', (err as Error).message)
         }
 
         // ── 8. Mark document as ready ─────────────────────────────
