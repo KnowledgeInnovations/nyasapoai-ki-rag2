@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { createImplicitClient } from '@/lib/supabase/implicitClient'
 import { slugify, validateSubdomainFormat } from '@/lib/tenant'
 
 type SubdomainStatus = 'idle' | 'checking' | 'available' | 'unavailable'
@@ -27,7 +27,10 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
 
-  const supabase = createClient()
+  // Implicit flow, not the app's normal PKCE client: the confirmation link
+  // is delivered by email and realistically opened on a different
+  // browser/device than this one — see src/lib/supabase/implicitClient.ts.
+  const supabase = createImplicitClient()
   const checkTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   function handleAccountNext(e: React.FormEvent) {

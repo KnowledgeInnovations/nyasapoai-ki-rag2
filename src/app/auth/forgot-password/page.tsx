@@ -1,11 +1,15 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { createImplicitClient } from '@/lib/supabase/implicitClient'
 import { ArrowRight, ArrowLeft, Loader2, Mail } from 'lucide-react'
 
 export default function ForgotPasswordPage() {
-  const supabase = createClient()
+  // Implicit flow, not the app's normal PKCE client: the reset link is
+  // delivered by email and realistically opened on a different
+  // browser/device than this one, where a PKCE code verifier wouldn't
+  // exist — see src/lib/supabase/implicitClient.ts.
+  const supabase = createImplicitClient()
 
   const [email, setEmail]     = useState('')
   const [loading, setLoading] = useState(false)

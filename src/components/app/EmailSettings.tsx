@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { createImplicitClient } from '@/lib/supabase/implicitClient'
 import { CheckCircle2, Loader2 } from 'lucide-react'
 
 interface Props {
@@ -50,7 +51,20 @@ export default function EmailSettings({ email }: Props) {
       const { error: reauthErr } = await supabase.auth.signInWithPassword({ email: liveEmail, password })
       if (reauthErr) { setError('Current password is incorrect.'); return }
 
-      const { error: updateErr } = await supabase.auth.updateUser(
+      // updateUser() must run on an implicit-flow client, not the app's
+      // normal PKCE one: a PKCE-issued confirmation link can only be
+      // completed in the same browser that requested it (the code verifier
+      // lives in its cookies), but this link is delivered by email and
+      // realistically gets opened on a different device. Carry the current
+      // session over to a throwaway implicit client just for this call.
+      const { data: sessionData } = await supabase.auth.getSession()
+      if (!sessionData.session) { setError('Your session has expired. Refresh the page and try again.'); return }
+      const implicit = createImplicitClient()
+      await implicit.auth.setSession({
+        access_token: sessionData.session.access_token,
+        refresh_token: sessionData.session.refresh_token,
+      })
+      const { error: updateErr } = await implicit.auth.updateUser(
         { email: trimmed },
         { emailRedirectTo: `${window.location.origin}/auth/confirm-email-change` },
       )
