@@ -34,7 +34,12 @@ export async function proxy(request: NextRequest) {
 
     // Protect app routes — redirect to login if not authenticated.
     // Marketing routes (landing page, security, contact) are public.
-    if (!user && !url.pathname.startsWith('/auth') && !isMarketingRoute) {
+    // The Supabase Send Email Hook is called server-to-server with no user
+    // session at all — it authenticates via its own signed-webhook check,
+    // not a cookie, so it must bypass this redirect or every auth email
+    // Supabase tries to send would fail.
+    const isPublicWebhook = url.pathname === '/api/auth/send-email-hook'
+    if (!user && !url.pathname.startsWith('/auth') && !isMarketingRoute && !isPublicWebhook) {
       url.pathname = '/auth/login'
       url.searchParams.set('tenant', subdomain)
       return NextResponse.redirect(url)
