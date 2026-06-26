@@ -12,6 +12,9 @@ export interface TenantRow {
   createdAt:  string
   memberCount: number
   isPlatform: boolean
+  queryCount30d: number
+  documentCount30d: number
+  estimatedMonthlyCostUsd: number
 }
 
 interface Props {
@@ -64,6 +67,10 @@ export default function TenantsClient({ tenants }: Props) {
             <span className="w-20 shrink-0 text-right text-sm text-gray-500">
               {t.memberCount} {t.memberCount === 1 ? 'member' : 'members'}
             </span>
+            <div className="w-32 shrink-0 text-right" title={`Estimated AI cost: ${t.queryCount30d} questions + ${t.documentCount30d} documents uploaded in the last 30 days. Modeled from average per-call cost, not measured billing.`}>
+              <p className="text-sm font-semibold text-gray-700">~${t.estimatedMonthlyCostUsd.toFixed(2)}<span className="text-[10px] font-normal text-gray-400">/mo</span></p>
+              <p className="text-[10px] text-gray-400">{t.queryCount30d} questions · {t.documentCount30d} docs</p>
+            </div>
             <span className="w-28 shrink-0 text-right text-xs text-gray-400">
               {new Date(t.createdAt).toLocaleDateString()}
             </span>
