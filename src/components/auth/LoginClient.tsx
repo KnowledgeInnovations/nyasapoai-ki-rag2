@@ -159,7 +159,7 @@ function LoginForm({ tenant }: FormProps) {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-extrabold text-gray-900">Welcome back</h2>
-        <p className="mt-1 text-sm text-gray-500">Sign in to your {tenant?.name ?? 'NyasapoAI'} workspace</p>
+        <p className="mt-1 text-sm text-gray-500">Sign in to your {tenant?.name ?? 'Nyansa AI'} workspace</p>
       </div>
 
       {/* Mode tabs */}
@@ -273,7 +273,7 @@ export default function LoginClient({ tenant }: Props) {
         <div className="relative z-10 flex flex-1 flex-col">
           {/* Logo */}
           <a href={HOME_URL} className="inline-flex items-center gap-2">
-            <span className="text-2xl font-bold text-brand">Nyansapo</span>
+            <span className="text-2xl font-bold text-brand">Nyansa</span>
             <span className="rounded-md bg-brand px-1.5 py-0.5 text-xs font-semibold text-white">AI</span>
           </a>
           {tenant && (
@@ -320,7 +320,7 @@ export default function LoginClient({ tenant }: Props) {
           </div>
 
           <p className="mt-12 text-[11px] text-gray-400">
-            © {new Date().getFullYear()} {tenant?.name ?? 'NyasapoAI'}
+            © {new Date().getFullYear()} {tenant?.name ?? 'Nyansa AI'}
           </p>
         </div>
       </div>
@@ -330,7 +330,7 @@ export default function LoginClient({ tenant }: Props) {
 
         {/* Mobile-only logo */}
         <a href={HOME_URL} className="mb-8 inline-flex items-center gap-2 lg:hidden">
-          <span className="text-2xl font-bold text-brand">Nyansapo</span>
+          <span className="text-2xl font-bold text-brand">Nyansa</span>
           <span className="rounded-md bg-brand px-1.5 py-0.5 text-xs font-semibold text-white">AI</span>
         </a>
 
@@ -348,7 +348,7 @@ export default function LoginClient({ tenant }: Props) {
 
           <p className="mt-5 text-center text-xs text-gray-400">
             Powered by{' '}
-            <span className="font-semibold text-gray-500">NyasapoAI</span>
+            <span className="font-semibold text-gray-500">Nyansa AI</span>
             {' · '}
             <a href={HOME_URL} className="text-brand hover:underline transition">
               Back to home

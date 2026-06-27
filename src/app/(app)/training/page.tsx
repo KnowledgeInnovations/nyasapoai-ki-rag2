@@ -8,7 +8,7 @@ import { buildFactCountMap } from '@/lib/factCounts'
 import { computeRecurringGaps, type RecurringGap } from '@/lib/extractionGaps'
 import type { ProcessingWarning } from '@/types'
 
-export const metadata: Metadata = { title: 'AI Training - NyasapoAI' }
+export const metadata: Metadata = { title: 'AI Training - Nyansa AI' }
 
 function svc() {
   return createServiceClient(

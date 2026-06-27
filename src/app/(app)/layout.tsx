@@ -38,10 +38,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   await touchLastActive(user.id, membership.tenant_id)
   const role = membership.role
   const tenant = await getTenant(membership.tenant_id)
-  const tenantName = tenant?.name ?? 'NyasapoAI'
+  const tenantName = tenant?.name ?? 'Nyansa AI'
   const isPlatformAdmin = role === 'senior' && tenant?.is_platform === true
 
-  // A session is shared across all *.nyasapoai.com subdomains (see
+  // A session is shared across all *.nyansaai.com subdomains (see
   // src/lib/domain.ts). If a signed-in user lands on a different tenant's
   // subdomain, send them to their own workspace's subdomain instead. The
   // platform tenant has no public subdomain of its own, so its members are

@@ -12,10 +12,10 @@ and set the subject line shown.
 
 | File | Template tab | Subject |
 |---|---|---|
-| `confirm-signup.html` | Confirm sign up | Confirm your NyasapoAI account |
-| `invite.html` | Invite user | You've been invited to NyasapoAI |
-| `magic-link.html` | Magic link or OTP | Your NyasapoAI sign-in link |
-| `reset-password.html` | Reset password | Reset your NyasapoAI password |
+| `confirm-signup.html` | Confirm sign up | Confirm your Nyansa AI account |
+| `invite.html` | Invite user | You've been invited to Nyansa AI |
+| `magic-link.html` | Magic link or OTP | Your Nyansa AI sign-in link |
+| `reset-password.html` | Reset password | Reset your Nyansa AI password |
 | `change-email.html` | Change email address | Confirm your new email address |
 | `reauthentication.html` | Reauthentication | Confirm it's you |
 | `security-password-changed.html` | Password changed | Your password was changed |

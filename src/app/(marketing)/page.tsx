@@ -11,7 +11,7 @@ import FAQ from '@/components/marketing/FAQ'
 export const revalidate = 86400
 
 export const metadata: Metadata = {
-  title: 'NyasapoAI — Enterprise Document Intelligence',
+  title: 'Nyansa AI — Enterprise Document Intelligence',
   description: 'Turn your organization\'s documents into a decision-ready knowledge base. Ask questions in plain English and get cited, trustworthy answers in seconds.',
 }
 
@@ -134,7 +134,7 @@ export default function HomePage() {
                 {/* Top badge */}
                 <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-4">
                   <span className="h-2 w-2 animate-pulse rounded-full bg-gold" />
-                  <span className="text-xs font-semibold text-brand">yourcompany.nyasapoai.com</span>
+                  <span className="text-xs font-semibold text-brand">yourcompany.nyansaai.com</span>
                 </div>
 
                 {/* Mock conversation preview */}
@@ -201,7 +201,7 @@ export default function HomePage() {
             <span className="text-xs font-bold uppercase tracking-widest text-brand">See it in action</span>
             <h2 className="mt-4 text-4xl font-extrabold text-gray-900">Real questions. Real documents.</h2>
             <p className="mx-auto mt-4 max-w-lg text-gray-500">
-              Click any tab below to see how NyasapoAI answers real questions across contracts, site reports, and financial records.
+              Click any tab below to see how Nyansa AI answers real questions across contracts, site reports, and financial records.
             </p>
           </div>
           <DemoChat />
@@ -213,7 +213,7 @@ export default function HomePage() {
         <div className="mx-auto max-w-7xl">
           <div className="mb-14 text-center">
             <span className="text-xs font-bold uppercase tracking-widest text-brand">
-              Why teams choose NyasapoAI
+              Why teams choose Nyansa AI
             </span>
             <h2 className="mt-4 text-4xl font-extrabold text-gray-900">
               Intelligence built for modern organizations

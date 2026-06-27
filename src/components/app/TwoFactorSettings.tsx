@@ -64,7 +64,7 @@ export default function TwoFactorSettings() {
         await supabase.auth.mfa.unenroll({ factorId: f.id })
       }
 
-      const { data, error: err } = await supabase.auth.mfa.enroll({ factorType: 'totp', issuer: 'NyansapoAI' })
+      const { data, error: err } = await supabase.auth.mfa.enroll({ factorType: 'totp', issuer: 'Nyansa AI' })
       if (err) { setError(err.message); return }
       setFactorId(data.id)
       setQrCode(data.totp.qr_code)

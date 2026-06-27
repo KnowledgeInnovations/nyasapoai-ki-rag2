@@ -3,7 +3,7 @@ const cookie = fs.readFileSync('test-session-cookie.txt', 'utf8').trim();
 const query = process.argv[2];
 
 (async () => {
-  const res = await fetch('https://nyasapoai.com/api/chat', {
+  const res = await fetch('https://nyansaai.com/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Cookie: cookie },
     body: JSON.stringify({ query, newSession: true }),

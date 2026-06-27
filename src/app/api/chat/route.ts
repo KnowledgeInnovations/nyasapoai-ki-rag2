@@ -353,7 +353,7 @@ export async function POST(request: NextRequest) {
   if (!membership) return new Response('No workspace',  { status: 403 })
 
   const tenant = await getTenant(membership.tenant_id)
-  const orgName = tenant?.name ?? 'NyasapoAI'
+  const orgName = tenant?.name ?? 'Nyansa AI'
   const orgDescription = tenant?.description ?? DEFAULT_TENANT_DESCRIPTION
 
   const supabase = await createClient()

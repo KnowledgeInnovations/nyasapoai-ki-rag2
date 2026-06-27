@@ -1,9 +1,9 @@
-export const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'nyasapoai.com'
+export const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'nyansaai.com'
 
 /**
  * Cookie `Domain` attribute so the Supabase session cookie is shared across
- * the root domain and all tenant subdomains (e.g. nyasapoai.com and
- * acme.nyasapoai.com) — required so a session created on one host carries
+ * the root domain and all tenant subdomains (e.g. nyansaai.com and
+ * acme.nyansaai.com) — required so a session created on one host carries
  * over when redirecting to a tenant's subdomain. Returns undefined (host-only
  * cookie) for unrelated hosts (e.g. *.vercel.app preview deployments).
  */

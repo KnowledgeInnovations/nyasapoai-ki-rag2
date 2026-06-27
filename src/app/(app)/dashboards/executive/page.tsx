@@ -8,7 +8,7 @@ import DashboardShell from '@/components/app/DashboardShell'
 import DashboardInsightsGroup from '@/components/app/DashboardInsightsGroup'
 import { StatCard } from '@/components/app/DashboardWidgets'
 
-export const metadata: Metadata = { title: 'Executive Dashboard - NyasapoAI' }
+export const metadata: Metadata = { title: 'Executive Dashboard - Nyansa AI' }
 
 
 function svc() {

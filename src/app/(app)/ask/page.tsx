@@ -4,7 +4,7 @@ import { getUser, getMembership, getTenant } from '@/lib/supabase/server'
 import { isPlatformTenant } from '@/lib/roles'
 import AskInterface from '@/components/app/AskInterface'
 
-export const metadata: Metadata = { title: 'Ask AI — NyasapoAI' }
+export const metadata: Metadata = { title: 'Ask AI — Nyansa AI' }
 
 export default async function AskPage() {
   const user = await getUser()
@@ -13,7 +13,7 @@ export default async function AskPage() {
   const membership = await getMembership()
   const tenant = membership ? await getTenant(membership.tenant_id) : null
   if (isPlatformTenant(tenant)) redirect('/training')
-  const tenantName = tenant?.name ?? 'NyasapoAI'
+  const tenantName = tenant?.name ?? 'Nyansa AI'
 
   return (
     <div className="flex h-full flex-col overflow-hidden">

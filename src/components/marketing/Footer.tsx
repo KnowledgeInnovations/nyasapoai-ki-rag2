@@ -14,7 +14,7 @@ export default function MarketingFooter() {
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
           {/* Brand */}
           <div className="flex items-center gap-2">
-            <span className="text-lg font-bold text-brand">Nyansapo</span>
+            <span className="text-lg font-bold text-brand">Nyansa</span>
             <span className="rounded-md bg-brand px-1.5 py-0.5 text-xs font-semibold text-white">AI</span>
           </div>
 
@@ -30,7 +30,7 @@ export default function MarketingFooter() {
         </div>
 
         <div className="mt-8 pt-6 border-t border-gray-200 text-center text-xs text-gray-400">
-          &copy; {new Date().getFullYear()} NyasapoAI. All rights reserved.
+          &copy; {new Date().getFullYear()} Nyansa AI. All rights reserved.
         </div>
       </div>
     </footer>

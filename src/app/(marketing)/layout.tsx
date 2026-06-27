@@ -3,7 +3,7 @@ import MarketingNav from '@/components/marketing/Nav'
 import MarketingFooter from '@/components/marketing/Footer'
 
 export const metadata: Metadata = {
-  title: 'NyasapoAI — Enterprise Document Intelligence',
+  title: 'Nyansa AI — Enterprise Document Intelligence',
 }
 
 export default function MarketingLayout({

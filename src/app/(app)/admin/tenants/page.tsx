@@ -4,7 +4,7 @@ import { getMembership, getTenant } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import TenantsClient from '@/components/app/TenantsClient'
 
-export const metadata: Metadata = { title: 'Tenants — NyasapoAI' }
+export const metadata: Metadata = { title: 'Tenants — Nyansa AI' }
 
 function svc() {
   return createServiceClient(
@@ -91,7 +91,7 @@ export default async function TenantsPage() {
     <div className="max-w-4xl space-y-6">
       <div>
         <h1 className="text-xl font-bold text-gray-900">Tenants</h1>
-        <p className="mt-1 text-sm text-gray-500">All workspaces on the NyasapoAI platform.</p>
+        <p className="mt-1 text-sm text-gray-500">All workspaces on the Nyansa AI platform.</p>
       </div>
 
       <TenantsClient tenants={tenantRows} />

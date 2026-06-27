@@ -59,7 +59,7 @@ export default function TenantsClient({ tenants }: Props) {
           <div key={t.id} className="flex items-center gap-4 px-6 py-4">
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-gray-900">{t.name}</p>
-              <p className="truncate text-xs text-gray-500">{t.subdomain}.nyasapoai.com</p>
+              <p className="truncate text-xs text-gray-500">{t.subdomain}.nyansaai.com</p>
             </div>
             <span className="shrink-0 rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-600">
               {t.plan}

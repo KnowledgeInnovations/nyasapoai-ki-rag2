@@ -58,7 +58,7 @@ export const canManageUsers = (role: Role) => role === 'senior'
 // Org-wide governance (audit logs, approval workflows, tenant settings): senior only
 export const canAccessGovernance = (role: Role) => role === 'senior'
 
-// The platform-operator tenant (NyasapoAI's own workspace, tenant.is_platform
+// The platform-operator tenant (Nyansa AI's own workspace, tenant.is_platform
 // === true) manages every client tenant and uploads/trains its own reference
 // documents, but has no end-users of its own — Ask/Users/Dashboards are
 // client-tenant-facing features and don't apply to it.

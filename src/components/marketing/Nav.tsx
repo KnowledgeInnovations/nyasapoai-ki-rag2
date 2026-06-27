@@ -44,7 +44,7 @@ export default function MarketingNav() {
       )}>
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 md:px-8">
           <Link href="/" className="flex items-center gap-2 shrink-0">
-            <span className="text-xl font-bold text-brand">Nyansapo</span>
+            <span className="text-xl font-bold text-brand">Nyansa</span>
             <span className="rounded-md bg-brand px-1.5 py-0.5 text-xs font-semibold text-white">AI</span>
           </Link>
 
@@ -88,7 +88,7 @@ export default function MarketingNav() {
         {/* Header */}
         <div className="flex h-16 shrink-0 items-center justify-between px-5 border-b border-gray-200">
           <div className="flex items-center gap-2">
-            <span className="text-lg font-bold text-brand">Nyansapo</span>
+            <span className="text-lg font-bold text-brand">Nyansa</span>
             <span className="rounded-md bg-brand px-1.5 py-0.5 text-xs font-semibold text-white">AI</span>
           </div>
           <button onClick={() => setOpen(false)} aria-label="Close menu"
@@ -113,7 +113,7 @@ export default function MarketingNav() {
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3.5 text-sm font-bold text-white transition hover:bg-brand-dark shadow-lg shadow-brand/20">
             Sign in to Workspace <ArrowRight className="h-4 w-4" />
           </Link>
-          <p className="text-center text-[11px] text-gray-400">Powered by NyasapoAI</p>
+          <p className="text-center text-[11px] text-gray-400">Powered by Nyansa AI</p>
         </div>
       </div>
     </>

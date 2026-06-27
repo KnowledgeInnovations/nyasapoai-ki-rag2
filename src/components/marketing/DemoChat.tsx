@@ -91,7 +91,7 @@ export default function DemoChat() {
           <div className="h-2.5 w-2.5 rounded-full bg-amber-500/40" />
           <div className="h-2.5 w-2.5 rounded-full bg-green-500/40" />
           <div className="ml-4 flex-1 rounded-md bg-gray-100 px-3 py-1 text-[11px] text-gray-400">
-            yourcompany.nyasapoai.com/ask
+            yourcompany.nyansaai.com/ask
           </div>
           <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
             <MessageSquare className="h-3 w-3" />

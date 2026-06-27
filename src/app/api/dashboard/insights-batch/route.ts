@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
   if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const tenant = await getTenant(membership.tenant_id)
-  const orgName = tenant?.name ?? 'NyasapoAI'
+  const orgName = tenant?.name ?? 'Nyansa AI'
   const orgDescription = tenant?.description ?? DEFAULT_TENANT_DESCRIPTION
 
   const body = await request.json().catch(() => null) as { questions?: InsightQuestion[] } | null

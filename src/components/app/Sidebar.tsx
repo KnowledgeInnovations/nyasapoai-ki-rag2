@@ -19,7 +19,7 @@ interface HistoryItem {
   created_at: string
 }
 
-// The platform-operator tenant (NyasapoAI's own workspace) has no end-users
+// The platform-operator tenant (Nyansa AI's own workspace) has no end-users
 // of its own — Ask/Dashboards/Users are client-tenant-facing features and
 // are hidden for it regardless of role; it only needs Documents/Training
 // (to manage reference docs) and Tenants (cross-tenant admin).
@@ -306,7 +306,7 @@ export default function AppSidebar({ role, tenantName, isPlatformAdmin, isPlatfo
         {!collapsed && (
           <div className="mt-1 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-center">
             <p className="text-[10px] text-gray-400">Powered by</p>
-            <p className="text-xs font-semibold text-gray-600">NyasapoAI</p>
+            <p className="text-xs font-semibold text-gray-600">Nyansa AI</p>
           </div>
         )}
       </div>

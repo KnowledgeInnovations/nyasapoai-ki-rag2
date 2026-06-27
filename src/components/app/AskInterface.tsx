@@ -241,7 +241,7 @@ function WelcomeScreen({ greeting, firstName, tenantName }: {
 }
 
 /* ── Main component ──────────────────────────────────────── */
-export default function AskInterface({ userName = 'there', tenantName = 'NyasapoAI' }: { userName?: string; tenantName?: string }) {
+export default function AskInterface({ userName = 'there', tenantName = 'Nyansa AI' }: { userName?: string; tenantName?: string }) {
   const [messages,      setMessages]      = useState<Message[]>([])
   const [input,         setInput]         = useState('')
   const [loading,       setLoading]       = useState(false)

@@ -4,7 +4,7 @@ import { Check, ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export const metadata: Metadata = {
-  title: 'Pricing — NyasapoAI',
+  title: 'Pricing — Nyansa AI',
   description: 'Plans that grow with your organization — from small teams to enterprise-wide deployments.',
 }
 
@@ -102,7 +102,7 @@ export default function PricingPage() {
           We&apos;ll help you figure out the right fit based on your team size, document volume, and security requirements.
         </p>
         <a
-          href="mailto:hello@nyasapoai.com"
+          href="mailto:hello@nyansaai.com"
           className="mt-6 inline-block rounded-xl bg-brand px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark"
         >
           Contact sales

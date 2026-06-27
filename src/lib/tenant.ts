@@ -1,13 +1,15 @@
 // Fallback persona blurb for tenants that haven't set tenants.description yet.
-export const DEFAULT_TENANT_DESCRIPTION = 'an organization using NyasapoAI to manage its documents and insights'
+export const DEFAULT_TENANT_DESCRIPTION = 'an organization using Nyansa AI to manage its documents and insights'
 
 // Subdomains that are part of the platform itself and can never be claimed
 // by a tenant (root domain, auth routes, common infra hostnames, etc.)
+// Keeps the older brand spellings reserved too so a tenant can never claim
+// them as a subdomain, even though the live domain has moved on.
 export const RESERVED_SUBDOMAINS = new Set([
   'www', 'app', 'api', 'admin', 'auth', 'mail', 'email', 'ftp', 'support',
   'help', 'status', 'docs', 'blog', 'static', 'assets', 'cdn', 'dashboard',
   'login', 'signup', 'pricing', 'security', 'contact', 'about', 'nyasapoai',
-  'nyansapoai', 'test', 'staging', 'dev', 'localhost',
+  'nyansapoai', 'nyansaai', 'test', 'staging', 'dev', 'localhost',
 ])
 
 const SUBDOMAIN_REGEX = /^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/

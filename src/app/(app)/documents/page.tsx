@@ -7,7 +7,7 @@ import { mergeWithDbCategories, type DbCategory } from '@/lib/documentCategories
 import { canUploadDocuments, canDeleteDocuments } from '@/lib/roles'
 import { buildFactCountMap } from '@/lib/factCounts'
 
-export const metadata: Metadata = { title: 'Documents - NyasapoAI' }
+export const metadata: Metadata = { title: 'Documents - Nyansa AI' }
 
 function svc() {
   return createServiceClient(

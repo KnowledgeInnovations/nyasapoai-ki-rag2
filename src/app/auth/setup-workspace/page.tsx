@@ -165,12 +165,12 @@ export default function SetupWorkspacePage() {
       <div className="w-full max-w-md">
         <div className="text-center">
           <Link href="/" className="inline-flex items-center gap-2">
-            <span className="text-2xl font-bold text-brand">Nyansapo</span>
+            <span className="text-2xl font-bold text-brand">Nyansa</span>
             <span className="rounded-md bg-brand px-1.5 py-0.5 text-xs font-semibold text-white">AI</span>
           </Link>
           <h1 className="mt-6 text-2xl font-bold text-gray-900">Create your workspace</h1>
           <p className="mt-2 text-sm text-gray-500">
-            This becomes your organization&apos;s private NyasapoAI workspace.
+            This becomes your organization&apos;s private Nyansa AI workspace.
           </p>
         </div>
 
@@ -203,7 +203,7 @@ export default function SetupWorkspacePage() {
                 placeholder="acme-corp"
                 className="w-full rounded-l-xl bg-transparent px-4 py-2.5 text-sm outline-none"
               />
-              <span className="shrink-0 px-3 text-sm text-gray-400">.nyasapoai.com</span>
+              <span className="shrink-0 px-3 text-sm text-gray-400">.nyansaai.com</span>
             </div>
             {subdomainStatus === 'checking' && (
               <p className="mt-1 text-xs text-gray-400">Checking availability…</p>

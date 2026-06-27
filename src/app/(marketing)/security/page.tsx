@@ -32,7 +32,7 @@ export default function SecurityPage() {
       <div className="mx-auto max-w-3xl text-center">
         <h1 className="text-4xl font-extrabold text-gray-900">Security you can trust</h1>
         <p className="mt-4 text-gray-500">
-          NyasapoAI is built with enterprise security requirements as a first-class concern — not an afterthought.
+          Nyansa AI is built with enterprise security requirements as a first-class concern — not an afterthought.
         </p>
       </div>
 
@@ -54,7 +54,7 @@ export default function SecurityPage() {
           We work with legal and compliance teams on custom data processing agreements, GDPR requirements, and on-premise deployment options.
         </p>
         <a
-          href="mailto:security@nyasapoai.com"
+          href="mailto:security@nyansaai.com"
           className="mt-6 inline-block rounded-xl bg-brand px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark"
         >
           Talk to our security team

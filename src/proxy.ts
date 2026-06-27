@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { updateSession } from '@/lib/supabase/middleware'
 
-const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'nyasapoai.com'
+const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'nyansaai.com'
 
 export async function proxy(request: NextRequest) {
   const url = request.nextUrl.clone()
@@ -10,7 +10,7 @@ export async function proxy(request: NextRequest) {
   // Strip port for local dev (localhost:3000 → localhost)
   const host = hostname.replace(`:${url.port}`, '')
 
-  // Detect subdomain — e.g. "knowledgeinnovations" from knowledgeinnovations.nyasapoai.com
+  // Detect subdomain — e.g. "knowledgeinnovations" from knowledgeinnovations.nyansaai.com
   // In dev use: knowledgeinnovations.localhost
   const subdomain = host.endsWith(`.${ROOT_DOMAIN}`)
     ? host.replace(`.${ROOT_DOMAIN}`, '')
@@ -23,7 +23,7 @@ export async function proxy(request: NextRequest) {
   // Refresh Supabase auth session
   const { supabaseResponse, user } = await updateSession(request)
 
-  // App subdomains (e.g. knowledge.nyasapoai.com) go straight to the workspace —
+  // App subdomains (e.g. knowledge.nyansaai.com) go straight to the workspace —
   // tenant is resolved server-side from the signed-in user's membership.
   if (isAppSubdomain) {
     const isMarketingRoute =
