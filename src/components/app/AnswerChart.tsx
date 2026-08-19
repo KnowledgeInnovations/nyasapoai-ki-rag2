@@ -27,7 +27,7 @@ export default function AnswerChart({ data }: { data: ChartData }) {
   const hasProjected = data.series.some(p => p.projected)
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3.5 shadow-sm">
+    <div className="border border-gray-200 bg-white px-4 py-3.5 font-editorial-sans">
       <p className="mb-2 flex items-center gap-1.5 text-xs font-bold text-gray-700">
         <TrendingUp className="h-3.5 w-3.5 text-brand" /> {data.title}
         {data.unit && <span className="font-normal text-gray-400">({data.unit})</span>}
@@ -38,7 +38,7 @@ export default function AnswerChart({ data }: { data: ChartData }) {
             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
             <XAxis dataKey="year" tick={{ fontSize: 11 }} stroke="#9ca3af" />
             <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" width={56} />
-            <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }} />
+            <Tooltip contentStyle={{ fontSize: 12, borderRadius: 0, border: '1px solid #e5e7eb' }} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
             <Line
               type="monotone" dataKey="value" name="Historical"

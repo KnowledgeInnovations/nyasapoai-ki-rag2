@@ -42,7 +42,7 @@ function renderInline(
           key={i}
           onClick={() => onCiteClick(citation)}
           title={citation.document_title}
-          className="inline-flex items-center gap-1 rounded-full border border-brand/25 bg-brand-light px-2 py-0.5 mx-0.5 text-[11px] font-semibold text-brand hover:bg-brand hover:text-white hover:border-brand transition cursor-pointer align-middle leading-none"
+          className="inline-flex items-center gap-1 border border-brand/25 bg-brand-light px-2 py-0.5 mx-0.5 text-[11px] font-semibold text-brand hover:bg-brand hover:text-white hover:border-brand transition cursor-pointer align-middle leading-none"
         >
           <FileText className="h-2.5 w-2.5 shrink-0" />
           <span className="font-black">[{idx + 1}]</span>
@@ -182,7 +182,7 @@ function renderBlock(
     )
 
     return (
-      <div key={idx} className="my-3 overflow-hidden rounded-xl border border-gray-200 shadow-sm">
+      <div key={idx} className="my-3 overflow-hidden border border-gray-200">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[420px] border-collapse text-sm">
             <thead>
@@ -244,7 +244,7 @@ function renderBlock(
       <ol key={idx} className="my-2 space-y-1.5 pl-1">
         {lines.map((l, li) => (
           <li key={li} className="flex items-start gap-2.5 text-sm leading-relaxed text-gray-700">
-            <span className="shrink-0 mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-brand/10 text-[10px] font-bold text-brand">{li + 1}</span>
+            <span className="shrink-0 mt-0.5 flex h-5 w-5 items-center justify-center border border-brand/20 bg-brand-light text-[10px] font-bold text-brand">{li + 1}</span>
             <span>{renderInline(l.replace(/^\d+[\.\)]\s/, ''), citations, onCiteClick)}</span>
           </li>
         ))}
@@ -315,7 +315,7 @@ export default function MessageContent({ text, citations, onCiteClick }: Props) 
             <ol className="my-2 space-y-1.5 pl-1">
               {seg.items.map((item, li) => (
                 <li key={li} className="flex items-start gap-2.5 text-sm leading-relaxed text-gray-700">
-                  <span className="shrink-0 mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-brand/10 text-[10px] font-bold text-brand">{li + 1}</span>
+                  <span className="shrink-0 mt-0.5 flex h-5 w-5 items-center justify-center border border-brand/20 bg-brand-light text-[10px] font-bold text-brand">{li + 1}</span>
                   <span>{renderInline(item, citations, onCiteClick)}</span>
                 </li>
               ))}

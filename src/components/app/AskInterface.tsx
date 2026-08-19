@@ -45,7 +45,7 @@ interface HistoryItem {
 function TypingIndicator() {
   return (
     <div className="flex">
-      <div className="flex items-center gap-1 rounded-2xl rounded-tl-sm border border-gray-200 bg-white px-4 py-3 shadow-sm">
+      <div className="flex items-center gap-1 border border-gray-200 bg-white px-4 py-3">
         {[0, 1, 2].map(i => (
           <span key={i} className="typing-dot inline-block h-1.5 w-1.5 rounded-full bg-gray-400"
             style={{ animationDelay: `${i * 0.15}s` }} />
@@ -59,7 +59,7 @@ function TypingIndicator() {
 function ThinkingSkeleton({ tenantName }: { tenantName: string }) {
   return (
     <div className="flex">
-      <div className="min-w-0 flex-1 rounded-2xl rounded-tl-sm border border-gray-200 bg-white px-4 py-3.5 shadow-sm sm:max-w-3xl sm:px-5 sm:py-4">
+      <div className="min-w-0 flex-1 border border-gray-200 bg-white px-4 py-3.5 sm:max-w-3xl sm:px-5 sm:py-4">
         <div className="mb-4 flex items-center gap-2">
           <Sparkles className="h-3.5 w-3.5 animate-pulse text-brand" />
           <span className="text-xs font-semibold text-gray-400">{tenantName} AI is thinking…</span>
@@ -102,7 +102,7 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
       onClick={handleCopy}
       title={copied ? 'Copied!' : 'Copy message'}
       className={cn(
-        'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-600',
+        'inline-flex h-7 w-7 shrink-0 items-center justify-center text-gray-400 transition hover:bg-gray-100 hover:text-gray-600',
         className,
       )}
     >
@@ -123,7 +123,7 @@ function ConfidenceBadge({ score, level }: { score?: number; level?: RAGResponse
 
   return (
     <div className={cn(
-      'inline-flex items-center gap-1.5 self-start rounded-full border px-2.5 py-1 text-[11px] font-semibold',
+      'inline-flex items-center gap-1.5 self-start border px-2.5 py-1 text-[11px] font-semibold',
       styles[level],
     )}>
       <ShieldCheck className="h-3 w-3" />
@@ -146,10 +146,10 @@ function MessageBubble({
       <div className="min-w-0 max-w-[85%] space-y-3 sm:max-w-[70%]">
         {/* Bubble */}
         <div className={cn(
-          'relative rounded-2xl px-5 py-4',
+          'relative px-5 py-4',
           msg.role === 'user'
-            ? 'rounded-tr-sm bg-brand text-white text-sm leading-relaxed'
-            : 'rounded-tl-sm border border-gray-200 bg-white shadow-sm',
+            ? 'bg-brand text-white text-sm leading-relaxed'
+            : 'border border-gray-200 bg-white',
         )}>
           {msg.role === 'user' ? (
             <span className="text-sm leading-relaxed">{msg.text}</span>
@@ -185,7 +185,7 @@ function MessageBubble({
 
         {/* Risks */}
         {msg.response?.risks && msg.response.risks.length > 0 && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5">
+          <div className="border border-amber-200 bg-amber-50 px-4 py-3.5">
             <p className="mb-2 flex items-center gap-1.5 text-xs font-bold text-amber-800">
               <AlertTriangle className="h-3.5 w-3.5" /> Risks identified
             </p>
@@ -197,7 +197,7 @@ function MessageBubble({
 
         {/* Recommendations */}
         {msg.response?.recommendations && msg.response.recommendations.length > 0 && (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3.5">
+          <div className="border border-emerald-200 bg-emerald-50 px-4 py-3.5">
             <p className="mb-2 flex items-center gap-1.5 text-xs font-bold text-emerald-800">
               <CheckCircle2 className="h-3.5 w-3.5" /> Recommendations
             </p>
@@ -224,16 +224,16 @@ function WelcomeScreen({ greeting, firstName, tenantName }: {
   greeting: string; firstName: string; tenantName: string
 }) {
   return (
-    <div className="flex min-h-full flex-col items-center justify-center px-4 py-10">
+    <div className="flex min-h-full flex-col items-center justify-center px-4 py-10 font-editorial-sans">
       <div className="w-full max-w-lg">
-        <h2 className="text-center text-2xl font-extrabold text-gray-900">{greeting}, {firstName}</h2>
+        <h2 className="font-editorial text-center text-2xl font-normal text-gray-900">{greeting}, {firstName}</h2>
         <p className="mt-1.5 text-center text-sm text-gray-500">
           Ask anything across your {tenantName} documents.
         </p>
 
         <p className="mt-5 hidden text-center text-xs text-gray-400 sm:block">
-          Press <kbd className="rounded border border-gray-200 bg-white px-1.5 py-0.5 font-mono text-[10px] shadow-sm">Enter</kbd> to send ·{' '}
-          <kbd className="rounded border border-gray-200 bg-white px-1.5 py-0.5 font-mono text-[10px] shadow-sm">Shift+Enter</kbd> for new line
+          Press <kbd className="border border-gray-200 bg-white px-1.5 py-0.5 font-mono text-[10px]">Enter</kbd> to send ·{' '}
+          <kbd className="border border-gray-200 bg-white px-1.5 py-0.5 font-mono text-[10px]">Shift+Enter</kbd> for new line
         </p>
       </div>
     </div>
@@ -652,10 +652,10 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+    <div className="flex h-full flex-col overflow-hidden border border-gray-200 bg-white font-editorial-sans">
 
       {/* Messages — min-h-0 fixes flex overflow on iOS Safari */}
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto bg-[#f8f9fc]" style={{ WebkitOverflowScrolling: 'touch' }}>
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto bg-paper" style={{ WebkitOverflowScrolling: 'touch' }}>
         {messages.length === 0 ? (
           <WelcomeScreen greeting={greeting} firstName={firstName} tenantName={tenantName} />
         ) : (
@@ -677,13 +677,13 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
       <SourceViewer citation={activeSource} onClose={() => setActiveSource(null)} />
 
       {/* Input bar */}
-      <div className="shrink-0 border-t border-gray-100 bg-white/95 p-4 backdrop-blur-sm">
+      <div className="shrink-0 border-t border-gray-200 bg-white/95 p-4 backdrop-blur-sm">
         <form onSubmit={e => { e.preventDefault(); submit(input) }} className="mx-auto max-w-3xl">
-          <div className="flex items-end gap-2 rounded-2xl border border-gray-200 bg-gray-50/80 px-3 py-3 shadow-sm transition-all focus-within:border-brand/40 focus-within:bg-white focus-within:ring-2 focus-within:ring-brand/10">
+          <div className="flex items-end gap-2 border border-gray-300 bg-white px-3 py-3 transition-all focus-within:border-brand focus-within:ring-1 focus-within:ring-brand">
             <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} />
             <button type="button" onClick={() => fileInputRef.current?.click()}
               disabled={uploading} title="Attach a document"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-brand disabled:opacity-40">
+              className="flex h-9 w-9 shrink-0 items-center justify-center text-gray-400 transition hover:bg-gray-100 hover:text-brand disabled:opacity-40">
               {uploading
                 ? <Sparkles className="h-4 w-4 animate-pulse text-brand" />
                 : <Paperclip className="h-4 w-4" />}
@@ -697,7 +697,7 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
               style={{ minHeight: '24px', maxHeight: '120px', fontSize: '16px' }}
             />
             <button type="submit" disabled={!input.trim() || loading || uploading}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white shadow-md shadow-brand/25 transition hover:bg-brand-dark disabled:opacity-30 disabled:shadow-none">
+              className="flex h-9 w-9 shrink-0 items-center justify-center bg-brand text-white transition hover:bg-brand-dark disabled:opacity-30">
               <Send className="h-4 w-4" />
             </button>
           </div>
