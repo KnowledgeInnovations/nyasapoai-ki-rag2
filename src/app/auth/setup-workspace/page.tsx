@@ -154,29 +154,28 @@ export default function SetupWorkspacePage() {
 
   if (checking) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+      <div className="flex min-h-screen items-center justify-center bg-paper">
         <p className="text-sm text-gray-400">Loading…</p>
       </div>
     )
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-6 py-12">
+    <div className="flex min-h-screen items-center justify-center bg-paper px-6 py-12 font-editorial-sans">
       <div className="w-full max-w-md">
         <div className="text-center">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <span className="text-2xl font-bold text-brand">Nyansa</span>
-            <span className="rounded-md bg-brand px-1.5 py-0.5 text-xs font-semibold text-white">AI</span>
+          <Link href="/" className="font-editorial inline-block text-2xl text-gray-900">
+            Nyansa<span className="text-brand">·</span>AI
           </Link>
-          <h1 className="mt-6 text-2xl font-bold text-gray-900">Create your workspace</h1>
+          <h1 className="font-editorial mt-6 text-2xl font-normal text-gray-900">Create your workspace</h1>
           <p className="mt-2 text-sm text-gray-500">
             This becomes your organization&apos;s private Nyansa AI workspace.
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-8 space-y-4">
+        <form onSubmit={handleSubmit} className="mt-8 space-y-4 border border-gray-200 bg-white p-8 shadow-[0_24px_60px_-30px_rgba(20,20,20,0.25)]">
           {error && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+            <div className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
           )}
 
           <div>
@@ -188,20 +187,20 @@ export default function SetupWorkspacePage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Acme Corp"
-              className="mt-1 w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand-light"
+              className="mt-1 w-full border border-gray-300 px-4 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
             />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700">Workspace subdomain</label>
-            <div className="mt-1 flex items-center rounded-xl border border-gray-300 focus-within:border-brand focus-within:ring-2 focus-within:ring-brand-light">
+            <div className="mt-1 flex items-center border border-gray-300 focus-within:border-brand focus-within:ring-1 focus-within:ring-brand">
               <input
                 type="text"
                 required
                 value={subdomain}
                 onChange={(e) => { setSubdomain(e.target.value.toLowerCase()); setSubdomainEdited(true) }}
                 placeholder="acme-corp"
-                className="w-full rounded-l-xl bg-transparent px-4 py-2.5 text-sm outline-none"
+                className="w-full bg-transparent px-4 py-2.5 text-sm outline-none"
               />
               <span className="shrink-0 px-3 text-sm text-gray-400">.nyansaai.com</span>
             </div>
@@ -219,7 +218,7 @@ export default function SetupWorkspacePage() {
           <button
             type="submit"
             disabled={submitting || subdomainStatus === 'checking'}
-            className="w-full rounded-xl bg-brand py-3 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:opacity-60"
+            className="w-full bg-brand py-3 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:opacity-60"
           >
             {submitting ? 'Creating workspace…' : 'Create workspace'}
           </button>

@@ -92,19 +92,19 @@ export default function SetPasswordPage() {
   }, [done, router])
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#f8f9fb] px-6 py-12">
+    <div className="flex min-h-screen items-center justify-center bg-paper px-6 py-12 font-editorial-sans">
       <div className="w-full max-w-md">
-        <div className="rounded-3xl border border-gray-200/80 bg-white p-8 shadow-2xl shadow-black/5">
+        <div className="border border-gray-200 bg-white p-8 shadow-[0_24px_60px_-30px_rgba(20,20,20,0.25)]">
           {checking ? (
             <div className="flex h-40 items-center justify-center">
               <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
             </div>
           ) : done ? (
             <div className="space-y-3 text-center">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100">
-                <CheckCircle2 className="h-7 w-7 text-emerald-600" />
+              <div className="mx-auto flex h-14 w-14 items-center justify-center border border-brand/20 bg-brand-light">
+                <CheckCircle2 className="h-7 w-7 text-brand" />
               </div>
-              <h2 className="text-xl font-extrabold text-gray-900">Password {linkType === 'recovery' ? 'reset' : 'set'}</h2>
+              <h2 className="font-editorial text-xl font-normal text-gray-900">Password {linkType === 'recovery' ? 'reset' : 'set'}</h2>
               <p className="text-sm text-gray-500">
                 Your password has been {linkType === 'recovery' ? 'reset' : 'set'}. Redirecting you to sign in…
               </p>
@@ -114,7 +114,7 @@ export default function SetPasswordPage() {
             </div>
           ) : !validSession ? (
             <div className="space-y-3 text-center">
-              <h2 className="text-xl font-extrabold text-gray-900">{linkType === 'recovery' ? 'Reset link expired' : 'Invite link expired'}</h2>
+              <h2 className="font-editorial text-xl font-normal text-gray-900">{linkType === 'recovery' ? 'Reset link expired' : 'Invite link expired'}</h2>
               <p className="text-sm text-gray-500">
                 {linkType === 'recovery'
                   ? 'This password reset link is invalid or has expired. Request a new one from the sign-in page.'
@@ -127,14 +127,14 @@ export default function SetPasswordPage() {
           ) : (
             <div className="space-y-6">
               <div>
-                <h2 className="text-2xl font-extrabold text-gray-900">{linkType === 'recovery' ? 'Reset your password' : 'Set your password'}</h2>
+                <h2 className="font-editorial text-2xl font-normal text-gray-900">{linkType === 'recovery' ? 'Reset your password' : 'Set your password'}</h2>
                 <p className="mt-1 text-sm text-gray-500">
                   {linkType === 'recovery' ? 'Choose a new password for your account.' : 'Choose a password to finish setting up your account.'}
                 </p>
               </div>
 
               {error && (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <div className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                   {error}
                 </div>
               )}
@@ -150,7 +150,7 @@ export default function SetPasswordPage() {
                       value={password}
                       onChange={e => setPassword(e.target.value)}
                       placeholder="••••••••••"
-                      className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 pr-11 text-base text-gray-900 placeholder-gray-400 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10 sm:text-sm"
+                      className="w-full border border-gray-300 bg-white px-4 py-3 pr-11 text-base text-gray-900 placeholder-gray-400 outline-none transition focus:border-brand focus:ring-1 focus:ring-brand sm:text-sm"
                     />
                     <button type="button" onClick={() => setShowPwd(!showPwd)}
                       className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition">
@@ -168,12 +168,12 @@ export default function SetPasswordPage() {
                     value={confirm}
                     onChange={e => setConfirm(e.target.value)}
                     placeholder="••••••••••"
-                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-base text-gray-900 placeholder-gray-400 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10 sm:text-sm"
+                    className="w-full border border-gray-300 bg-white px-4 py-3 text-base text-gray-900 placeholder-gray-400 outline-none transition focus:border-brand focus:ring-1 focus:ring-brand sm:text-sm"
                   />
                 </div>
 
                 <button type="submit" disabled={loading}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-3.5 text-sm font-bold text-white shadow-lg shadow-brand/20 transition hover:bg-brand-dark disabled:opacity-60">
+                  className="flex w-full items-center justify-center gap-2 bg-brand py-3.5 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:opacity-60">
                   {loading
                     ? <><Loader2 className="h-4 w-4 animate-spin" /> {linkType === 'recovery' ? 'Resetting password…' : 'Setting password…'}</>
                     : linkType === 'recovery' ? <>Reset password <ArrowRight className="h-4 w-4" /></> : <>Set password & continue <ArrowRight className="h-4 w-4" /></>}

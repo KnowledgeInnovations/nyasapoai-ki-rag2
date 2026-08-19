@@ -37,15 +37,15 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#f8f9fb] px-6 py-12">
+    <div className="flex min-h-screen items-center justify-center bg-paper px-6 py-12 font-editorial-sans">
       <div className="w-full max-w-md">
-        <div className="rounded-3xl border border-gray-200/80 bg-white p-8 shadow-2xl shadow-black/5">
+        <div className="border border-gray-200 bg-white p-8 shadow-[0_24px_60px_-30px_rgba(20,20,20,0.25)]">
           {sent ? (
             <div className="space-y-3 text-center">
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-100">
-                <Mail className="h-8 w-8 text-emerald-600" />
+              <div className="mx-auto flex h-16 w-16 items-center justify-center border border-brand/20 bg-brand-light">
+                <Mail className="h-8 w-8 text-brand" />
               </div>
-              <h2 className="text-xl font-extrabold text-gray-900">Check your inbox</h2>
+              <h2 className="font-editorial text-xl font-normal text-gray-900">Check your inbox</h2>
               <p className="text-sm text-gray-500">
                 If an account exists for <span className="font-semibold text-gray-800">{email}</span>,
                 we&apos;ve sent a link to reset your password.
@@ -57,12 +57,12 @@ export default function ForgotPasswordPage() {
           ) : (
             <div className="space-y-6">
               <div>
-                <h2 className="text-2xl font-extrabold text-gray-900">Forgot your password?</h2>
+                <h2 className="font-editorial text-2xl font-normal text-gray-900">Forgot your password?</h2>
                 <p className="mt-1 text-sm text-gray-500">Enter your work email and we&apos;ll send you a reset link.</p>
               </div>
 
               {error && (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <div className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                   {error}
                 </div>
               )}
@@ -77,12 +77,12 @@ export default function ForgotPasswordPage() {
                     value={email}
                     onChange={e => setEmail(e.target.value)}
                     placeholder="you@company.com"
-                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-base text-gray-900 placeholder-gray-400 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10 sm:text-sm"
+                    className="w-full border border-gray-300 bg-white px-4 py-3 text-base text-gray-900 placeholder-gray-400 outline-none transition focus:border-brand focus:ring-1 focus:ring-brand sm:text-sm"
                   />
                 </div>
 
                 <button type="submit" disabled={loading || !email.trim()}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-3.5 text-sm font-bold text-white shadow-lg shadow-brand/20 transition hover:bg-brand-dark disabled:opacity-60">
+                  className="flex w-full items-center justify-center gap-2 bg-brand py-3.5 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:opacity-60">
                   {loading
                     ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending link…</>
                     : <>Send reset link <ArrowRight className="h-4 w-4" /></>}

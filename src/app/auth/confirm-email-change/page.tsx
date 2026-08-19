@@ -71,19 +71,19 @@ export default function ConfirmEmailChangePage() {
   }, [supabase])
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#f8f9fb] px-6 py-12">
+    <div className="flex min-h-screen items-center justify-center bg-paper px-6 py-12 font-editorial-sans">
       <div className="w-full max-w-md">
-        <div className="rounded-3xl border border-gray-200/80 bg-white p-8 shadow-2xl shadow-black/5">
+        <div className="border border-gray-200 bg-white p-8 shadow-[0_24px_60px_-30px_rgba(20,20,20,0.25)]">
           {state === 'checking' ? (
             <div className="flex h-40 items-center justify-center">
               <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
             </div>
           ) : state === 'confirmed' ? (
             <div className="space-y-3 text-center">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100">
-                <CheckCircle2 className="h-7 w-7 text-emerald-600" />
+              <div className="mx-auto flex h-14 w-14 items-center justify-center border border-brand/20 bg-brand-light">
+                <CheckCircle2 className="h-7 w-7 text-brand" />
               </div>
-              <h2 className="text-xl font-extrabold text-gray-900">Email confirmed</h2>
+              <h2 className="font-editorial text-xl font-normal text-gray-900">Email confirmed</h2>
               <p className="text-sm text-gray-500">Your email address has been updated.</p>
               <a href="/settings" className="inline-flex items-center gap-2 text-sm font-semibold text-brand hover:text-brand-dark">
                 Back to Settings <ArrowRight className="h-4 w-4" />
@@ -91,10 +91,10 @@ export default function ConfirmEmailChangePage() {
             </div>
           ) : state === 'pending-other' ? (
             <div className="space-y-3 text-center">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-light">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center border border-brand/20 bg-brand-light">
                 <MailCheck className="h-7 w-7 text-brand" />
               </div>
-              <h2 className="text-xl font-extrabold text-gray-900">Almost there</h2>
+              <h2 className="font-editorial text-xl font-normal text-gray-900">Almost there</h2>
               <p className="text-sm text-gray-500">{detail || 'This link was confirmed. Check your other inbox for one more confirmation link to finish the change.'}</p>
               <a href="/settings" className="inline-flex items-center gap-2 text-sm font-semibold text-brand hover:text-brand-dark">
                 Back to Settings <ArrowRight className="h-4 w-4" />
@@ -102,7 +102,7 @@ export default function ConfirmEmailChangePage() {
             </div>
           ) : (
             <div className="space-y-3 text-center">
-              <h2 className="text-xl font-extrabold text-gray-900">Link expired</h2>
+              <h2 className="font-editorial text-xl font-normal text-gray-900">Link expired</h2>
               <p className="text-sm text-gray-500">
                 {detail || 'This confirmation link is invalid or has expired. Request the email change again from Settings.'}
               </p>

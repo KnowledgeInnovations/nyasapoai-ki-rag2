@@ -31,9 +31,9 @@ export default function MfaChallengePage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#f8f9fb] px-6 py-12">
+    <div className="flex min-h-screen items-center justify-center bg-paper px-6 py-12">
       <div className="w-full max-w-md">
-        <div className="rounded-3xl border border-gray-200/80 bg-white p-8 shadow-2xl shadow-black/5">
+        <div className="border border-gray-200 bg-white p-8 shadow-[0_24px_60px_-30px_rgba(20,20,20,0.25)]">
           {method === null ? (
             <div className="flex h-40 items-center justify-center">
               <Loader2 className="h-5 w-5 animate-spin text-gray-400" />

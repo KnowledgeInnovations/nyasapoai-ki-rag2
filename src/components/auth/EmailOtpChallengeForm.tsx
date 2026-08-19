@@ -70,19 +70,19 @@ export default function EmailOtpChallengeForm({ email, onVerified, onCancel }: P
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 font-editorial-sans">
       <div>
-        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-light">
+        <div className="mb-3 flex h-12 w-12 items-center justify-center border border-brand/20 bg-brand-light">
           <Mail className="h-6 w-6 text-brand" />
         </div>
-        <h2 className="text-2xl font-extrabold text-gray-900">Check your email</h2>
+        <h2 className="font-editorial text-2xl font-normal text-gray-900">Check your email</h2>
         <p className="mt-1 text-sm text-gray-500">
           We sent a 6-digit code to <span className="font-semibold text-gray-800">{email}</span>.
         </p>
       </div>
 
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       )}
@@ -98,11 +98,11 @@ export default function EmailOtpChallengeForm({ email, onVerified, onCancel }: P
           value={code}
           onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
           placeholder="••••••"
-          className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-center text-2xl font-bold tracking-[0.5em] text-gray-900 placeholder-gray-300 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+          className="w-full border border-gray-300 bg-white px-4 py-3 text-center text-2xl font-bold tracking-[0.5em] text-gray-900 placeholder-gray-300 outline-none transition focus:border-brand focus:ring-1 focus:ring-brand"
         />
 
         <button type="submit" disabled={verifying || code.length !== 6}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-3.5 text-sm font-bold text-white shadow-lg shadow-brand/20 transition hover:bg-brand-dark disabled:opacity-60">
+          className="flex w-full items-center justify-center gap-2 bg-brand py-3.5 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:opacity-60">
           {verifying
             ? <><Loader2 className="h-4 w-4 animate-spin" /> Verifying…</>
             : <>Verify <ArrowRight className="h-4 w-4" /></>}

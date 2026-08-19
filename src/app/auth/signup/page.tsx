@@ -107,14 +107,13 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-6 py-12">
+    <div className="flex min-h-screen items-center justify-center bg-paper px-6 py-12 font-editorial-sans">
       <div className="w-full max-w-md">
         <div className="text-center">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <span className="text-2xl font-bold text-brand">Nyansa</span>
-            <span className="rounded-md bg-brand px-1.5 py-0.5 text-xs font-semibold text-white">AI</span>
+          <Link href="/" className="font-editorial inline-block text-2xl text-gray-900">
+            Nyansa<span className="text-brand">·</span>AI
           </Link>
-          <h1 className="mt-6 text-2xl font-bold text-gray-900">
+          <h1 className="font-editorial mt-6 text-2xl font-normal text-gray-900">
             {done ? 'Create your account' : step === 'account' ? 'Create your account' : 'Create your workspace'}
           </h1>
           {!done && (
@@ -131,14 +130,14 @@ export default function SignupPage() {
         </div>
 
         {done ? (
-          <div className="mt-8 rounded-2xl border border-green-200 bg-green-50 p-6 text-center">
-            <p className="font-medium text-green-800">Check your email</p>
-            <p className="mt-1 text-sm text-green-600">We sent a confirmation link to <strong>{email}</strong></p>
+          <div className="mt-8 border border-brand/20 bg-brand-light p-6 text-center">
+            <p className="font-medium text-brand-dark">Check your email</p>
+            <p className="mt-1 text-sm text-gray-600">We sent a confirmation link to <strong>{email}</strong></p>
           </div>
         ) : step === 'account' ? (
           <form onSubmit={handleAccountNext} className="mt-8 space-y-4">
             {error && (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+              <div className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
             )}
 
             <div>
@@ -148,7 +147,7 @@ export default function SignupPage() {
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand-light"
+                className="mt-1 w-full border border-gray-300 px-4 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
               />
             </div>
 
@@ -159,7 +158,7 @@ export default function SignupPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand-light"
+                className="mt-1 w-full border border-gray-300 px-4 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
               />
             </div>
 
@@ -171,14 +170,14 @@ export default function SignupPage() {
                 minLength={8}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand-light"
+                className="mt-1 w-full border border-gray-300 px-4 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
               />
               <p className="mt-1 text-xs text-gray-400">Minimum 8 characters</p>
             </div>
 
             <button
               type="submit"
-              className="w-full rounded-xl bg-brand py-3 text-sm font-semibold text-white transition hover:bg-brand-dark"
+              className="w-full bg-brand py-3 text-sm font-semibold text-white transition hover:bg-brand-dark"
             >
               Continue
             </button>
@@ -192,7 +191,7 @@ export default function SignupPage() {
         ) : (
           <form onSubmit={handleSignup} className="mt-8 space-y-4">
             {error && (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+              <div className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
             )}
 
             <div>
@@ -204,20 +203,20 @@ export default function SignupPage() {
                 value={orgName}
                 onChange={(e) => setOrgName(e.target.value)}
                 placeholder="Acme Corp"
-                className="mt-1 w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand-light"
+                className="mt-1 w-full border border-gray-300 px-4 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700">Workspace subdomain</label>
-              <div className="mt-1 flex items-center rounded-xl border border-gray-300 focus-within:border-brand focus-within:ring-2 focus-within:ring-brand-light">
+              <div className="mt-1 flex items-center border border-gray-300 focus-within:border-brand focus-within:ring-1 focus-within:ring-brand">
                 <input
                   type="text"
                   required
                   value={subdomain}
                   onChange={(e) => { setSubdomain(e.target.value.toLowerCase()); setSubdomainEdited(true) }}
                   placeholder="acme-corp"
-                  className="w-full rounded-l-xl bg-transparent px-4 py-2.5 text-sm outline-none"
+                  className="w-full bg-transparent px-4 py-2.5 text-sm outline-none"
                 />
                 <span className="shrink-0 px-3 text-sm text-gray-400">.nyansaai.com</span>
               </div>
@@ -235,7 +234,7 @@ export default function SignupPage() {
             <button
               type="submit"
               disabled={loading || subdomainStatus === 'checking'}
-              className="w-full rounded-xl bg-brand py-3 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:opacity-60"
+              className="w-full bg-brand py-3 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:opacity-60"
             >
               {loading ? 'Creating account…' : 'Create account'}
             </button>
