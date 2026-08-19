@@ -119,6 +119,14 @@ export async function POST(
         send({ stage: 'clearing', message: 'Removing previous training data…', progress: 35 })
         await service.from('document_chunks').delete().eq('document_id', id)
         await service.from('financial_facts').delete().eq('document_id', id)
+        // document_facts was missing from this clear — confirmed live: a
+        // document retrained twice showed 189 total facts in the Training
+        // UI (accumulated across runs) while the retrain's own log said it
+        // only extracted 89 this time. Every retrain appended a fresh
+        // batch on top of the previous run's instead of replacing it,
+        // silently duplicating (and, for long-running docs, endlessly
+        // growing) the facts shown to the chat model as ground truth.
+        await service.from('document_facts').delete().eq('document_id', id)
 
         // ── 5. Embed in batches ───────────────────────────────────
         const totalBatches = Math.ceil(chunks.length / EMBED_BATCH)

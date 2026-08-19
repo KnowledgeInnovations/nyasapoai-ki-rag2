@@ -145,10 +145,22 @@ export async function claudeComplete({ system, messages, maxTokens = 1024, tempe
   // deadline approaches on a retry.
   function timeoutMs(): number {
     const scaled = Math.max(DEFAULT_CLAUDE_TIMEOUT_MS, Math.ceil(maxTokens / CLAUDE_TOKENS_PER_SEC_FLOOR) * 1000 + 15000)
-    const deadlineCapped = deadline != null
-      ? Math.min(scaled, Math.max(DEFAULT_CLAUDE_TIMEOUT_MS, deadline - Date.now() - DEADLINE_SAFETY_MARGIN_MS))
-      : scaled
-    return Math.min(deadlineCapped, MAX_CLAUDE_TIMEOUT_MS)
+    if (deadline == null) return Math.min(scaled, MAX_CLAUDE_TIMEOUT_MS)
+    // No floor here — an earlier version of this clamped to at least
+    // DEFAULT_CLAUDE_TIMEOUT_MS even when the deadline had almost no
+    // budget left, so a call starting right before the deadline could
+    // still run its full 45-120s allowance, pushing the route's total
+    // wall time well past its own PROCESSING_BUDGET_MS. Locally that's
+    // harmless (nothing enforces it), but on the real platform it risks
+    // exceeding the hard maxDuration kill mid-call — the exact "stuck in
+    // processing forever" failure this deadline mechanism exists to
+    // prevent (confirmed live: a retrain overran its 240s budget by 70s
+    // with no kill to catch it locally). Let the allowance shrink toward
+    // a 1s floor as the deadline approaches instead — a call given only a
+    // few seconds near the deadline fails fast and gets dropped by the
+    // caller's own per-batch handling, which is the correct degrade path.
+    const remaining = deadline - Date.now() - DEADLINE_SAFETY_MARGIN_MS
+    return Math.max(1000, Math.min(scaled, remaining, MAX_CLAUDE_TIMEOUT_MS))
   }
 
   let res: Response | undefined
