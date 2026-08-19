@@ -63,7 +63,7 @@ export default function MarketingNav() {
           </Link>
 
           <button onClick={() => setOpen(true)} aria-label="Open menu"
-            className="md:hidden flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition">
+            className="md:hidden flex h-10 w-10 items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition">
             <Menu className="h-5 w-5" />
           </button>
         </div>
@@ -91,7 +91,7 @@ export default function MarketingNav() {
             Nyansa<span className="text-brand">·</span>AI
           </div>
           <button onClick={() => setOpen(false)} aria-label="Close menu"
-            className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition">
+            className="flex h-9 w-9 items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -100,7 +100,7 @@ export default function MarketingNav() {
         <nav className="flex-1 overflow-y-auto p-4 space-y-1">
           {navLinks.map(l => (
             <Link key={l.href} href={l.href}
-              className="flex items-center rounded-xl px-4 py-3.5 text-sm font-medium text-gray-600 transition hover:bg-gray-100 hover:text-gray-900">
+              className="flex items-center px-4 py-3.5 text-sm font-medium text-gray-600 transition hover:bg-gray-100 hover:text-gray-900">
               {l.label}
             </Link>
           ))}
@@ -109,7 +109,7 @@ export default function MarketingNav() {
         {/* Footer */}
         <div className="shrink-0 p-5 border-t border-gray-200 space-y-3">
           <Link href="/auth/login" onClick={() => setOpen(false)}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3.5 text-sm font-bold text-white transition hover:bg-brand-dark shadow-lg shadow-brand/20">
+            className="flex w-full items-center justify-center gap-2 bg-brand px-4 py-3.5 text-sm font-bold text-white transition hover:bg-brand-dark shadow-lg shadow-brand/20">
             Sign in to Workspace <ArrowRight className="h-4 w-4" />
           </Link>
           <p className="text-center text-[11px] text-gray-400">Powered by Nyansa AI</p>

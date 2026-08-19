@@ -111,7 +111,7 @@ export default function DocumentPreview({ docId, onClose }: Props) {
       {/* Panel */}
       <div className="fixed bottom-0 right-0 z-50 flex flex-col bg-white shadow-2xl
                       w-full md:w-[640px] md:h-full md:border-l md:border-gray-200
-                      h-[88vh]  md:rounded-none">
+                      h-[88vh] border-t border-gray-200 md:border-t-0">
 
         {/* ── Header ─────────────────────────────────────────── */}
         <div className="shrink-0 flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">

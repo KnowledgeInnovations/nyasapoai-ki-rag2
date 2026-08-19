@@ -465,7 +465,7 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
       if (document) {
         setMessages(prev => [...prev, {
           role: 'ai',
-          text: `Great news! I've successfully processed **${file.name}**. You can now ask me questions about its contents. 🎉`,
+          text: `I've successfully processed **${file.name}**. You can now ask me questions about its contents.`,
         }])
       } else {
         const msg = error === 'Insufficient permissions'

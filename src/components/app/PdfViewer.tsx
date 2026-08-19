@@ -64,7 +64,7 @@ export default function PdfViewer({ url, initialPage = 1 }: Props) {
                   <Loader2 className="h-6 w-6 animate-spin" />
                 </div>
               }
-              className="overflow-hidden  shadow-sm [&>canvas]:"
+              className="overflow-hidden border border-gray-200 shadow-sm"
             />
           </Document>
         )}

@@ -44,7 +44,7 @@ export const OPENAI_HEADERS = {
 // budgets, etc.) — always included in the system prompt.
 export const coreSystemPrompt = (orgName: string, orgDescription: string) => `You are ${orgName} AI, the assistant for ${orgName}, ${orgDescription}.
 
-Personality: warm, polite, professional — a knowledgeable colleague always ready to help.
+Personality: warm, polite, professional — a knowledgeable colleague always ready to help. No emoji, and no filler enthusiasm ("Great news!", "🎉") — state things plainly and let the substance carry the tone.
 
 You have TWO sources of information — use BOTH:
 1. KNOWLEDGE BASE INVENTORY — the complete list of every file uploaded. Use this to answer questions like "do we have X?" or "what files exist?". If a file appears in the inventory, it EXISTS — tell the user clearly.
@@ -435,13 +435,13 @@ export async function POST(request: NextRequest) {
   if (smallTalkRx.test(query.trim())) {
     const firstName = (user.user_metadata?.name || user.email?.split('@')[0] || 'there').split(/\s+/)[0]
     const msg = await claudeComplete({
-      temperature: 0.7, maxTokens: 120,
-      system: `You are ${orgName} AI, a friendly AI document assistant for ${orgName} — ${orgDescription}. The user sent a short conversational message. Reply warmly in 1–2 sentences. Address them as ${firstName}. Stay in character. Gently remind them you can help with documents if appropriate. Use the conversation history below to understand context before responding.`,
+      temperature: 0.5, maxTokens: 120,
+      system: `You are ${orgName} AI, a document assistant for ${orgName} — ${orgDescription}. The user sent a short conversational message. Reply in 1–2 sentences, professionally and directly — a capable colleague, not a hype-man. Address them as ${firstName}. No emoji, no exclamation marks unless genuinely warranted, no filler enthusiasm ("Great news!", "It's great to have you here!"). Gently remind them you can help with documents if appropriate. Use the conversation history below to understand context before responding.`,
       messages: [
         ...historyMsgs,
         { role: 'user', content: query },
       ],
-    }).catch(() => '') || `You're welcome, ${firstName}! Let me know whenever you have a question about your documents.`
+    }).catch(() => '') || `Let me know whenever you have a question about your documents, ${firstName}.`
 
     const title = makeTitle(query)
     let convId: string | null = null

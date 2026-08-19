@@ -14,7 +14,7 @@ function shell(badgeLabel: string, badgeBg: string, badgeColor: string, heading:
     <tr><td align="center">
       <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06);max-width:480px;">
         <tr><td style="background-color:#2029bd;padding:28px 32px;">
-          <span style="font-size:20px;font-weight:800;color:#ffffff;letter-spacing:-0.2px;">Nyansa<span style="background-color:#ffffff;color:#2029bd;border-radius:6px;padding:2px 6px;font-size:12px;font-weight:700;margin-left:4px;">AI</span></span>
+          <span style="font-family:Georgia,'Times New Roman',serif;font-size:21px;font-weight:400;color:#ffffff;letter-spacing:-0.2px;">Nyansa<span style="color:#14caf4;">&middot;</span>AI</span>
         </td></tr>
         <tr><td style="padding:36px 32px 16px 32px;">
           ${badgeLabel ? `<span style="display:inline-block;margin:0 0 14px 0;padding:4px 10px;background-color:${badgeBg};color:${badgeColor};font-size:11px;font-weight:700;letter-spacing:0.4px;border-radius:999px;">${badgeLabel}</span>` : ''}

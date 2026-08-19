@@ -56,7 +56,7 @@ export default async function ExecutiveDashboard() {
   return (
     <DashboardShell title="Executive Dashboard" description="Company-wide performance, risks, and strategic overview from your documents." lastUpdated={now}>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard icon={FileText}      label="Documents Indexed"    value={String(docCount ?? 0)}   sub="Available for AI analysis"     live color="text-indigo-600 bg-indigo-50" />
+        <StatCard icon={FileText}      label="Documents Indexed"    value={String(docCount ?? 0)}   sub="Available for AI analysis"     live color="text-gold-dark bg-gold-light" />
         <StatCard icon={MessageSquare} label="AI Queries (30 days)" value={String(convsMonth ?? 0)} sub={`${convsTotal ?? 0} all-time`}  live color="text-brand bg-brand-light" />
         <StatCard icon={AlertTriangle} label="Risks Flagged"        value={String(totalRisks)}      sub="Identified in AI answers"       live color="text-amber-600 bg-amber-50" />
         <StatCard icon={TrendingUp}    label="Active Insights"      value={docCount ? '3' : '0'}    sub="Live AI analysis below"         live color="text-green-600 bg-green-50" />

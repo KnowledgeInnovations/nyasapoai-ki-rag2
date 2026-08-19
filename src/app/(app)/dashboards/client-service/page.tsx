@@ -60,7 +60,7 @@ export default async function ClientServiceDashboard() {
         <StatCard icon={HeartHandshake} label="Legal and Client Docs" value={String(legalCount ?? 0)} sub="Permits, deeds, compliance"   live color="text-cyan-600 bg-cyan-50" />
         <StatCard icon={MessageSquare}  label="AI Queries (7 days)"   value={String(convsWeek ?? 0)}  sub={`${convsTotal ?? 0} all-time`} live color="text-brand bg-brand-light" />
         <StatCard icon={ClipboardList}  label="Client Issues"         value="AI"                      sub="Analysed from documents"       live color="text-amber-600 bg-amber-50" />
-        <StatCard icon={Star}           label="Satisfaction"          value="AI"                      sub="Analysed from documents"       live color="text-purple-600 bg-purple-50" />
+        <StatCard icon={Star}           label="Satisfaction"          value="AI"                      sub="Analysed from documents"       live color="text-gold-dark bg-gold-light" />
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <DashboardInsightsGroup insights={INSIGHTS} />

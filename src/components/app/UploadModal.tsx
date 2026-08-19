@@ -288,9 +288,9 @@ export default function UploadModal({ onClose, onUploaded, categories }: Props) 
 
         {/* Footer */}
         <div className="shrink-0 flex items-center justify-between border-t border-gray-100 px-6 py-4">
-          <p className="text-xs text-gray-400">
+          <p className="flex items-center gap-1.5 text-xs text-gray-400">
             {allDone
-              ? '✅ All files processed successfully'
+              ? <><CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> All files processed successfully</>
               : `${files.length} file${files.length !== 1 ? 's' : ''} selected`}
           </p>
           <div className="flex gap-3">

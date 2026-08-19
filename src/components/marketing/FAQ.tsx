@@ -38,7 +38,7 @@ export default function FAQ() {
     <div className="mx-auto max-w-3xl space-y-2">
       {faqs.map((item, i) => (
         <div key={i} className={cn(
-          'rounded-2xl border transition-all duration-200',
+          'border transition-all duration-200',
           open === i
             ? 'border-brand/20 bg-brand-light'
             : 'border-gray-200 bg-white hover:border-gray-300'
