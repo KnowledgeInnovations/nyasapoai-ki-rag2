@@ -49,7 +49,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const host = (await headers()).get('host')
   const currentSubdomain = subdomainFromHost(host)
   if (tenant && currentSubdomain && currentSubdomain !== tenant.subdomain) {
-    redirect(tenant.is_platform ? rootUrlForHost('/training', host) : tenantUrlForHost(tenant.subdomain, '/ask', host))
+    redirect(tenant.is_platform ? rootUrlForHost('/admin/tenants', host) : tenantUrlForHost(tenant.subdomain, '/ask', host))
   }
 
   return (

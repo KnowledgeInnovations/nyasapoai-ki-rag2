@@ -1,9 +1,9 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
-import { getMembership } from '@/lib/supabase/server'
+import { getMembership, getTenant } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import TrainingClient from '@/components/app/TrainingClient'
-import { canAccessTraining } from '@/lib/roles'
+import { canAccessTraining, isPlatformTenant } from '@/lib/roles'
 import { buildFactCountMap } from '@/lib/factCounts'
 import { computeRecurringGaps, type RecurringGap } from '@/lib/extractionGaps'
 import type { ProcessingWarning } from '@/types'
@@ -43,39 +43,77 @@ export interface TrainingDoc {
 export default async function TrainingPage() {
   const membership = await getMembership()
   if (!membership || !canAccessTraining(membership.role)) redirect('/ask')
+  // Training is a client-tenant feature — the platform tenant manages
+  // other tenants, not its own reference documents, from /admin/tenants.
+  if (isPlatformTenant(await getTenant(membership.tenant_id))) redirect('/admin/tenants')
 
   const service = svc()
   const tid      = membership.tenant_id
 
-  // Fetch all documents
-  const { data: docs } = await service
-    .from('documents')
-    .select('id, title, source, department, status, status_detail, processing_warnings, file_path, created_at')
-    .eq('tenant_id', tid)
-    .order('created_at', { ascending: false })
-
-  const [financialFactCounts, documentFactCounts] = await Promise.all([
-    buildFactCountMap(service, 'financial_facts', tid),
-    buildFactCountMap(service, 'document_facts', tid),
-  ])
-
   // Fetch every chunk row for the tenant — paginated, since Supabase caps
   // unbounded selects at 1000 rows, which would silently hide chunk counts
   // for documents whose chunks fall outside that window (i.e. the most
-  // recently trained ones, making them look "Not Trained").
-  const PAGE_SIZE = 1000
-  const allChunks: { document_id: string; created_at: string }[] = []
-  for (let from = 0; ; from += PAGE_SIZE) {
-    const { data: page } = await service
-      .from('document_chunks')
-      .select('document_id, created_at')
-      .eq('tenant_id', tid)
-      .order('created_at', { ascending: true })
-      .range(from, from + PAGE_SIZE - 1)
-    if (!page?.length) break
-    allChunks.push(...page)
-    if (page.length < PAGE_SIZE) break
+  // recently trained ones, making them look "Not Trained"). Each page
+  // depends on the previous one's offset, so this stays sequential
+  // internally — but the whole fetch runs concurrently with the other
+  // independent queries below, not after them.
+  async function fetchAllChunks() {
+    const PAGE_SIZE = 1000
+    const chunks: { document_id: string; created_at: string }[] = []
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const { data: page } = await service
+        .from('document_chunks')
+        .select('document_id, created_at')
+        .eq('tenant_id', tid)
+        .order('created_at', { ascending: true })
+        .range(from, from + PAGE_SIZE - 1)
+      if (!page?.length) break
+      chunks.push(...page)
+      if (page.length < PAGE_SIZE) break
+    }
+    return chunks
   }
+
+  // None of these six queries depend on each other's results — only the
+  // assembly below does — so they run concurrently instead of serially.
+  const [
+    { data: docs },
+    [financialFactCounts, documentFactCounts],
+    allChunks,
+    { data: reviews },
+    { data: lastRun },
+    gaps,
+  ] = await Promise.all([
+    service
+      .from('documents')
+      .select('id, title, source, department, status, status_detail, processing_warnings, file_path, created_at')
+      .eq('tenant_id', tid)
+      .order('created_at', { ascending: false }),
+    Promise.all([
+      buildFactCountMap(service, 'financial_facts', tid),
+      buildFactCountMap(service, 'document_facts', tid),
+    ]),
+    fetchAllChunks(),
+    // Overall manual-review performance: how often the user has marked the
+    // Document Search results (whole knowledge base) as correct.
+    service
+      .from('search_reviews')
+      .select('verdict')
+      .eq('tenant_id', tid)
+      .is('document_id', null),
+    // Most recent regression-suite (self-assessment) run, if any.
+    service
+      .from('self_assessments')
+      .select('id, total_questions, passed, accuracy, avg_confidence, results, created_at')
+      .eq('tenant_id', tid)
+      .is('document_id', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    // Self-improvement, phase 1: recurring-gap flagging — read-only
+    // analysis over existing review/regression signal, see extractionGaps.ts.
+    computeRecurringGaps(service, tid),
+  ])
 
   // Build chunk count + last trained map
   const chunkMap = new Map<string, { count: number; lastAt: string }>()
@@ -104,33 +142,11 @@ export default async function TrainingPage() {
   const trainedCount   = trainingDocs.filter(d => d.chunkCount > 0).length
   const untrainedCount = trainingDocs.filter(d => d.chunkCount === 0).length
 
-  // Overall manual-review performance: how often the user has marked the
-  // Document Search results (whole knowledge base) as correct.
-  const { data: reviews } = await service
-    .from('search_reviews')
-    .select('verdict')
-    .eq('tenant_id', tid)
-    .is('document_id', null)
-
   const reviewTotal   = reviews?.length ?? 0
   const reviewCorrect = reviews?.filter(r => r.verdict === 'correct').length ?? 0
   const performance = reviewTotal > 0
     ? { total: reviewTotal, correct: reviewCorrect, accuracy: Math.round((reviewCorrect / reviewTotal) * 10000) / 100 }
     : null
-
-  // Most recent regression-suite (self-assessment) run, if any.
-  const { data: lastRun } = await service
-    .from('self_assessments')
-    .select('id, total_questions, passed, accuracy, avg_confidence, results, created_at')
-    .eq('tenant_id', tid)
-    .is('document_id', null)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  // Self-improvement, phase 1: recurring-gap flagging — read-only analysis
-  // over existing review/regression signal, see extractionGaps.ts.
-  const gaps = await computeRecurringGaps(service, tid)
 
   return (
     <TrainingClient

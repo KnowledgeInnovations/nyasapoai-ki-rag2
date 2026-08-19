@@ -5,6 +5,6 @@ import { canAccessDashboards, isPlatformTenant } from '@/lib/roles'
 export default async function DashboardsHubPage() {
   const membership = await getMembership()
   if (!membership || !canAccessDashboards(membership.role)) redirect('/ask')
-  if (isPlatformTenant(await getTenant(membership.tenant_id))) redirect('/training')
+  if (isPlatformTenant(await getTenant(membership.tenant_id))) redirect('/admin/tenants')
   redirect('/dashboards/executive')
 }

@@ -11,7 +11,7 @@ import {
   proportionOfTotal, detectDeviations, summarizeTrend, forecastNextYear, yoySeries,
   CUMULATIVE_RX, RANKING_RX, PROPORTION_RX, SUMMARY_RX, type FactRow,
 } from '@/lib/factsAnalysis'
-import { CLAUDE_MODEL, getAnthropicHeaders, claudeComplete } from '@/lib/claude'
+import { CLAUDE_REASONING_MODEL, ADAPTIVE_THINKING, getAnthropicHeaders, claudeComplete } from '@/lib/claude'
 import { runAgenticAnswer } from '@/lib/agenticAnswer'
 import { AGENTIC_SYSTEM_ADDENDUM } from '@/lib/agentTools'
 import { canAccessTraining } from '@/lib/roles'
@@ -521,9 +521,13 @@ export async function POST(request: NextRequest) {
     // an empty result if the metadata column is unset for older chunks.
     const queryYears = [...new Set(query.match(/\b(19|20)\d{2}\b/g) ?? [])]
     if (queryYears.length === 1) {
+      // p_platform_tenant_id: null disambiguates between the two live DB
+      // overloads (base + trailing p_platform_tenant_id) — without it
+      // PostgREST fails with PGRST203 "Could not choose the best candidate
+      // function", same issue 2d2d18f fixed for the unfiltered calls.
       const { data: filteredChunks, error: filteredError } = await svc.rpc('match_document_chunks_hybrid_filtered', {
         query_embedding: queryEmbedding, query_text: query, p_tenant_id: tenantId,
-        match_count: 15, p_fiscal_year: queryYears[0],
+        match_count: 15, p_fiscal_year: queryYears[0], p_platform_tenant_id: null,
       })
       if (filteredError) console.error('[RAG] filtered hybrid RPC error:', JSON.stringify(filteredError))
       if (filteredChunks?.length) {
@@ -1328,21 +1332,43 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
     // Agentic RAG — Claude can call lookup_financial_fact/compute_aggregate/
     // search_documents/verify_figure mid-reasoning instead of getting one
     // fixed prompt, reusing the same retrieved chunks/facts-block context
-    // computed above. No token-level streaming is possible here (the full
-    // answer only exists once the tool loop finishes), so the word-by-word
-    // reveal below is cosmetic (via the same streamWords() helper the
-    // small-talk/early-return branches use) rather than a true token
-    // stream — but the SSE shape, citation extraction/renumbering, and
-    // conversation persistence below all mirror the non-agentic streaming
-    // branch exactly, so the frontend (which only knows how to consume one
-    // SSE format) doesn't need to know which path produced the answer.
+    // computed above. Streams live: runAgenticAnswer's onToken forwards
+    // text as it arrives from whichever call turns out to be (or is
+    // speculatively treated as) the terminal one, with onRetract covering
+    // the rare case a tool call follows some already-streamed text in the
+    // same turn — see agenticAnswer.ts's callClaude for the mechanism.
+    // Verification + persistence still run after the loop settles (they
+    // need the finished answer), but that no longer blocks the user from
+    // seeing text — it only delays the citations/confidence/convId that
+    // arrive in the trailing "done" event, same as the non-agentic branch.
     if (agentic) {
-      const result = await runAgenticAnswer({
-        systemPrompt: systemPrompt + AGENTIC_SYSTEM_ADDENDUM,
-        userMessage: `${inventoryText}\n\nDOCUMENT EXCERPTS FROM SEARCH:\n${context}${calcBlock}${factsBlock}${guidanceBlock}\n\nQuestion: ${query}`,
-        toolCtx: { svc, tenantId },
-        history: historyMsgs,
-      })
+      return new Response(
+        new ReadableStream({
+          async start(controller) {
+            try {
+              const result = await runAgenticAnswer({
+                systemPrompt: systemPrompt + AGENTIC_SYSTEM_ADDENDUM,
+                userMessage: `${inventoryText}\n\nDOCUMENT EXCERPTS FROM SEARCH:\n${context}${calcBlock}${factsBlock}${guidanceBlock}\n\nQuestion: ${query}`,
+                toolCtx: { svc, tenantId },
+                history: historyMsgs,
+                onToken: tok => controller.enqueue(enc.encode(`data: ${JSON.stringify({ t: tok })}\n\n`)),
+                onRetract: () => controller.enqueue(enc.encode(`data: ${JSON.stringify({ retract: true })}\n\n`)),
+              })
+              await runAgenticFinish(result, controller)
+            } catch (err) {
+              if ((err as Error).name !== 'AbortError') console.error('Agentic stream error:', err)
+            } finally {
+              controller.close()
+            }
+          },
+        }),
+        { headers: sseHeaders() }
+      )
+    }
+    async function runAgenticFinish(
+      result: Awaited<ReturnType<typeof runAgenticAnswer>>,
+      controller: ReadableStreamDefaultController,
+    ) {
       const parsed = parseDelimited(result.answerText)
       const agenticRisks = [...parsed.risks]
 
@@ -1457,17 +1483,16 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
         ...agenticCitedFactCitations.map(f => ({ ...f, conversation_id: agenticConvId ?? '' })),
       ]
 
-      return new Response(
-        new ReadableStream({ async start(c) {
-          await streamWords(c, enc, finalAnswer, {
-            risks: finalRisks, recommendations: finalRecommendations, citations: agenticCitations,
-            chart: chartData,
-            confidence_score: verification.confidenceScore, confidence_level: verification.confidenceLevel,
-            convId: agenticConvId, title,
-          })
-        }}),
-        { headers: sseHeaders() }
-      )
+      // Text already streamed live via onToken above — this "done" event
+      // just carries the metadata that could only be known once the answer
+      // was fully assembled and verified (citations/confidence/convId),
+      // same as the non-agentic branch's closing enqueue.
+      controller.enqueue(enc.encode(`data: ${JSON.stringify({
+        done: true, answer: finalAnswer, risks: finalRisks, recommendations: finalRecommendations,
+        citations: agenticCitations, chart: chartData,
+        confidence_score: verification.confidenceScore, confidence_level: verification.confidenceLevel,
+        convId: agenticConvId, title,
+      })}\n\n`))
     }
 
     /* ── 5. Stream from Claude ──────────────────────────────── */
@@ -1477,14 +1502,17 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
     // transient 429 even though the account has plenty of credit (rate
     // limits are a per-minute throughput cap, independent of balance).
     // Retry a couple of times with backoff before giving up.
-    // temperature: 0 — confirmed live that 0.2 here was producing real
-    // run-to-run wording variance (different number formatting, different
-    // subset/order of cited figures) for the IDENTICAL question, which then
-    // cascades into verifyAnswer()'s literal/near-literal matching: the same
-    // "education budget 2026" question scored 30/45/60 across 5 consecutive
-    // runs purely from this, not from any change in the underlying data.
+    // Reasoning model (Opus 4.8 + adaptive thinking) for the main answer.
+    // temperature is intentionally ABSENT: Opus 4.8 rejects temperature/
+    // top_p/top_k with a 400 (the old temperature: 0 determinism fix from
+    // sonnet-4-6 no longer applies — the model's own reasoning replaces it).
+    // max_tokens is much higher than the old 800/1600 because adaptive
+    // thinking tokens count against it — a tight cap could burn the whole
+    // budget on thinking and truncate the visible answer. The SSE parser
+    // below only forwards text_delta events, so thinking deltas (empty by
+    // default with display omitted) are safely ignored.
     const claudeBody = JSON.stringify({
-      model: CLAUDE_MODEL, temperature: 0, max_tokens: isDeepSearch ? 1600 : 800, stream: true,
+      model: CLAUDE_REASONING_MODEL, thinking: ADAPTIVE_THINKING, max_tokens: isDeepSearch ? 20000 : 12000, stream: true,
       system: systemPrompt,
       messages: [
         ...historyMsgs,
@@ -1534,8 +1562,18 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
               if (!line.startsWith('data: ')) continue
               const raw = line.slice(6).trim()
               if (!raw) continue
-              let parsed: { type?: string; delta?: { type?: string; text?: string } }
+              let parsed: { type?: string; delta?: { type?: string; text?: string; stop_reason?: string }; usage?: { output_tokens?: number; output_tokens_details?: { thinking_tokens?: number } } }
               try { parsed = JSON.parse(raw) } catch { continue }
+              // Surface truncation: with adaptive thinking, thinking tokens
+              // count against max_tokens — if the model hits the cap the
+              // visible answer is silently cut mid-sentence. Log it so a
+              // too-tight budget is diagnosable from the server log.
+              if (parsed.type === 'message_delta' && parsed.delta?.stop_reason) {
+                if (parsed.delta.stop_reason !== 'end_turn') {
+                  console.warn('[RAG] answer stream stop_reason:', parsed.delta.stop_reason, 'usage:', JSON.stringify(parsed.usage ?? {}))
+                }
+                continue
+              }
               if (parsed.type !== 'content_block_delta' || parsed.delta?.type !== 'text_delta') continue
               const token = parsed.delta.text ?? ''
               if (!token) continue

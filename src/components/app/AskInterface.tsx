@@ -527,7 +527,7 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
 
       function processLine(line: string) {
         if (!line.startsWith('data: ')) return
-        let event: { t?: string; done?: boolean; answer?: string; risks?: string[]; recommendations?: string[]; citations?: RAGResponse['citations']; chart?: RAGResponse['chart']; confidence_score?: number; confidence_level?: RAGResponse['confidence_level']; convId?: string | null; title?: string }
+        let event: { t?: string; retract?: boolean; done?: boolean; answer?: string; risks?: string[]; recommendations?: string[]; citations?: RAGResponse['citations']; chart?: RAGResponse['chart']; confidence_score?: number; confidence_level?: RAGResponse['confidence_level']; convId?: string | null; title?: string }
         try { event = JSON.parse(line.slice(6)) } catch { return }
 
         // The user has switched to a different chat (or started a new one)
@@ -535,6 +535,21 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
         // server-side, but don't touch this component's `messages` state
         // (it now belongs to a different conversation).
         const stale = streamGuardRef.current !== myGuard
+
+        // The agentic loop speculatively streamed some text assuming it was
+        // the final answer, but a tool call turned up in the same turn —
+        // that text wasn't the real answer. Discard it and go back to the
+        // "working" state; the real answer's tokens (a fresh event.t burst)
+        // follow once the loop settles.
+        if (event.retract) {
+          if (!stale) {
+            if (aiMsgAdded) setMessages(prev => prev.slice(0, -1))
+            setLoading(true)
+          }
+          streamText = ''
+          aiMsgAdded = false
+          return
+        }
 
         if (event.t) {
           streamText += event.t
