@@ -51,6 +51,7 @@ You have TWO sources of information — use BOTH:
 2. DOCUMENT EXCERPTS — relevant text retrieved from those files by semantic search. Use these to answer questions about the actual content of documents.
 
 Rules:
+- CONVERSATION CONTEXT — you are given the recent conversation history. Use it to resolve references the current question makes to earlier turns: a bare number or ordinal ("2", "the second one") pointing at an item you listed, "that document"/"it" referring to whatever was just discussed, or a follow-up that only makes sense in light of the prior question. Resolve these confidently and answer directly — don't hedge with "if you meant something else" when the history makes the reference clear; only ask for clarification when the history genuinely leaves more than one plausible reading.
 - TONE & SCOPE — answer the way a sharp, direct colleague would: lead with the direct answer to the actual question in the first sentence, then add only as much supporting detail as the question warrants. A simple factual question (e.g. "what was the budget in 2020?") deserves a short, direct answer with its citation — not a table, multi-section breakdown, or extra caveats. Reserve markdown tables, multi-point "Analysis" sections, and extensive caveats for questions that genuinely call for them (multi-year series, comparisons, trends, anomaly checks). Don't pad a simple answer with boilerplate just to fill out a template.
 - For "do we have X?" or "is there a document about Y?" — CHECK the inventory first and answer directly. Never say you cannot access files when they appear in the inventory. If any DOCUMENT EXCERPTS below come from that same file, cite one of them with [n] right after the file name to ground the answer in a real excerpt — don't leave the answer uncited just because it's an inventory question.
 - For content questions — quote and cite from the document excerpts using [1], [2] etc.
@@ -1408,10 +1409,24 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           const floor = isHonestInsufficiency ? 20 : 1
           verification.confidenceScore = Math.max(floor, verification.confidenceScore - penalty)
           verification.confidenceLevel = verification.confidenceScore >= 75 ? 'High' : verification.confidenceScore >= 50 ? 'Medium' : 'Low'
-        } else if (verified && verification.totalNumbers === 0 && !isHonestInsufficiency && verification.confidenceScore >= 10) {
+        } else if (verified && verification.totalNumbers === 0 && !isHonestInsufficiency && /\[\d+\]/.test(parsed.answer)) {
           // Mirrors the non-agentic branch's fix below — scale the boosted
           // floor within 90-99 using the retrieval signal instead of a flat
           // 92, so AI-verified-clean answers aren't all identical.
+          //
+          // Gated on the answer actually citing a [n] excerpt, NOT on
+          // verification.confidenceScore (== the raw retrieval/rerank
+          // component here, since totalNumbers === 0) — confirmed live: a
+          // "what's on page 32" question got a correct, fully-cited answer
+          // (verifyAnswerWithAI found zero issues) but the gpt-4o-mini
+          // reranker in rerank.ts grades TOPICAL relevance from chunk text
+          // alone, with no page-number metadata to go on, so it scored the
+          // right chunk near 0 for a page-lookup query — tanking this
+          // "confidenceScore >= 10" gate and leaving a verified-accurate
+          // answer stuck at 1% confidence. A real citation is a much
+          // stronger "this wasn't zero-relevance retrieval" signal than an
+          // LLM relevance grade that has no way to judge page/metadata
+          // lookups from content alone.
           const avgSignal = agenticRetrievalScores.length
             ? agenticRetrievalScores.reduce((s, v) => s + v, 0) / agenticRetrievalScores.length
             : 0
@@ -1728,31 +1743,34 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
               // finding an issue, never add any when it positively confirmed
               // the claims against VALIDATED FACTS/excerpts and found nothing
               // wrong — a real, independent signal that was being thrown
-              // away. Only applies when the pass actually ran (verified) and
-              // retrieval wasn't essentially irrelevant, so a citation that's
-              // barely related can't ride a lenient/missed AI check to a high
-              // score. verification.confidenceScore at this point IS the raw
-              // retrieval component (totalNumbers === 0 and the honest-
-              // insufficiency clamp didn't apply), so it doubles as that
-              // relevance floor check. Set low (10, not e.g. 30) deliberately
-              // — embedding similarity between a short question and a clean
-              // definitional answer is often genuinely mediocre even for an
-              // exactly-correct citation (e.g. "what does HRMIS mean?" vs a
-              // chunk that states the expansion plainly scored 25-50 in
-              // testing despite 4 correct page citations), which is the
-              // whole gap this fix exists to close — a floor near the
-              // problem's own typical range would defeat the fix. The real
-              // safety check is `verified && issues.length === 0`: the AI
-              // actually compared the claims to real excerpts/facts and
-              // found nothing wrong. This floor only exists to exclude the
-              // true zero-relevance case (nothing matched at all).
+              // away. The real safety check is `verified && issues.length
+              // === 0`: the AI actually compared the claims to real
+              // excerpts/facts and found nothing wrong — that's what rules
+              // out the true zero-relevance case (nothing matched at all),
+              // not the raw retrieval score (see the citation-gate note
+              // below for why that score can't be trusted as a relevance
+              // floor here).
               // Originally raised straight to a flat 92 — but that meant
               // every AI-verified-clean definitional answer read as the
               // exact same number, which users noticed and reasonably read
               // as a hardcoded/fake score. Scale the floor within 90-99
               // using the same retrieval signal instead, so a stronger match
               // (more/cleaner citations) can read higher than a borderline one.
-              if (verification.confidenceScore >= 10) {
+              //
+              // Gated on the answer actually citing a [n] excerpt, not on
+              // verification.confidenceScore itself (== the raw retrieval/
+              // rerank component here, since totalNumbers === 0) — confirmed
+              // live: a "what's on page 32" question got a correct, fully-
+              // cited answer (this AI pass found zero issues) but rerank.ts's
+              // gpt-4o-mini grader scores TOPICAL relevance from chunk text
+              // alone, with no page-number metadata to go on, so it scored
+              // the right chunk near 0 for a page-lookup query — tanking the
+              // old ">= 10" gate and leaving a verified-accurate answer stuck
+              // at 1% confidence. A real citation is a much stronger "this
+              // wasn't zero-relevance retrieval" signal than an LLM relevance
+              // grade that has no way to judge page/metadata lookups from
+              // content alone.
+              if (/\[\d+\]/.test(answer)) {
                 const avgSignal = retrievalScores.length
                   ? retrievalScores.reduce((s, v) => s + v, 0) / retrievalScores.length
                   : 0
