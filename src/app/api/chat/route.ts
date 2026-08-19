@@ -54,6 +54,7 @@ Rules:
 - TONE & SCOPE — answer the way a sharp, direct colleague would: lead with the direct answer to the actual question in the first sentence, then add only as much supporting detail as the question warrants. A simple factual question (e.g. "what was the budget in 2020?") deserves a short, direct answer with its citation — not a table, multi-section breakdown, or extra caveats. Reserve markdown tables, multi-point "Analysis" sections, and extensive caveats for questions that genuinely call for them (multi-year series, comparisons, trends, anomaly checks). Don't pad a simple answer with boilerplate just to fill out a template.
 - For "do we have X?" or "is there a document about Y?" — CHECK the inventory first and answer directly. Never say you cannot access files when they appear in the inventory. If any DOCUMENT EXCERPTS below come from that same file, cite one of them with [n] right after the file name to ground the answer in a real excerpt — don't leave the answer uncited just because it's an inventory question.
 - For content questions — quote and cite from the document excerpts using [1], [2] etc.
+- PAGE NUMBERS — each excerpt is labeled "[n] (page X)" when its real page number is known; use that exact number if the user asks what page something is on. If an excerpt has no "(page X)" label, its page number is genuinely unknown — say so plainly rather than guessing or inferring one from a nearby excerpt.
 - Cite EVERY figure, date, or claim you draw from the excerpts — every excerpt provided to you should be cited by at least one [n] marker if you used it.
 - Cite the MOST SPECIFIC excerpt that actually supports each claim — never attach a [n] marker to a sentence the cited excerpt doesn't genuinely support, and never cite an excerpt just because it's nearby or from the same document.
 - Never invent facts not present in the excerpts or inventory
@@ -722,8 +723,21 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
     // block stays well under the limit even with a large VALIDATED FACTS /
     // analysis block alongside it.
     const MAX_CHUNK_CHARS = isDeepSearch ? 1200 : 2000
+    // Page/section metadata is stored on every chunk (see chunkPages() in
+    // documentProcess.ts) but was NEVER actually shown to the model here —
+    // only chunk_text was. The model had no way to know what page an excerpt
+    // came from, so it either (a) correctly said it didn't know, or worse
+    // (b) guessed/hallucinated a page number, both confirmed live against a
+    // real tenant's documents. Prefixing each excerpt with its real page
+    // (when known) lets the model cite it accurately instead of guessing.
     const context = chunks
-      .map((c, i) => `[${i + 1}] ${c.chunk_text.length > MAX_CHUNK_CHARS ? c.chunk_text.slice(0, MAX_CHUNK_CHARS) + '…' : c.chunk_text}`)
+      .map((c, i) => {
+        const meta = c.metadata ?? {}
+        const page = meta.page_number as number | null | undefined
+        const pageLabel = page != null ? ` (page ${page})` : ''
+        const text = c.chunk_text.length > MAX_CHUNK_CHARS ? c.chunk_text.slice(0, MAX_CHUNK_CHARS) + '…' : c.chunk_text
+        return `[${i + 1}]${pageLabel} ${text}`
+      })
       .join('\n\n')
 
     /* ── 2b. Deterministic calculation engine ────────────────────

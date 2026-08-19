@@ -67,6 +67,17 @@ const MAX_CLAUDE_COMPLETE_ATTEMPTS = 3
 // indefinitely, which is what blocked an upload/training pipeline until
 // Vercel's hard maxDuration kill rather than failing fast and retrying.
 const DEFAULT_CLAUDE_TIMEOUT_MS = 45000
+// A flat 45s ceiling regardless of maxTokens caused large-output calls
+// (e.g. extractGenericFacts' 8192-token batches against a content-dense
+// document) to reliably time out on EVERY attempt, not just transiently —
+// confirmed live: two consecutive failures 45s apart on the same document,
+// surfaced to the user as "network interruption — retry recommended" even
+// though retrying hits the identical wall every time. ~40 output
+// tokens/sec is a conservative floor for generation speed; scale the
+// timeout from that instead of a fixed number.
+const CLAUDE_TOKENS_PER_SEC_FLOOR = 40
+// Upper bound so one call can never eat the whole remaining route deadline.
+const MAX_CLAUDE_TIMEOUT_MS = 120000
 // Growing backoff for network-class failures when a deadline is supplied —
 // a real connectivity drop is rarely fixed in 1-2s (the old fixed backoff),
 // but most blips clear well within a minute or two, which this comfortably
@@ -127,6 +138,19 @@ export async function withRetry<T>(
 }
 
 export async function claudeComplete({ system, messages, maxTokens = 1024, temperature = 0, signal, deadline }: ClaudeCompleteOptions): Promise<string> {
+  // Scale with the requested output size, floor at the old flat default
+  // (small calls keep behaving exactly as before), and never exceed what's
+  // actually left of the caller's deadline (minus safety margin) or the
+  // hard ceiling. Recomputed per attempt so it naturally shrinks as the
+  // deadline approaches on a retry.
+  function timeoutMs(): number {
+    const scaled = Math.max(DEFAULT_CLAUDE_TIMEOUT_MS, Math.ceil(maxTokens / CLAUDE_TOKENS_PER_SEC_FLOOR) * 1000 + 15000)
+    const deadlineCapped = deadline != null
+      ? Math.min(scaled, Math.max(DEFAULT_CLAUDE_TIMEOUT_MS, deadline - Date.now() - DEADLINE_SAFETY_MARGIN_MS))
+      : scaled
+    return Math.min(deadlineCapped, MAX_CLAUDE_TIMEOUT_MS)
+  }
+
   let res: Response | undefined
   for (let attempt = 1; ; attempt++) {
     try {
@@ -140,7 +164,7 @@ export async function claudeComplete({ system, messages, maxTokens = 1024, tempe
           ...(system ? { system } : {}),
           messages,
         }),
-        signal: signal ?? AbortSignal.timeout(DEFAULT_CLAUDE_TIMEOUT_MS),
+        signal: signal ?? AbortSignal.timeout(timeoutMs()),
       })
     } catch (e) {
       // A caller-provided signal aborting is the caller's own cancellation —
