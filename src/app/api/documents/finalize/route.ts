@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import nodePath from 'node:path'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
@@ -232,134 +232,172 @@ export async function POST(request: NextRequest) {
         const docYearMatch = docTitle.match(/\b(19|20)\d{2}\b/)
         const docFiscalYear = docYearMatch ? docYearMatch[0] : null
 
-        // Cheap document-level check: does this document show any sign of
-        // being a government budget statement? If not, skip the two
-        // AI-driven budget-specific steps below — see train/route.ts for
-        // the full rationale (cost + maxDuration risk on non-budget docs).
-        const budgetSignal = looksLikeBudgetDocument(chunks.map(c => c.text).join('\n'))
-        if (!budgetSignal) {
-          emit({ stage: 'tables', message: 'No budget-statement signal detected — skipping budget-specific table extraction' })
-        }
-
-        // Table-aware fact extraction (PDFs only)
-        if (budgetSignal && nodePath.extname(originalFilename).toLowerCase() === '.pdf') {
-          emit({ stage: 'tables', message: 'Extracting tables for financial facts…' })
-          try {
-            const tableRecords = await extractTableRecordsFromPdf(buffer)
-            for (const record of tableRecords) {
-              const fact = tableRecordToFact({ ...record, document_id: document.id }, membership.tenant_id, document.id, docFiscalYear)
-              if (fact) allFacts.push(fact)
-            }
-          } catch (err) {
-            console.error('Table extraction error:', err)
-            warn('table_extraction', (err as Error).message)
-          }
-        }
-
-        // AI-enhanced table fact extraction — catches facts the regex
-        // pipeline misses: sector breakdowns, footnote totals, multi-year
-        // rows with non-standard labels.
-        if (budgetSignal) {
-          try {
-            const aiFacts = await aiEnhanceTableFacts(
-              cleanedChunks, membership.tenant_id, document.id, docFiscalYear,
-              ({ tableCount, reason, network }) => warn('ai_table_facts', `Could not parse ${tableCount} table batch(es): ${reason}`, network),
-              routeDeadline,
-            )
-            if (aiFacts.length) {
-              emit({ stage: 'tables', message: `AI extracted ${aiFacts.length} additional financial facts` })
-              allFacts.push(...aiFacts)
-            }
-          } catch (err) {
-            console.error('AI table fact extraction error:', err)
-            warn('ai_table_facts', (err as Error).message)
-          }
-        }
-
+        // Regex-extracted facts are cheap (pure local computation already
+        // gathered per chunk-batch above) — store them now, as part of the
+        // fast path.
         emit({ stage: 'facts', count: allFacts.length })
         runSanityChecks(allFacts)
         if (allFacts.length) {
           await serviceClient.from('financial_facts').insert(allFacts)
         }
 
-        if (allFacts.length < DOCUMENT_FACTS_FALLBACK_THRESHOLD) {
-          try {
-            const genericFacts = await extractGenericFacts(
-              cleanedChunks, membership.tenant_id, document.id, routeDeadline,
-              ({ reason, network }) => warn('generic_facts_fallback', reason, network),
-            )
-            if (genericFacts.length) {
-              await serviceClient.from('document_facts').insert(genericFacts)
-              emit({ stage: 'facts', count: allFacts.length, genericCount: genericFacts.length })
-            }
-          } catch (err) {
-            console.error('Generic fact extraction error:', err)
-            warn('generic_facts_fallback', (err as Error).message)
-          }
-        }
-
-        // Cross-document corroboration (national total_budget) — this
-        // document's facts are now stored, so re-check the full national
-        // total_budget series across all documents for this tenant.
-        try {
-          const { data: allNational } = await serviceClient
-            .from('financial_facts')
-            .select('*')
-            .eq('tenant_id', membership.tenant_id)
-            .eq('entity_type', 'national')
-            .eq('metric', 'total_budget')
-          const changed = runCrossDocumentCorroboration((allNational ?? []) as (FinancialFact & { id: string })[])
-          for (const f of changed) {
-            await serviceClient.from('financial_facts').update({ flags: f.flags, confidence: f.confidence }).eq('id', f.id)
-          }
-        } catch (err) {
-          console.error('Cross-document corroboration error:', err)
-          warn('cross_doc_corroboration', (err as Error).message)
-        }
-
-        // Supersede stale forward-projections (ministry/sector) — this
-        // document may BE the actual-year budget other documents only had
-        // MTEF projections for.
-        try {
-          const { data: allMinistrySector } = await serviceClient
-            .from('financial_facts')
-            .select('*')
-            .eq('tenant_id', membership.tenant_id)
-            .in('entity_type', ['ministry', 'sector'])
-          const changed = supersedeForwardProjections((allMinistrySector ?? []) as (FinancialFact & { id: string })[])
-          for (const f of changed) {
-            await serviceClient.from('financial_facts').update({ flags: f.flags, confidence: f.confidence }).eq('id', f.id)
-          }
-        } catch (err) {
-          console.error('Forward-projection supersession error:', err)
-          warn('forward_projection_supersession', (err as Error).message)
-        }
-
-        // Apply learned heuristics, if confirmed for this tenant.
-        try {
-          const { data: allTenantFacts } = await serviceClient
-            .from('financial_facts')
-            .select('*')
-            .eq('tenant_id', membership.tenant_id)
-          const changed = await applyLearnedHeuristics(serviceClient, membership.tenant_id, (allTenantFacts ?? []) as (FinancialFact & { id: string })[])
-          for (const f of changed) {
-            await serviceClient.from('financial_facts').update({ flags: f.flags, confidence: f.confidence }).eq('id', f.id)
-          }
-        } catch (err) {
-          console.error('Learned-heuristic promotion error:', err)
-          warn('learned_heuristic_promotion', (err as Error).message)
-        }
-
-        const degradedStepCount = new Set(warnings.map(w => w.step)).size
-        const hadNetworkIssue = warnings.some(w => w.network)
-        const statusDetail = degradedStepCount
-          ? `${degradedStepCount} step(s) degraded${hadNetworkIssue ? ' (network interruption — retry recommended)' : ''}`
-          : null
-        await serviceClient.from('documents').update({
-          status: 'ready', status_detail: statusDetail, processing_warnings: warnings,
-        }).eq('id', document.id)
+        // --- Fast path ends here. ------------------------------------------
+        // Everything below (PDF table-geometry extraction, AI-enhanced table
+        // facts, the generic-facts fallback, cross-document corroboration,
+        // forward-projection supersession, learned heuristics) is AI-driven
+        // enrichment that can legitimately take minutes on a large,
+        // image/table-dense document — see genericFactExtraction.ts. Holding
+        // the browser's upload SSE connection open for all of that is
+        // fragile: a proxy/idle timeout anywhere between here and the
+        // platform's own maxDuration kills the connection with no "done" or
+        // "error" event ever sent, so uploadDocument.ts falls back to the
+        // generic "Could not process document" — while the row itself stays
+        // stuck at status "processing" forever, since nothing else ever
+        // updates it. A document only needs its chunks + embeddings to be
+        // chat-able (chat/route.ts filters on status "ready" and reads only
+        // document_chunks), so mark it ready and let the browser move on now.
+        // The enrichment facts keep filling in afterwards, in the same
+        // invocation, via next/server's after() — bounded by the same
+        // maxDuration budget — and finish by writing straight to the
+        // document row instead of through the (by-then-closed) SSE stream.
+        await serviceClient.from('documents').update({ status: 'ready' }).eq('id', document.id)
         emit({ stage: 'done', document: { ...document, status: 'ready' }, warnings })
         controller.close()
+
+        after(async () => {
+          try {
+            // Cheap document-level check: does this document show any sign of
+            // being a government budget statement? If not, skip the two
+            // AI-driven budget-specific steps below — see train/route.ts for
+            // the full rationale (cost + maxDuration risk on non-budget docs).
+            const budgetSignal = looksLikeBudgetDocument(chunks.map(c => c.text).join('\n'))
+            const enrichmentFacts: FinancialFact[] = []
+
+            // Table-aware fact extraction (PDFs only)
+            if (budgetSignal && nodePath.extname(originalFilename).toLowerCase() === '.pdf') {
+              try {
+                const tableRecords = await extractTableRecordsFromPdf(buffer)
+                for (const record of tableRecords) {
+                  const fact = tableRecordToFact({ ...record, document_id: document.id }, membership.tenant_id, document.id, docFiscalYear)
+                  if (fact) enrichmentFacts.push(fact)
+                }
+              } catch (err) {
+                console.error('Table extraction error:', err)
+                warn('table_extraction', (err as Error).message)
+              }
+            }
+
+            // AI-enhanced table fact extraction — catches facts the regex
+            // pipeline misses: sector breakdowns, footnote totals, multi-year
+            // rows with non-standard labels.
+            if (budgetSignal) {
+              try {
+                const aiFacts = await aiEnhanceTableFacts(
+                  cleanedChunks, membership.tenant_id, document.id, docFiscalYear,
+                  ({ tableCount, reason, network }) => warn('ai_table_facts', `Could not parse ${tableCount} table batch(es): ${reason}`, network),
+                  routeDeadline,
+                )
+                enrichmentFacts.push(...aiFacts)
+              } catch (err) {
+                console.error('AI table fact extraction error:', err)
+                warn('ai_table_facts', (err as Error).message)
+              }
+            }
+
+            if (enrichmentFacts.length) {
+              await serviceClient.from('financial_facts').insert(enrichmentFacts)
+            }
+
+            // Not every document is a table/budget document — most aren't.
+            // This RAG has to extract usable facts out of any document type,
+            // so whenever the table-driven paths above found too little,
+            // fall back to general-purpose AI fact extraction over the
+            // document's own prose/lists/definitions.
+            if (allFacts.length + enrichmentFacts.length < DOCUMENT_FACTS_FALLBACK_THRESHOLD) {
+              try {
+                const genericFacts = await extractGenericFacts(
+                  cleanedChunks, membership.tenant_id, document.id, routeDeadline,
+                  ({ reason, network }) => warn('generic_facts_fallback', reason, network),
+                )
+                if (genericFacts.length) {
+                  await serviceClient.from('document_facts').insert(genericFacts)
+                }
+              } catch (err) {
+                console.error('Generic fact extraction error:', err)
+                warn('generic_facts_fallback', (err as Error).message)
+              }
+            }
+
+            // Cross-document corroboration (national total_budget) — this
+            // document's facts are now stored, so re-check the full national
+            // total_budget series across all documents for this tenant.
+            try {
+              const { data: allNational } = await serviceClient
+                .from('financial_facts')
+                .select('*')
+                .eq('tenant_id', membership.tenant_id)
+                .eq('entity_type', 'national')
+                .eq('metric', 'total_budget')
+              const changed = runCrossDocumentCorroboration((allNational ?? []) as (FinancialFact & { id: string })[])
+              for (const f of changed) {
+                await serviceClient.from('financial_facts').update({ flags: f.flags, confidence: f.confidence }).eq('id', f.id)
+              }
+            } catch (err) {
+              console.error('Cross-document corroboration error:', err)
+              warn('cross_doc_corroboration', (err as Error).message)
+            }
+
+            // Supersede stale forward-projections (ministry/sector) — this
+            // document may BE the actual-year budget other documents only had
+            // MTEF projections for.
+            try {
+              const { data: allMinistrySector } = await serviceClient
+                .from('financial_facts')
+                .select('*')
+                .eq('tenant_id', membership.tenant_id)
+                .in('entity_type', ['ministry', 'sector'])
+              const changed = supersedeForwardProjections((allMinistrySector ?? []) as (FinancialFact & { id: string })[])
+              for (const f of changed) {
+                await serviceClient.from('financial_facts').update({ flags: f.flags, confidence: f.confidence }).eq('id', f.id)
+              }
+            } catch (err) {
+              console.error('Forward-projection supersession error:', err)
+              warn('forward_projection_supersession', (err as Error).message)
+            }
+
+            // Apply learned heuristics, if confirmed for this tenant.
+            try {
+              const { data: allTenantFacts } = await serviceClient
+                .from('financial_facts')
+                .select('*')
+                .eq('tenant_id', membership.tenant_id)
+              const changed = await applyLearnedHeuristics(serviceClient, membership.tenant_id, (allTenantFacts ?? []) as (FinancialFact & { id: string })[])
+              for (const f of changed) {
+                await serviceClient.from('financial_facts').update({ flags: f.flags, confidence: f.confidence }).eq('id', f.id)
+              }
+            } catch (err) {
+              console.error('Learned-heuristic promotion error:', err)
+              warn('learned_heuristic_promotion', (err as Error).message)
+            }
+
+            const degradedStepCount = new Set(warnings.map(w => w.step)).size
+            const hadNetworkIssue = warnings.some(w => w.network)
+            const statusDetail = degradedStepCount
+              ? `${degradedStepCount} step(s) degraded${hadNetworkIssue ? ' (network interruption — retry recommended)' : ''}`
+              : null
+            await serviceClient.from('documents').update({
+              status_detail: statusDetail, processing_warnings: warnings,
+            }).eq('id', document.id)
+          } catch (err) {
+            // The document is already "ready" with its chunks/embeddings —
+            // an enrichment-phase crash should never revert that. Just
+            // record what happened so it's visible in the Training UI.
+            console.error('Background enrichment error:', err)
+            await serviceClient.from('documents').update({
+              status_detail: `Enrichment failed: ${(err as Error).message.slice(0, 450)}`,
+            }).eq('id', document.id)
+          }
+        })
       } catch (err) {
         console.error('Processing error:', err)
         await fail(`Document processing failed: ${(err as Error).message}`)
