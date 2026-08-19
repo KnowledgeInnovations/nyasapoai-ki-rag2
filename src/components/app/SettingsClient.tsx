@@ -120,7 +120,7 @@ export default function SettingsClient({ email, name, role, emailDomains, isPlat
     <div className="mx-auto max-w-5xl space-y-6">
       {/* Page header */}
       <div>
-        <h1 className="text-xl font-bold text-gray-900">Settings</h1>
+        <h1 className="font-editorial text-2xl font-normal text-gray-900">Settings</h1>
         <p className="mt-1 text-sm text-gray-500">Manage your profile, security, and workspace preferences.</p>
       </div>
 
@@ -130,7 +130,7 @@ export default function SettingsClient({ email, name, role, emailDomains, isPlat
           {TABS.map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
               className={cn(
-                'flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-semibold transition',
+                'flex shrink-0 items-center gap-2.5 whitespace-nowrap  px-4 py-2.5 text-sm font-semibold transition',
                 activeTab === tab.id ? 'bg-brand text-white shadow-md shadow-brand/20' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800',
               )}>
               <tab.icon className="h-4 w-4" />
@@ -143,16 +143,16 @@ export default function SettingsClient({ email, name, role, emailDomains, isPlat
         <div className="min-w-0 flex-1 space-y-6">
           {activeTab === 'profile' && (
             <>
-            <section className="overflow-hidden rounded-3xl border border-gray-200/80 bg-white p-6 shadow-2xl shadow-black/5 md:p-8">
-              <div className="mb-6 flex flex-wrap items-center gap-4 rounded-2xl border border-gray-100 bg-gray-50/60 p-5">
-                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-brand text-lg font-bold text-white shadow-md shadow-brand/20">
+            <section className="overflow-hidden  border border-gray-200/80 bg-white p-6 shadow-2xl shadow-black/5 md:p-8">
+              <div className="mb-6 flex flex-wrap items-center gap-4  border border-gray-100 bg-gray-50/60 p-5">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center  bg-brand text-lg font-bold text-white shadow-md shadow-brand/20">
                   {initialsFor(displayName, email)}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-base font-bold text-gray-900">{displayName.trim() || 'Unnamed'}</p>
                   <p className="truncate text-sm text-gray-500">{email}</p>
                 </div>
-                <span className={cn('shrink-0 rounded-lg border px-3 py-1.5 text-sm font-semibold', roleBadge)}>
+                <span className={cn('shrink-0  border px-3 py-1.5 text-sm font-semibold', roleBadge)}>
                   {roleLabel}
                 </span>
               </div>
@@ -164,22 +164,22 @@ export default function SettingsClient({ email, name, role, emailDomains, isPlat
                     type="text"
                     value={displayName}
                     onChange={e => setDisplayName(e.target.value)}
-                    className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+                    className="mt-1.5 w-full  border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
                   />
                 </div>
 
                 {error && (
-                  <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{error}</p>
+                  <p className=" border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{error}</p>
                 )}
 
                 {saved && (
-                  <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-700">
+                  <div className="flex items-center gap-2  border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-700">
                     <CheckCircle2 className="h-4 w-4" /> Profile updated successfully.
                   </div>
                 )}
 
                 <button type="submit" disabled={saving || !displayName.trim()}
-                  className="flex items-center gap-2 rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand/20 transition hover:bg-brand-dark disabled:opacity-50">
+                  className="flex items-center gap-2  bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand/20 transition hover:bg-brand-dark disabled:opacity-50">
                   {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : 'Save changes'}
                 </button>
               </form>
@@ -197,7 +197,7 @@ export default function SettingsClient({ email, name, role, emailDomains, isPlat
 
           {activeTab === 'workspace' && (
             <>
-              <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+              <section className="overflow-hidden  border border-gray-200 bg-white shadow-sm">
                 <div className="border-b border-gray-100 bg-gray-50/60 px-6 py-4">
                   <h2 className="text-sm font-bold text-gray-800">Workspace Access</h2>
                   <p className="mt-0.5 text-xs text-gray-500">Permissions for your current role.</p>
@@ -213,7 +213,7 @@ export default function SettingsClient({ email, name, role, emailDomains, isPlat
               </section>
 
               {normalizedRole === 'senior' && !isPlatformTenant && (
-                <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+                <section className="overflow-hidden  border border-gray-200 bg-white shadow-sm">
                   <div className="border-b border-gray-100 bg-gray-50/60 px-6 py-4">
                     <h2 className="text-sm font-bold text-gray-800">Invite Restrictions</h2>
                     <p className="mt-0.5 text-xs text-gray-500">
@@ -226,7 +226,7 @@ export default function SettingsClient({ email, name, role, emailDomains, isPlat
                       <div className="flex flex-wrap gap-2">
                         {domains.map(d => (
                           <span key={d}
-                            className="flex items-center gap-1.5 rounded-lg border border-brand/20 bg-brand-light px-3 py-1.5 text-sm font-medium text-brand">
+                            className="flex items-center gap-1.5  border border-brand/20 bg-brand-light px-3 py-1.5 text-sm font-medium text-brand">
                             {d}
                             <button onClick={() => removeDomain(d)} disabled={domainsSaving}
                               className="text-brand/60 transition hover:text-brand disabled:opacity-50">
@@ -248,19 +248,19 @@ export default function SettingsClient({ email, name, role, emailDomains, isPlat
                         onChange={e => setDomainInput(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addDomain() } }}
                         disabled={domainsSaving}
-                        className="flex-1 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10 disabled:opacity-50"
+                        className="flex-1  border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10 disabled:opacity-50"
                       />
                       <button onClick={addDomain} disabled={domainsSaving || !domainInput.trim()}
-                        className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 disabled:opacity-50">
+                        className="flex items-center gap-1.5  border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 disabled:opacity-50">
                         <Plus className="h-4 w-4" /> Add
                       </button>
                     </div>
 
                     {domainsError && (
-                      <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{domainsError}</p>
+                      <p className=" border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{domainsError}</p>
                     )}
                     {domainsSaved && (
-                      <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-700">
+                      <div className="flex items-center gap-2  border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-700">
                         <CheckCircle2 className="h-4 w-4" /> Saved.
                       </div>
                     )}

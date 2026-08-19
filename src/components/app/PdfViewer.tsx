@@ -35,7 +35,7 @@ export default function PdfViewer({ url, initialPage = 1 }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      <div ref={containerRef} className="flex-1 overflow-auto rounded-2xl border border-gray-100 bg-gray-50 p-4">
+      <div ref={containerRef} className="flex-1 overflow-auto  border border-gray-100 bg-gray-50 p-4">
         {error ? (
           <div className="flex h-full flex-col items-center justify-center text-center py-12">
             <AlertCircle className="h-10 w-10 text-red-300 mb-3" />
@@ -64,7 +64,7 @@ export default function PdfViewer({ url, initialPage = 1 }: Props) {
                   <Loader2 className="h-6 w-6 animate-spin" />
                 </div>
               }
-              className="overflow-hidden rounded-xl shadow-sm [&>canvas]:rounded-xl"
+              className="overflow-hidden  shadow-sm [&>canvas]:"
             />
           </Document>
         )}
@@ -75,7 +75,7 @@ export default function PdfViewer({ url, initialPage = 1 }: Props) {
           <button
             onClick={() => setPageNumber(p => Math.max(1, p - 1))}
             disabled={pageNumber <= 1}
-            className="flex h-8 w-8 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition hover:bg-gray-50 disabled:opacity-30"
+            className="flex h-8 w-8 items-center justify-center  border border-gray-200 text-gray-500 transition hover:bg-gray-50 disabled:opacity-30"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
@@ -85,7 +85,7 @@ export default function PdfViewer({ url, initialPage = 1 }: Props) {
           <button
             onClick={() => setPageNumber(p => Math.min(numPages, p + 1))}
             disabled={pageNumber >= numPages}
-            className="flex h-8 w-8 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition hover:bg-gray-50 disabled:opacity-30"
+            className="flex h-8 w-8 items-center justify-center  border border-gray-200 text-gray-500 transition hover:bg-gray-50 disabled:opacity-30"
           >
             <ChevronRight className="h-4 w-4" />
           </button>

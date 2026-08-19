@@ -125,7 +125,7 @@ export default function UploadModal({ onClose, onUploaded, categories }: Props) 
 
   return (
     <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="w-full max-w-xl rounded-3xl bg-white shadow-2xl flex flex-col max-h-[90vh]">
+      <div className="w-full max-w-xl  bg-white shadow-2xl flex flex-col max-h-[90vh]">
 
         {/* Header */}
         <div className="flex shrink-0 items-start justify-between border-b border-gray-100 px-6 py-5">
@@ -134,7 +134,7 @@ export default function UploadModal({ onClose, onUploaded, categories }: Props) 
             <p className="mt-0.5 text-sm text-gray-500">PDF, Word, Excel, PowerPoint, CSV, TXT and more</p>
           </div>
           <button onClick={onClose} disabled={uploading}
-            className="flex h-8 w-8 items-center justify-center rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition disabled:opacity-40">
+            className="flex h-8 w-8 items-center justify-center  text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition disabled:opacity-40">
             <X className="h-4.5 w-4.5" />
           </button>
         </div>
@@ -149,11 +149,11 @@ export default function UploadModal({ onClose, onUploaded, categories }: Props) 
             onDrop={onDrop}
             onClick={() => fileInputRef.current?.click()}
             className={cn(
-              'flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-8 transition',
+              'flex cursor-pointer flex-col items-center justify-center  border-2 border-dashed px-6 py-8 transition',
               isDragging ? 'border-brand bg-brand-light scale-[1.01]' : 'border-gray-300 bg-gray-50 hover:border-brand/50 hover:bg-blue-50/30'
             )}
           >
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-light mb-3">
+            <div className="flex h-12 w-12 items-center justify-center  bg-brand-light mb-3">
               <Paperclip className="h-6 w-6 text-brand" />
             </div>
             <p className="text-sm font-semibold text-gray-700">
@@ -174,7 +174,7 @@ export default function UploadModal({ onClose, onUploaded, categories }: Props) 
                 <button key={cat.value} type="button"
                   onClick={() => setCategory(cat.value)}
                   className={cn(
-                    'flex flex-col items-center gap-1.5 rounded-2xl border px-3 py-3 text-center text-xs font-semibold transition',
+                    'flex flex-col items-center gap-1.5  border px-3 py-3 text-center text-xs font-semibold transition',
                     category === cat.value
                       ? `${cat.activeBorder} ${cat.activeBg} ${cat.activeText} shadow-sm`
                       : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'
@@ -197,7 +197,7 @@ export default function UploadModal({ onClose, onUploaded, categories }: Props) 
                 <button key={s.value} type="button"
                   onClick={() => setSensitivity(s.value)}
                   className={cn(
-                    'flex flex-col rounded-xl border px-4 py-2.5 text-left text-xs transition',
+                    'flex flex-col  border px-4 py-2.5 text-left text-xs transition',
                     sensitivity === s.value
                       ? 'border-brand bg-brand-light text-brand shadow-sm'
                       : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
@@ -218,7 +218,7 @@ export default function UploadModal({ onClose, onUploaded, categories }: Props) 
               <div className="space-y-2">
                 {files.map((item, i) => (
                   <div key={i} className={cn(
-                    'flex items-center gap-3 rounded-xl border px-4 py-3',
+                    'flex items-center gap-3  border px-4 py-3',
                     item.status === 'done'     && 'border-green-200 bg-green-50',
                     item.status === 'error'    && 'border-red-200 bg-red-50',
                     item.status === 'uploading' && 'border-brand/30 bg-brand-light',
@@ -238,7 +238,7 @@ export default function UploadModal({ onClose, onUploaded, categories }: Props) 
                         <input
                           value={item.title}
                           onChange={e => updateTitle(i, e.target.value)}
-                          className="w-full rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs text-gray-900 outline-none focus:border-brand"
+                          className="w-full  border border-gray-200 bg-white px-2 py-1 text-xs text-gray-900 outline-none focus:border-brand"
                         />
                       ) : (
                         <p className="truncate text-xs font-medium text-gray-800">{item.title}</p>
@@ -270,7 +270,7 @@ export default function UploadModal({ onClose, onUploaded, categories }: Props) 
                     {item.status === 'error' && (
                       <div className="flex shrink-0 items-center gap-1">
                         <button onClick={() => retryFile(i)}
-                          className="rounded-lg px-2 py-1 text-[11px] font-semibold text-brand hover:bg-brand-light transition">
+                          className=" px-2 py-1 text-[11px] font-semibold text-brand hover:bg-brand-light transition">
                           Retry
                         </button>
                         <button onClick={() => removeFile(i)}
@@ -295,12 +295,12 @@ export default function UploadModal({ onClose, onUploaded, categories }: Props) 
           </p>
           <div className="flex gap-3">
             <button onClick={onClose} disabled={uploading}
-              className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50 disabled:opacity-40">
+              className=" border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50 disabled:opacity-40">
               {allDone ? 'Close' : 'Cancel'}
             </button>
             {!allDone && (
               <button onClick={handleUpload} disabled={!canUpload}
-                className="flex items-center gap-2 rounded-xl bg-brand px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-40">
+                className="flex items-center gap-2  bg-brand px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-40">
                 {uploading
                   ? <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</>
                   : <><Upload className="h-4 w-4" /> Upload {pendingCount > 1 ? `${pendingCount} files` : 'file'}</>}

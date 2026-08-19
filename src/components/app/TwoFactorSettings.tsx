@@ -134,7 +134,7 @@ export default function TwoFactorSettings() {
   }
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+    <section className="overflow-hidden  border border-gray-200 bg-white shadow-sm">
       <div className="border-b border-gray-100 bg-gray-50/60 px-6 py-4">
         <h2 className="text-sm font-bold text-gray-800">Two-Factor Authentication</h2>
         <p className="mt-0.5 text-xs text-gray-500">Require a second step — an authenticator app or an emailed code — when signing in.</p>
@@ -150,7 +150,7 @@ export default function TwoFactorSettings() {
         {status === 'disabled' && (
           <div className="space-y-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-100">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center  bg-gray-100">
                 <ShieldOff className="h-5 w-5 text-gray-400" />
               </div>
               <div>
@@ -160,16 +160,16 @@ export default function TwoFactorSettings() {
             </div>
 
             {error && (
-              <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{error}</p>
+              <p className=" border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{error}</p>
             )}
 
             <div className="flex flex-col gap-3 sm:flex-row">
               <button onClick={startTotpEnroll} disabled={working}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-50">
+                className="flex flex-1 items-center justify-center gap-2  border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-50">
                 <KeyRound className="h-4 w-4" /> Use an authenticator app
               </button>
               <button onClick={() => setStatus('enrolling-email')} disabled={working}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-50">
+                className="flex flex-1 items-center justify-center gap-2  border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-50">
                 <Mail className="h-4 w-4" /> Use email
               </button>
             </div>
@@ -180,7 +180,7 @@ export default function TwoFactorSettings() {
           <div className="space-y-5">
             <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
               {qrCode && (
-                <div className="shrink-0 rounded-2xl border border-gray-200 bg-white p-3">
+                <div className="shrink-0  border border-gray-200 bg-white p-3">
                   {/* qr_code from enroll() is already a complete data: URI, not raw SVG — don't re-wrap or re-encode it. */}
                   {/* eslint-disable-next-line @next/next/no-img-element -- transient data: URI, not a static asset next/image is meant for */}
                   <img src={qrCode} alt="Authenticator QR code" className="h-36 w-36" />
@@ -189,13 +189,13 @@ export default function TwoFactorSettings() {
               <div className="space-y-1.5 text-sm text-gray-600">
                 <p>1. Scan this QR code with an authenticator app (Google Authenticator, Authy, 1Password, etc).</p>
                 <p>2. Or enter this code manually:</p>
-                <code className="block break-all rounded-lg bg-gray-100 px-3 py-1.5 font-mono text-xs text-gray-700">{secret}</code>
+                <code className="block break-all  bg-gray-100 px-3 py-1.5 font-mono text-xs text-gray-700">{secret}</code>
                 <p>3. Enter the 6-digit code it generates below.</p>
               </div>
             </div>
 
             {error && (
-              <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{error}</p>
+              <p className=" border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{error}</p>
             )}
 
             <form onSubmit={verifyTotpEnroll} className="flex flex-wrap items-end gap-3">
@@ -205,11 +205,11 @@ export default function TwoFactorSettings() {
                   type="text" inputMode="numeric" autoComplete="one-time-code" required maxLength={6}
                   value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
                   placeholder="000000"
-                  className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-center text-lg font-bold tracking-[0.4em] text-gray-900 placeholder-gray-300 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
+                  className="mt-1.5 w-full  border border-gray-200 bg-white px-4 py-2.5 text-center text-lg font-bold tracking-[0.4em] text-gray-900 placeholder-gray-300 outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/10"
                 />
               </div>
               <button type="submit" disabled={working || code.length !== 6}
-                className="flex items-center gap-2 rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand/20 transition hover:bg-brand-dark disabled:opacity-50">
+                className="flex items-center gap-2  bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand/20 transition hover:bg-brand-dark disabled:opacity-50">
                 {working ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Verify & enable'}
               </button>
             </form>
@@ -232,7 +232,7 @@ export default function TwoFactorSettings() {
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center  bg-emerald-50">
                   <ShieldCheck className="h-5 w-5 text-emerald-600" />
                 </div>
                 <div>
@@ -247,17 +247,17 @@ export default function TwoFactorSettings() {
                 </div>
               </div>
               <button onClick={() => setConfirmDisable(true)} disabled={working}
-                className="shrink-0 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50">
+                className="shrink-0  border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50">
                 Disable
               </button>
             </div>
             {justEnabled && (
-              <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-700">
+              <div className="flex items-center gap-2  border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-700">
                 <CheckCircle2 className="h-4 w-4" /> Two-factor authentication is now enabled.
               </div>
             )}
             {error && (
-              <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{error}</p>
+              <p className=" border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{error}</p>
             )}
           </div>
         )}
@@ -265,8 +265,8 @@ export default function TwoFactorSettings() {
 
       {confirmDisable && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-          <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl shadow-black/10">
-            <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-xl border border-red-200 bg-red-50">
+          <div className="w-full max-w-sm  border border-gray-200 bg-white p-6 shadow-2xl shadow-black/10">
+            <div className="mb-1 flex h-10 w-10 items-center justify-center  border border-red-200 bg-red-50">
               <ShieldOff className="h-5 w-5 text-red-500" />
             </div>
             <h3 className="mt-4 text-base font-bold text-gray-900">Disable two-factor authentication?</h3>
@@ -275,11 +275,11 @@ export default function TwoFactorSettings() {
             </p>
             <div className="mt-6 flex gap-3">
               <button onClick={() => setConfirmDisable(false)} disabled={working}
-                className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 hover:text-gray-900 disabled:opacity-50">
+                className="flex-1  border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 hover:text-gray-900 disabled:opacity-50">
                 Cancel
               </button>
               <button onClick={disable} disabled={working}
-                className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-500/25 transition hover:bg-red-600 disabled:opacity-50">
+                className="flex-1  bg-red-500 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-500/25 transition hover:bg-red-600 disabled:opacity-50">
                 {working ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : 'Disable'}
               </button>
             </div>

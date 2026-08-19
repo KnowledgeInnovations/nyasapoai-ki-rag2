@@ -56,7 +56,7 @@ export default function DocxViewer({ url }: Props) {
   }
 
   return (
-    <div className="h-full overflow-auto rounded-2xl border border-gray-100 bg-white p-6">
+    <div className="h-full overflow-auto  border border-gray-100 bg-white p-6">
       <div
         className="docx-preview prose prose-sm max-w-none prose-headings:font-semibold prose-table:border prose-td:border prose-td:border-gray-200 prose-td:px-2 prose-td:py-1 prose-th:border prose-th:border-gray-200 prose-th:px-2 prose-th:py-1"
         dangerouslySetInnerHTML={{ __html: html }}

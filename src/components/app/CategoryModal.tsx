@@ -71,7 +71,7 @@ export default function CategoryModal({ category, onSave, onDelete, onClose }: P
 
   return (
     <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md rounded-3xl bg-white shadow-2xl">
+      <div className="w-full max-w-md  bg-white shadow-2xl">
 
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-5">
@@ -79,7 +79,7 @@ export default function CategoryModal({ category, onSave, onDelete, onClose }: P
             {isEdit ? 'Edit category' : 'New category'}
           </h2>
           <button onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-gray-600">
+            className="flex h-8 w-8 items-center justify-center  text-gray-400 transition hover:bg-gray-100 hover:text-gray-600">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -97,7 +97,7 @@ export default function CategoryModal({ category, onSave, onDelete, onClose }: P
               onChange={e => setLabel(e.target.value)}
               maxLength={30}
               placeholder="e.g. HR Documents"
-              className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-900 outline-none transition focus:border-brand focus:ring-1 focus:ring-brand/20"
+              className="w-full  border border-gray-200 px-3.5 py-2.5 text-sm text-gray-900 outline-none transition focus:border-brand focus:ring-1 focus:ring-brand/20"
             />
             {!isEdit && slug && (
               <p className="mt-1 text-xs text-gray-400">
@@ -114,7 +114,7 @@ export default function CategoryModal({ category, onSave, onDelete, onClose }: P
               onChange={e => setDescription(e.target.value)}
               maxLength={80}
               placeholder="Short description of this category"
-              className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-900 outline-none transition focus:border-brand focus:ring-1 focus:ring-brand/20"
+              className="w-full  border border-gray-200 px-3.5 py-2.5 text-sm text-gray-900 outline-none transition focus:border-brand focus:ring-1 focus:ring-brand/20"
             />
           </div>
 
@@ -126,7 +126,7 @@ export default function CategoryModal({ category, onSave, onDelete, onClose }: P
                 <button key={name} type="button" title={iconLabel}
                   onClick={() => setIconName(name)}
                   className={cn(
-                    'flex items-center justify-center rounded-xl p-2.5 transition',
+                    'flex items-center justify-center  p-2.5 transition',
                     iconName === name
                       ? 'bg-brand text-white shadow-sm'
                       : 'bg-gray-50 text-gray-500 hover:bg-gray-100 hover:text-gray-700'
@@ -169,7 +169,7 @@ export default function CategoryModal({ category, onSave, onDelete, onClose }: P
             </span>
           </div>
 
-          {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+          {error && <p className=" bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
         </div>
 
         {/* Footer */}
@@ -181,11 +181,11 @@ export default function CategoryModal({ category, onSave, onDelete, onClose }: P
             </p>
             <div className="flex gap-3">
               <button onClick={() => setConfirmDel(false)}
-                className="flex-1 rounded-xl border border-gray-200 bg-white py-2 text-sm font-semibold text-gray-600 transition hover:bg-gray-50">
+                className="flex-1  border border-gray-200 bg-white py-2 text-sm font-semibold text-gray-600 transition hover:bg-gray-50">
                 Cancel
               </button>
               <button onClick={handleDelete} disabled={deleting}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-500 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:opacity-50">
+                className="flex flex-1 items-center justify-center gap-2  bg-red-500 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:opacity-50">
                 {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                 {isDefaultOverride ? 'Reset' : 'Delete'}
               </button>
@@ -196,7 +196,7 @@ export default function CategoryModal({ category, onSave, onDelete, onClose }: P
             <div>
               {showDelete && (
                 <button onClick={() => setConfirmDel(true)}
-                  className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium text-red-500 transition hover:bg-red-50">
+                  className="flex items-center gap-1.5  px-3 py-2 text-sm font-medium text-red-500 transition hover:bg-red-50">
                   <Trash2 className="h-4 w-4" />
                   {isDefaultOverride ? 'Reset to default' : 'Delete category'}
                 </button>
@@ -204,11 +204,11 @@ export default function CategoryModal({ category, onSave, onDelete, onClose }: P
             </div>
             <div className="flex gap-3">
               <button onClick={onClose}
-                className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50">
+                className=" border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50">
                 Cancel
               </button>
               <button onClick={handleSave} disabled={!canSave || saving}
-                className="flex items-center gap-2 rounded-xl bg-brand px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-40">
+                className="flex items-center gap-2  bg-brand px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-40">
                 {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                 Save
               </button>

@@ -50,13 +50,13 @@ function InsightCard({ data, loading, onRefresh, label }: { data?: InsightData; 
   const cfg = data ? SENTIMENT_CONFIG[data.sentiment] : SENTIMENT_CONFIG.neutral
 
   return (
-    <div className={cn('rounded-2xl border p-5 shadow-sm transition', loading ? 'border-gray-200 bg-white' : cfg.border, !loading && data && cfg.bg)}>
+    <div className={cn(' border p-5 shadow-sm transition', loading ? 'border-gray-200 bg-white' : cfg.border, !loading && data && cfg.bg)}>
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-bold uppercase tracking-wide text-gray-400">
           {loading ? <span className="h-3 w-24 animate-pulse rounded bg-gray-200 inline-block" /> : (data?.label ?? label)}
         </p>
         {data && (
-          <button onClick={onRefresh} className="flex h-6 w-6 items-center justify-center rounded-lg text-gray-300 transition hover:bg-gray-100 hover:text-gray-500" title="Refresh">
+          <button onClick={onRefresh} className="flex h-6 w-6 items-center justify-center  text-gray-300 transition hover:bg-gray-100 hover:text-gray-500" title="Refresh">
             <RefreshCw className="h-3 w-3" />
           </button>
         )}
@@ -135,7 +135,7 @@ export default function DashboardInsightsGroup({ insights }: Props) {
 
   if (error) {
     return (
-      <div className="col-span-3 rounded-2xl border border-gray-200 bg-white p-5 text-center text-sm text-gray-400">
+      <div className="col-span-3  border border-gray-200 bg-white p-5 text-center text-sm text-gray-400">
         Could not load insights. <button onClick={() => load(true)} className="text-brand underline">Retry</button>
       </div>
     )

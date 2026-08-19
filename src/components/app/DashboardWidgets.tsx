@@ -13,9 +13,9 @@ export function StatCard({ icon: Icon, label, value, sub, live, color }: {
   color: string
 }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:shadow-md">
+    <div className="relative overflow-hidden  border border-gray-200 bg-white p-5 shadow-sm transition hover:shadow-md">
       <div className="flex items-start justify-between">
-        <div className={cn('inline-flex rounded-xl border p-2.5', color)}>
+        <div className={cn('inline-flex  border p-2.5', color)}>
           <Icon className="h-5 w-5" />
         </div>
         {live
@@ -54,7 +54,7 @@ export function DocList({ docs, cat, title, emptyText = 'No documents yet' }: {
   emptyText?: string
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+    <div className=" border border-gray-200 bg-white shadow-sm">
       <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
         <div>
           <h2 className="font-semibold text-gray-900">{title}</h2>
@@ -66,7 +66,7 @@ export function DocList({ docs, cat, title, emptyText = 'No documents yet' }: {
         <ul className="divide-y divide-gray-100">
           {docs.map(doc => (
             <li key={doc.id} className="flex items-center gap-3 px-5 py-3.5">
-              <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border',
+              <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center  border',
                 cat ? `${cat.bgColor} ${cat.borderColor}` : 'bg-gray-50 border-gray-200')}>
                 {cat
                   ? <cat.icon className={cn('h-4 w-4', cat.textColor)} />
@@ -94,7 +94,7 @@ type ConvRow = { id: string; query: string; created_at: string; risks?: string[]
 
 export function QueryList({ convs }: { convs: ConvRow[] | null }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+    <div className=" border border-gray-200 bg-white shadow-sm">
       <div className="border-b border-gray-100 px-5 py-4">
         <h2 className="font-semibold text-gray-900">Recent AI Queries</h2>
         <p className="mt-0.5 text-xs text-gray-400">Latest questions asked in this workspace</p>
@@ -128,7 +128,7 @@ export function QueryList({ convs }: { convs: ConvRow[] | null }) {
 // ── PlaceholderCard ────────────────────────────────────────────
 export function PlaceholderCard({ label }: { label: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50/50 p-5 text-center">
+    <div className=" border border-dashed border-gray-200 bg-gray-50/50 p-5 text-center">
       <p className="text-sm font-semibold text-gray-400">{label}</p>
       <p className="mt-1 text-xs text-gray-300">Connect data source to enable</p>
     </div>

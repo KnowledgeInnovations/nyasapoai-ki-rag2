@@ -242,7 +242,7 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
       {/* ── Header ─────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Documents</h1>
+          <h1 className="font-editorial text-2xl font-normal text-gray-900">Documents</h1>
           <p className="mt-1 text-sm text-gray-500">
             {canUpload
               ? 'Upload and manage your project documents — all searchable by AI.'
@@ -254,13 +254,13 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
           {canDelete && documents.length > 0 && (
             selectMode ? (
               <button onClick={exitSelectMode}
-                className="flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50">
+                className="flex items-center gap-2  border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50">
                 <X className="h-4 w-4" />
                 Cancel
               </button>
             ) : (
               <button onClick={() => setSelectMode(true)}
-                className="flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50">
+                className="flex items-center gap-2  border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50">
                 <CheckSquare className="h-4 w-4" />
                 Select
               </button>
@@ -269,12 +269,12 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
 
           {canUpload ? (
             <button onClick={() => setShowUpload(true)}
-              className="flex items-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand/20 transition hover:bg-brand-dark">
+              className="flex items-center gap-2  bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand/20 transition hover:bg-brand-dark">
               <Plus className="h-4 w-4" />
               Upload
             </button>
           ) : (
-            <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-400">
+            <div className="flex items-center gap-2  border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-400">
               <Lock className="h-4 w-4" /> View only
             </div>
           )}
@@ -289,7 +289,7 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
               onClick={() => setFilter(filter === cat.value ? 'all' : cat.value)}
               disabled={(counts[cat.value] ?? 0) === 0 && filter !== cat.value}
               className={cn(
-                'w-full flex flex-col items-start rounded-xl border p-2.5 text-left transition hover:shadow-md disabled:cursor-default disabled:opacity-40 sm:rounded-2xl sm:p-4',
+                'w-full flex flex-col items-start  border p-2.5 text-left transition hover:shadow-md disabled:cursor-default disabled:opacity-40 sm: sm:p-4',
                 filter === cat.value
                   ? `${cat.activeBorder} ${cat.activeBg} shadow-sm`
                   : 'border-gray-200 bg-white hover:border-gray-300'
@@ -311,13 +311,13 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
                 <button
                   onClick={e => { e.stopPropagation(); setEditingCategory(cat) }}
                   title="Edit category"
-                  className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/90 text-gray-400 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-gray-700 md:opacity-0 md:group-hover:opacity-100">
+                  className="flex h-6 w-6 items-center justify-center  bg-white/90 text-gray-400 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-gray-700 md:opacity-0 md:group-hover:opacity-100">
                   <Pencil className="h-3 w-3" />
                 </button>
                 <button
                   onClick={e => { e.stopPropagation(); setCatDeleteTarget(cat) }}
                   title="Delete category"
-                  className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/90 text-red-400 shadow-sm backdrop-blur-sm transition hover:bg-red-50 hover:text-red-600 md:opacity-0 md:group-hover:opacity-100">
+                  className="flex h-6 w-6 items-center justify-center  bg-white/90 text-red-400 shadow-sm backdrop-blur-sm transition hover:bg-red-50 hover:text-red-600 md:opacity-0 md:group-hover:opacity-100">
                   <Trash2 className="h-3 w-3" />
                 </button>
               </div>
@@ -328,7 +328,7 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
         {canUpload && (
           <button
             onClick={() => setEditingCategory(null)}
-            className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed border-gray-200 p-4 text-gray-400 transition hover:border-brand/40 hover:text-brand">
+            className="flex flex-col items-center justify-center gap-1.5  border-2 border-dashed border-gray-200 p-4 text-gray-400 transition hover:border-brand/40 hover:text-brand">
             <Plus className="h-5 w-5" />
             <p className="text-xs font-semibold">Add</p>
           </button>
@@ -374,10 +374,10 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
 
       {/* ── Selection toolbar ────────────────────────────────── */}
       {selectMode && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand/20 bg-brand-light px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3  border border-brand/20 bg-brand-light px-4 py-3">
           <div className="flex items-center gap-3">
             <button onClick={toggleSelectAll}
-              className="rounded-lg border border-brand/30 bg-white px-3 py-1.5 text-xs font-semibold text-brand transition hover:bg-brand hover:text-white">
+              className=" border border-brand/30 bg-white px-3 py-1.5 text-xs font-semibold text-brand transition hover:bg-brand hover:text-white">
               {selectedIds.size === filtered.length ? 'Deselect all' : 'Select all'}
             </button>
             <p className="text-sm font-medium text-gray-700">
@@ -387,7 +387,7 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
           <button
             onClick={() => setBulkDeleteOpen(true)}
             disabled={selectedIds.size === 0}
-            className="flex items-center gap-2 rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-40">
+            className="flex items-center gap-2  bg-red-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-40">
             <Trash2 className="h-4 w-4" />
             Delete selected
           </button>
@@ -399,7 +399,7 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
         <div
           onClick={() => canUpload && setShowUpload(true)}
           className={cn(
-            'rounded-2xl border-2 border-dashed border-gray-300 bg-white p-16 text-center',
+            ' border-2 border-dashed border-gray-300 bg-white p-16 text-center',
             canUpload && 'cursor-pointer hover:border-brand transition-colors'
           )}>
           <FileText className="mx-auto h-10 w-10 text-gray-300" />
@@ -411,12 +411,12 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
           </p>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-2xl border-2 border-dashed border-gray-200 bg-white p-12 text-center">
+        <div className=" border-2 border-dashed border-gray-200 bg-white p-12 text-center">
           <FileText className="mx-auto h-8 w-8 text-gray-300" />
           <p className="mt-3 text-sm font-medium text-gray-400">No documents in this category yet.</p>
           {canUpload && (
             <button onClick={() => setShowUpload(true)}
-              className="mt-4 rounded-xl border border-brand/30 bg-brand-light px-4 py-2 text-xs font-semibold text-brand transition hover:bg-brand hover:text-white">
+              className="mt-4  border border-brand/30 bg-brand-light px-4 py-2 text-xs font-semibold text-brand transition hover:bg-brand hover:text-white">
               Upload to this category
             </button>
           )}
@@ -435,7 +435,7 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
                   key={doc.id}
                   onClick={() => selectMode ? toggleSelect(doc.id) : setPreviewDocId(doc.id)}
                   className={cn(
-                    'flex cursor-pointer items-start gap-3 rounded-2xl border bg-white p-3.5 shadow-sm transition active:scale-[0.99]',
+                    'flex cursor-pointer items-start gap-3  border bg-white p-3.5 shadow-sm transition active:scale-[0.99]',
                     selectedIds.has(doc.id) ? 'border-brand/30 bg-brand-light/30' : previewDocId === doc.id ? 'border-brand/30 bg-brand-light/30' : 'border-gray-200',
                   )}>
                   {/* Checkbox */}
@@ -451,7 +451,7 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
 
                   {/* Icon */}
                   <div className={cn(
-                    'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border',
+                    'flex h-10 w-10 shrink-0 items-center justify-center  border',
                     cat ? `${cat.bgColor} ${cat.borderColor}` : 'bg-gray-50 border-gray-200',
                   )}>
                     {cat
@@ -492,14 +492,14 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
                         onClick={e => { e.stopPropagation(); handleRetry(doc) }}
                         disabled={retrying}
                         title="Retry processing"
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-300 transition hover:bg-amber-50 hover:text-amber-600 disabled:opacity-50">
+                        className="flex h-7 w-7 shrink-0 items-center justify-center  text-gray-300 transition hover:bg-amber-50 hover:text-amber-600 disabled:opacity-50">
                         <RefreshCw className={cn('h-3.5 w-3.5', retrying && 'animate-spin')} />
                       </button>
                     )}
                     {canDelete && !selectMode && (
                       <button
                         onClick={e => { e.stopPropagation(); setDeleteTarget({ id: doc.id, title: doc.title }) }}
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-300 transition hover:bg-red-50 hover:text-red-500">
+                        className="flex h-7 w-7 shrink-0 items-center justify-center  text-gray-300 transition hover:bg-red-50 hover:text-red-500">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     )}
@@ -510,7 +510,7 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
           </div>
 
           {/* ── Desktop table (md+) ─────────────────────────────── */}
-          <div className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm md:block">
+          <div className="hidden overflow-hidden  border border-gray-200 bg-white shadow-sm md:block">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50/80 text-left">
@@ -558,7 +558,7 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-2.5">
                           <div className={cn(
-                            'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border',
+                            'flex h-8 w-8 shrink-0 items-center justify-center  border',
                             cat ? `${cat.bgColor} ${cat.borderColor}` : 'bg-gray-50 border-gray-200',
                           )}>
                             {cat
@@ -602,14 +602,14 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
                               <button
                                 onClick={() => handleRetry(doc)}
                                 disabled={retrying}
-                                className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-300 transition hover:bg-amber-50 hover:text-amber-600 disabled:opacity-50"
+                                className="flex h-7 w-7 items-center justify-center  text-gray-300 transition hover:bg-amber-50 hover:text-amber-600 disabled:opacity-50"
                                 title="Retry processing">
                                 <RefreshCw className={cn('h-3.5 w-3.5', retrying && 'animate-spin')} />
                               </button>
                             )}
                             <button
                               onClick={() => setDeleteTarget({ id: doc.id, title: doc.title })}
-                              className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-300 transition hover:bg-red-50 hover:text-red-500"
+                              className="flex h-7 w-7 items-center justify-center  text-gray-300 transition hover:bg-red-50 hover:text-red-500"
                               title="Delete document">
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
@@ -652,8 +652,8 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
       {/* ── Category delete confirmation ────────────────────── */}
       {catDeleteTarget && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-          <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 border border-red-200">
+          <div className="w-full max-w-sm  border border-gray-200 bg-white p-6 shadow-2xl">
+            <div className="flex h-10 w-10 items-center justify-center  bg-red-50 border border-red-200">
               <Trash2 className="h-5 w-5 text-red-500" />
             </div>
             <h3 className="mt-4 text-base font-bold text-gray-900">Delete &ldquo;{catDeleteTarget.label}&rdquo;?</h3>
@@ -664,13 +664,13 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
               <button
                 onClick={() => setCatDeleteTarget(null)}
                 disabled={catDeleting}
-                className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50">
+                className="flex-1  border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50">
                 Cancel
               </button>
               <button
                 onClick={handleCategoryDirectDelete}
                 disabled={catDeleting}
-                className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:opacity-50">
+                className="flex-1  bg-red-500 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:opacity-50">
                 {catDeleting ? 'Deleting…' : 'Delete'}
               </button>
             </div>
@@ -681,8 +681,8 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
       {/* ── Delete confirmation ─────────────────────────────── */}
       {deleteTarget && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-          <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 border border-red-200">
+          <div className="w-full max-w-sm  border border-gray-200 bg-white p-6 shadow-2xl">
+            <div className="flex h-10 w-10 items-center justify-center  bg-red-50 border border-red-200">
               <Trash2 className="h-5 w-5 text-red-500" />
             </div>
             <h3 className="mt-4 text-base font-bold text-gray-900">Delete this document?</h3>
@@ -693,13 +693,13 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
               <button
                 onClick={() => setDeleteTarget(null)}
                 disabled={deleting}
-                className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50">
+                className="flex-1  border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50">
                 Cancel
               </button>
               <button
                 onClick={handleDeleteConfirm}
                 disabled={deleting}
-                className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:opacity-50">
+                className="flex-1  bg-red-500 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:opacity-50">
                 {deleting ? 'Deleting…' : 'Delete'}
               </button>
             </div>
@@ -710,8 +710,8 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
       {/* ── Bulk delete confirmation ─────────────────────────── */}
       {bulkDeleteOpen && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-          <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 border border-red-200">
+          <div className="w-full max-w-sm  border border-gray-200 bg-white p-6 shadow-2xl">
+            <div className="flex h-10 w-10 items-center justify-center  bg-red-50 border border-red-200">
               <Trash2 className="h-5 w-5 text-red-500" />
             </div>
             <h3 className="mt-4 text-base font-bold text-gray-900">
@@ -724,13 +724,13 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
               <button
                 onClick={() => setBulkDeleteOpen(false)}
                 disabled={bulkDeleting}
-                className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50">
+                className="flex-1  border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50">
                 Cancel
               </button>
               <button
                 onClick={handleBulkDeleteConfirm}
                 disabled={bulkDeleting}
-                className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:opacity-50">
+                className="flex-1  bg-red-500 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:opacity-50">
                 {bulkDeleting ? 'Deleting…' : 'Delete'}
               </button>
             </div>

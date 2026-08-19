@@ -76,7 +76,7 @@ export default function DashboardInsight({ question, label }: Props) {
   const cfg = data ? SENTIMENT_CONFIG[data.sentiment] : SENTIMENT_CONFIG.neutral
 
   return (
-    <div className={cn('rounded-2xl border p-5 shadow-sm transition', loading ? 'border-gray-200 bg-white' : cfg.border, !loading && cfg.bg)}>
+    <div className={cn(' border p-5 shadow-sm transition', loading ? 'border-gray-200 bg-white' : cfg.border, !loading && cfg.bg)}>
 
       {/* Header */}
       <div className="flex items-center justify-between gap-2">
@@ -84,7 +84,7 @@ export default function DashboardInsight({ question, label }: Props) {
         <button
           onClick={() => load(true)}
           disabled={loading}
-          className="flex h-6 w-6 items-center justify-center rounded-lg text-gray-300 transition hover:bg-gray-100 hover:text-gray-500 disabled:opacity-40"
+          className="flex h-6 w-6 items-center justify-center  text-gray-300 transition hover:bg-gray-100 hover:text-gray-500 disabled:opacity-40"
           title="Refresh insight">
           <RefreshCw className={cn('h-3 w-3', loading && 'animate-spin')} />
         </button>

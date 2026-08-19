@@ -75,7 +75,7 @@ export default function SpreadsheetViewer({ url }: Props) {
             <button
               key={sheet.name}
               onClick={() => setActive(i)}
-              className={`shrink-0 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
+              className={`shrink-0  px-3 py-1.5 text-xs font-medium transition ${
                 i === active
                   ? 'bg-brand text-white'
                   : 'border border-gray-200 text-gray-500 hover:bg-gray-50'
@@ -86,7 +86,7 @@ export default function SpreadsheetViewer({ url }: Props) {
           ))}
         </div>
       )}
-      <div className="flex-1 overflow-auto rounded-2xl border border-gray-100 bg-white p-4">
+      <div className="flex-1 overflow-auto  border border-gray-100 bg-white p-4">
         <div
           className="spreadsheet-preview text-sm [&_table]:border-collapse [&_table]:w-full [&_td]:border [&_td]:border-gray-200 [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-gray-200 [&_th]:bg-gray-50 [&_th]:px-2 [&_th]:py-1 [&_th]:font-medium"
           dangerouslySetInnerHTML={{ __html: sheets[active].html }}

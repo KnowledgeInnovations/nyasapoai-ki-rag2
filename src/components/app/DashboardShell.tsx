@@ -38,7 +38,7 @@ export default function DashboardShell({ title, description, lastUpdated, childr
       {/* ── Header — compact, two lines max ─────────────────────── */}
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="truncate text-lg font-bold text-gray-900">{title}</h1>
+          <h1 className="font-editorial truncate text-xl font-normal text-gray-900">{title}</h1>
           <p className="hidden truncate text-xs text-gray-500 sm:block">{description}</p>
         </div>
         <span className="shrink-0 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[10px] font-medium text-gray-400 shadow-sm">
@@ -47,7 +47,7 @@ export default function DashboardShell({ title, description, lastUpdated, childr
       </div>
 
       {/* ── Dashboard tab bar — scrollable, no-scrollbar ───────── */}
-      <div className="flex gap-1 overflow-x-auto rounded-xl border border-gray-200 bg-gray-50 p-1 no-scrollbar">
+      <div className="flex gap-1 overflow-x-auto  border border-gray-200 bg-gray-50 p-1 no-scrollbar">
         {TABS.map(tab => {
           const active = pathname === tab.href
           return (
@@ -56,7 +56,7 @@ export default function DashboardShell({ title, description, lastUpdated, childr
               href={tab.href}
               onMouseEnter={() => router.prefetch(tab.href)}
               className={cn(
-                'shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold whitespace-nowrap transition',
+                'shrink-0  px-3 py-1.5 text-[11px] font-semibold whitespace-nowrap transition',
                 active
                   ? 'bg-brand text-white shadow-sm'
                   : 'text-gray-500 hover:bg-white hover:text-gray-800'

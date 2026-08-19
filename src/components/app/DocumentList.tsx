@@ -17,7 +17,7 @@ const statusConfig = {
 export default function DocumentList({ documents = [] }: Props) {
   if (documents.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-12 text-center">
+      <div className=" border border-dashed border-gray-300 bg-white p-12 text-center">
         <FileText className="mx-auto h-10 w-10 text-gray-300" />
         <p className="mt-3 text-sm font-medium text-gray-500">No documents yet</p>
         <p className="mt-1 text-xs text-gray-400">
@@ -28,7 +28,7 @@ export default function DocumentList({ documents = [] }: Props) {
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+    <div className="overflow-hidden  border border-gray-200 bg-white shadow-sm">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-gray-100 bg-gray-50 text-left">
