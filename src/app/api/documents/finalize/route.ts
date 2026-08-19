@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
+import nodePath from 'node:path'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { extractStructuredText, chunkPages, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
+import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
 import { normalizeRole, canUploadDocuments } from '@/lib/roles'
-import { extractFactsFromChunk, runSanityChecks, type FinancialFact } from '@/lib/factExtraction'
+import {
+  extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks,
+  runCrossDocumentCorroboration, supersedeForwardProjections, applyLearnedHeuristics,
+  looksLikeBudgetDocument, type FinancialFact,
+} from '@/lib/factExtraction'
+import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
 import { extractGenericFacts } from '@/lib/genericFactExtraction'
 import type { ProcessingWarning } from '@/types'
 
@@ -157,7 +163,21 @@ export async function POST(request: NextRequest) {
         emit({ stage: 'chunking' })
         const titleLabel = `[Document: ${docTitle}]\n`
         const rawChunks  = chunkPages(pages, docTitle)
-        const chunks     = rawChunks.map(c => ({ ...c, text: titleLabel + c.text }))
+
+        // AI table cleanup — fixes OCR artifacts, misaligned columns, and
+        // broken number formatting in table blocks before embedding. Runs
+        // on upload too (not just manual re-train) so a document's first
+        // pass already gets the accurate extraction tier.
+        emit({ stage: 'chunking', message: 'AI-cleaning table blocks' })
+        const cleanedChunks = await aiCleanTableChunks(
+          rawChunks, routeDeadline,
+          ({ reason, network }) => warn('table_cleaning', reason, network),
+        ).catch((err) => {
+          warn('table_cleaning', (err as Error).message)
+          return rawChunks
+        })
+
+        const chunks = cleanedChunks.map(c => ({ ...c, text: titleLabel + c.text }))
         const totalBatches = Math.ceil(chunks.length / EMBED_BATCH)
         emit({ stage: 'chunked', chunks: chunks.length, totalBatches })
 
@@ -205,6 +225,57 @@ export async function POST(request: NextRequest) {
           emit({ stage: 'embedded', batch: batchNum, totalBatches })
         }
 
+        // Pass the document's own fiscal year so tableRecordToFact /
+        // aiEnhanceTableFacts can flag MTEF columns whose year exceeds the
+        // document year as forward_projection rather than letting them
+        // compete with actuals.
+        const docYearMatch = docTitle.match(/\b(19|20)\d{2}\b/)
+        const docFiscalYear = docYearMatch ? docYearMatch[0] : null
+
+        // Cheap document-level check: does this document show any sign of
+        // being a government budget statement? If not, skip the two
+        // AI-driven budget-specific steps below — see train/route.ts for
+        // the full rationale (cost + maxDuration risk on non-budget docs).
+        const budgetSignal = looksLikeBudgetDocument(chunks.map(c => c.text).join('\n'))
+        if (!budgetSignal) {
+          emit({ stage: 'tables', message: 'No budget-statement signal detected — skipping budget-specific table extraction' })
+        }
+
+        // Table-aware fact extraction (PDFs only)
+        if (budgetSignal && nodePath.extname(originalFilename).toLowerCase() === '.pdf') {
+          emit({ stage: 'tables', message: 'Extracting tables for financial facts…' })
+          try {
+            const tableRecords = await extractTableRecordsFromPdf(buffer)
+            for (const record of tableRecords) {
+              const fact = tableRecordToFact({ ...record, document_id: document.id }, membership.tenant_id, document.id, docFiscalYear)
+              if (fact) allFacts.push(fact)
+            }
+          } catch (err) {
+            console.error('Table extraction error:', err)
+            warn('table_extraction', (err as Error).message)
+          }
+        }
+
+        // AI-enhanced table fact extraction — catches facts the regex
+        // pipeline misses: sector breakdowns, footnote totals, multi-year
+        // rows with non-standard labels.
+        if (budgetSignal) {
+          try {
+            const aiFacts = await aiEnhanceTableFacts(
+              cleanedChunks, membership.tenant_id, document.id, docFiscalYear,
+              ({ tableCount, reason, network }) => warn('ai_table_facts', `Could not parse ${tableCount} table batch(es): ${reason}`, network),
+              routeDeadline,
+            )
+            if (aiFacts.length) {
+              emit({ stage: 'tables', message: `AI extracted ${aiFacts.length} additional financial facts` })
+              allFacts.push(...aiFacts)
+            }
+          } catch (err) {
+            console.error('AI table fact extraction error:', err)
+            warn('ai_table_facts', (err as Error).message)
+          }
+        }
+
         emit({ stage: 'facts', count: allFacts.length })
         runSanityChecks(allFacts)
         if (allFacts.length) {
@@ -214,7 +285,7 @@ export async function POST(request: NextRequest) {
         if (allFacts.length < DOCUMENT_FACTS_FALLBACK_THRESHOLD) {
           try {
             const genericFacts = await extractGenericFacts(
-              chunks, membership.tenant_id, document.id, routeDeadline,
+              cleanedChunks, membership.tenant_id, document.id, routeDeadline,
               ({ reason, network }) => warn('generic_facts_fallback', reason, network),
             )
             if (genericFacts.length) {
@@ -225,6 +296,58 @@ export async function POST(request: NextRequest) {
             console.error('Generic fact extraction error:', err)
             warn('generic_facts_fallback', (err as Error).message)
           }
+        }
+
+        // Cross-document corroboration (national total_budget) — this
+        // document's facts are now stored, so re-check the full national
+        // total_budget series across all documents for this tenant.
+        try {
+          const { data: allNational } = await serviceClient
+            .from('financial_facts')
+            .select('*')
+            .eq('tenant_id', membership.tenant_id)
+            .eq('entity_type', 'national')
+            .eq('metric', 'total_budget')
+          const changed = runCrossDocumentCorroboration((allNational ?? []) as (FinancialFact & { id: string })[])
+          for (const f of changed) {
+            await serviceClient.from('financial_facts').update({ flags: f.flags, confidence: f.confidence }).eq('id', f.id)
+          }
+        } catch (err) {
+          console.error('Cross-document corroboration error:', err)
+          warn('cross_doc_corroboration', (err as Error).message)
+        }
+
+        // Supersede stale forward-projections (ministry/sector) — this
+        // document may BE the actual-year budget other documents only had
+        // MTEF projections for.
+        try {
+          const { data: allMinistrySector } = await serviceClient
+            .from('financial_facts')
+            .select('*')
+            .eq('tenant_id', membership.tenant_id)
+            .in('entity_type', ['ministry', 'sector'])
+          const changed = supersedeForwardProjections((allMinistrySector ?? []) as (FinancialFact & { id: string })[])
+          for (const f of changed) {
+            await serviceClient.from('financial_facts').update({ flags: f.flags, confidence: f.confidence }).eq('id', f.id)
+          }
+        } catch (err) {
+          console.error('Forward-projection supersession error:', err)
+          warn('forward_projection_supersession', (err as Error).message)
+        }
+
+        // Apply learned heuristics, if confirmed for this tenant.
+        try {
+          const { data: allTenantFacts } = await serviceClient
+            .from('financial_facts')
+            .select('*')
+            .eq('tenant_id', membership.tenant_id)
+          const changed = await applyLearnedHeuristics(serviceClient, membership.tenant_id, (allTenantFacts ?? []) as (FinancialFact & { id: string })[])
+          for (const f of changed) {
+            await serviceClient.from('financial_facts').update({ flags: f.flags, confidence: f.confidence }).eq('id', f.id)
+          }
+        } catch (err) {
+          console.error('Learned-heuristic promotion error:', err)
+          warn('learned_heuristic_promotion', (err as Error).message)
         }
 
         const degradedStepCount = new Set(warnings.map(w => w.step)).size

@@ -20,6 +20,20 @@ export function getAnthropicHeaders() {
 
 export const CLAUDE_MODEL = 'claude-sonnet-4-6'
 
+// Reasoning model for the answer-generation paths (main chat stream +
+// agentic tool loop) — Opus 4.8 with adaptive thinking. High-volume utility
+// calls (fact extraction, table cleaning, titles, dashboard insights) stay on
+// CLAUDE_MODEL: they're cost-sensitive and don't benefit from deep reasoning.
+//
+// API differences vs sonnet-4-6 that callers must respect:
+// - `temperature`/`top_p`/`top_k` are REMOVED on Opus 4.8 — sending any
+//   returns a 400. Do not pass temperature with this model.
+// - Thinking is opt-in: pass `thinking: { type: 'adaptive' }` (the old
+//   `budget_tokens` form also 400s).
+// - Thinking tokens count against `max_tokens` — budget generously.
+export const CLAUDE_REASONING_MODEL = 'claude-opus-4-8'
+export const ADAPTIVE_THINKING = { type: 'adaptive' } as const
+
 export interface ClaudeMessage {
   role: 'user' | 'assistant'
   content: string

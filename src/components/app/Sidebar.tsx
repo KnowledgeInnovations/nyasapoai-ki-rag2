@@ -20,15 +20,16 @@ interface HistoryItem {
 }
 
 // The platform-operator tenant (Nyansa AI's own workspace) has no end-users
-// of its own — Ask/Dashboards/Users are client-tenant-facing features and
-// are hidden for it regardless of role; it only needs Documents/Training
-// (to manage reference docs) and Tenants (cross-tenant admin).
+// or reference documents of its own — Ask/Documents/Training/Dashboards/Users
+// are all client-tenant-facing features and are hidden for it regardless of
+// role. Its entire job is cross-tenant admin, so its nav is just Tenants and
+// Settings.
 function getNavItems(role: string, isPlatformAdmin?: boolean, isPlatformTenant?: boolean) {
   const r = normalizeRole(role)
   return [
     ...(isPlatformTenant ? [] : [{ href: '/ask', icon: MessageSquare, label: 'Ask AI' }]),
-    { href: '/documents',  icon: FileText,         label: 'Documents'  },
-    ...(canAccessTraining(r)                        ? [{ href: '/training',   icon: Brain,           label: 'Training'   }] : []),
+    ...(isPlatformTenant ? [] : [{ href: '/documents', icon: FileText, label: 'Documents' }]),
+    ...(canAccessTraining(r) && !isPlatformTenant   ? [{ href: '/training',   icon: Brain,           label: 'Training'   }] : []),
     ...(canAccessDashboards(r) && !isPlatformTenant  ? [{ href: '/dashboards', icon: LayoutDashboard, label: 'Dashboards' }] : []),
     ...(canManageUsers(r) && !isPlatformTenant       ? [{ href: '/users',      icon: Users,           label: 'Users'      }] : []),
     ...(isPlatformAdmin                              ? [{ href: '/admin/tenants', icon: Building2,    label: 'Tenants'    }] : []),

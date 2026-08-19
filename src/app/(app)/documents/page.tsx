@@ -1,10 +1,11 @@
 import type { Metadata } from 'next'
-import { getMembership, createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
+import { getMembership, getTenant, createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import DocumentsClient from '@/components/app/DocumentsClient'
 import type { Document } from '@/types'
 import { mergeWithDbCategories, type DbCategory } from '@/lib/documentCategories'
-import { canUploadDocuments, canDeleteDocuments } from '@/lib/roles'
+import { canUploadDocuments, canDeleteDocuments, isPlatformTenant } from '@/lib/roles'
 import { buildFactCountMap } from '@/lib/factCounts'
 
 export const metadata: Metadata = { title: 'Documents - Nyansa AI' }
@@ -19,6 +20,9 @@ function svc() {
 
 export default async function DocumentsPage() {
   const membership = await getMembership()
+  // Documents are a client-tenant feature — the platform tenant manages
+  // other tenants, not its own reference documents, from /admin/tenants.
+  if (membership && isPlatformTenant(await getTenant(membership.tenant_id))) redirect('/admin/tenants')
 
   let documents:         Document[] = []
   let canUpload  = false

@@ -12,7 +12,7 @@ export default async function AskPage() {
 
   const membership = await getMembership()
   const tenant = membership ? await getTenant(membership.tenant_id) : null
-  if (isPlatformTenant(tenant)) redirect('/training')
+  if (isPlatformTenant(tenant)) redirect('/admin/tenants')
   const tenantName = tenant?.name ?? 'Nyansa AI'
 
   return (

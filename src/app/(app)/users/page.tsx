@@ -19,7 +19,7 @@ export default async function UsersPage() {
   const [membership, user] = await Promise.all([getMembership(), getUser()])
   if (!membership || !canManageUsers(membership.role)) redirect('/ask')
   const tenant = await getTenant(membership.tenant_id)
-  if (isPlatformTenant(tenant)) redirect('/training')
+  if (isPlatformTenant(tenant)) redirect('/admin/tenants')
 
   const service = svc()
   const { data: memberships } = await service

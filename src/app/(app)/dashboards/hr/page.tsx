@@ -28,7 +28,7 @@ const INSIGHTS = [
 export default async function HRDashboard() {
   const membership = await getMembership()
   if (!membership || !canAccessDashboards(membership.role)) redirect('/ask')
-  if (isPlatformTenant(await getTenant(membership.tenant_id))) redirect('/training')
+  if (isPlatformTenant(await getTenant(membership.tenant_id))) redirect('/admin/tenants')
 
   const supabase = await createClient()
   const service  = svc()
