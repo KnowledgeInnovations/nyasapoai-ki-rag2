@@ -66,16 +66,16 @@ export default function DemoChat() {
   return (
     <div className="mx-auto max-w-4xl">
       {/* Tab bar */}
-      <div className="flex flex-wrap gap-2 mb-6">
+      <div className="mb-6 flex flex-wrap gap-1 border-b border-gray-200">
         {demos.map((d, i) => (
           <button
             key={d.tab}
             onClick={() => setActive(i)}
             className={cn(
-              'rounded-full px-4 py-2 text-xs font-semibold transition-all',
+              'border-b-2 px-4 py-2.5 text-xs font-semibold transition-all -mb-px',
               active === i
-                ? 'bg-gold text-navy shadow-lg shadow-gold/25'
-                : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-900'
+                ? 'border-brand text-brand'
+                : 'border-transparent text-gray-500 hover:text-gray-900'
             )}
           >
             {d.tab}
@@ -84,7 +84,7 @@ export default function DemoChat() {
       </div>
 
       {/* Chat window */}
-      <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-2xl shadow-black/10">
+      <div className="border border-gray-200 bg-white overflow-hidden shadow-[0_20px_50px_-30px_rgba(20,20,20,0.25)]">
         {/* Browser chrome */}
         <div className="flex h-10 items-center gap-2 border-b border-gray-200 bg-gray-50 px-4">
           <div className="h-2.5 w-2.5 rounded-full bg-red-500/40" />

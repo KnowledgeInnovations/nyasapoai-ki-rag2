@@ -22,7 +22,16 @@
   --color-navy-light:  #2d2d2d;
   --color-navy-card:   #1c1b22;
 
+  /* Editorial paper tone — marketing landing page background only */
+  --color-paper:       #f6f5f2;
+
   --font-sans: var(--font-inter);
+
+  /* Marketing-site-only typography (see (marketing)/layout.tsx) — falls
+     back to the app's own fonts if a page outside that layout ever uses
+     these classes without the variables being set. */
+  --font-editorial: var(--font-marketing-serif), Georgia, 'Times New Roman', serif;
+  --font-editorial-sans: var(--font-marketing-sans), var(--font-inter), system-ui, sans-serif;
 }
 
 body {
@@ -67,3 +76,11 @@ html { scroll-behavior: smooth; }
 .typing-dot {
   animation: typing-dot-bounce 1.2s infinite ease-in-out;
 }
+
+/* Marketing landing page entrance/ambient animations */
+@keyframes fade-up { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes float-y { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+@keyframes spark-pulse { 0%, 100% { opacity: 0.35; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.15); } }
+.animate-fade-up { opacity: 0; animation: fade-up 0.7s cubic-bezier(.2,.7,.3,1) forwards; }
+.animate-float   { animation: float-y 5.5s ease-in-out infinite; }
+.animate-spark   { animation: spark-pulse 2.4s ease-in-out infinite; }

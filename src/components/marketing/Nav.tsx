@@ -43,22 +43,22 @@ export default function MarketingNav() {
           : 'bg-transparent'
       )}>
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 md:px-8">
-          <Link href="/" className="flex items-center gap-2 shrink-0">
-            <span className="text-xl font-bold text-brand">Nyansa</span>
-            <span className="rounded-md bg-brand px-1.5 py-0.5 text-xs font-semibold text-white">AI</span>
+          <Link href="/" className="font-editorial shrink-0 text-[21px] text-gray-900">
+            Nyansa<span className="text-brand">·</span>AI
           </Link>
 
-          <nav className="hidden md:flex items-center gap-1">
+          <nav className="hidden md:flex items-center gap-9 font-editorial-sans">
             {navLinks.map(l => (
               <Link key={l.href} href={l.href}
-                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-100 hover:text-gray-900">
+                className="group relative text-[13.5px] font-medium text-gray-600 transition hover:text-gray-900">
                 {l.label}
+                <span className="absolute -bottom-1 left-0 h-px w-0 bg-brand transition-all duration-200 group-hover:w-full" />
               </Link>
             ))}
           </nav>
 
           <Link href="/auth/login"
-            className="hidden md:inline-flex items-center gap-2 rounded-xl border border-brand/25 bg-brand-light px-4 py-2 text-sm font-bold text-brand transition hover:bg-brand hover:text-white hover:border-brand">
+            className="hidden md:inline-flex items-center gap-2 bg-brand px-5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-brand-dark">
             Sign in <ArrowRight className="h-3.5 w-3.5" />
           </Link>
 
@@ -87,9 +87,8 @@ export default function MarketingNav() {
       )}>
         {/* Header */}
         <div className="flex h-16 shrink-0 items-center justify-between px-5 border-b border-gray-200">
-          <div className="flex items-center gap-2">
-            <span className="text-lg font-bold text-brand">Nyansa</span>
-            <span className="rounded-md bg-brand px-1.5 py-0.5 text-xs font-semibold text-white">AI</span>
+          <div className="font-editorial text-lg text-gray-900">
+            Nyansa<span className="text-brand">·</span>AI
           </div>
           <button onClick={() => setOpen(false)} aria-label="Close menu"
             className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition">
