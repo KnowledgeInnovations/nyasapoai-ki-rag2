@@ -41,6 +41,10 @@ export interface TableFactRecord {
   fiscal_year: string | null
   value: number
   unit: string
+  // true when detectUnit() (tableExtraction.ts) found no real unit label
+  // and fell back to its 'million' default — tableRecordToFact flags this
+  // rather than treating a guessed unit as an equally-trustworthy detection.
+  unit_inferred?: boolean
   table_caption: string | null
 }
 
@@ -303,7 +307,13 @@ export function extractFactsFromChunk(chunk: FactSourceChunk): FinancialFact[] {
     }
     if (valueMillions != null) {
       const [min, max] = PLAUSIBLE_VALUE_MILLIONS[entityType]
-      if (valueMillions < min || valueMillions > max) continue
+      // Magnitude, not a straight range — see tableValueToMillions' same
+      // fix below for why a negative figure (deficit, negative financing)
+      // is exactly as plausible as its positive counterpart and shouldn't
+      // be dropped here before it ever reaches runSanityChecks' explicit
+      // negative_value flag.
+      const magnitude = Math.abs(valueMillions)
+      if (magnitude < min || magnitude > max) continue
     }
 
     let confidence = 30
@@ -421,7 +431,15 @@ const PLAUSIBLE_VALUE_MILLIONS: Record<'national' | 'ministry' | 'sector', [numb
 function salvageImplausibleMillions(value: number, entityType: 'national' | 'ministry' | 'sector'): number | null {
   const [min, max] = PLAUSIBLE_VALUE_MILLIONS[entityType]
   const salvaged = value / 1e6
-  return salvaged >= min && salvaged <= max ? salvaged : null
+  // Magnitude check, not a straight range check — PLAUSIBLE_VALUE_MILLIONS
+  // is written as a positive range, but a genuine negative figure (a
+  // deficit, negative net financing) is exactly as plausible in magnitude
+  // as its positive counterpart. Sign is preserved in the returned value;
+  // runSanityChecks() flags negatives separately (negative_value,
+  // confidence 0) so they stay auditable rather than silently vanishing
+  // here before they ever reach that check.
+  const magnitude = Math.abs(salvaged)
+  return magnitude >= min && magnitude <= max ? salvaged : null
 }
 
 function tableValueToMillions(value: number, unit: string, entityType: TableFactRecord['entity_type']): number | null {
@@ -432,7 +450,8 @@ function tableValueToMillions(value: number, unit: string, entityType: TableFact
   if (base == null) return null
 
   const [min, max] = PLAUSIBLE_VALUE_MILLIONS[entityType]
-  if (base >= min && base <= max) return base
+  const magnitude = Math.abs(base)
+  if (magnitude >= min && magnitude <= max) return base
   return salvageImplausibleMillions(value, entityType)
 }
 
@@ -449,7 +468,14 @@ export function tableRecordToFact(
   documentId: string,
   documentFiscalYear?: string | null,
 ): FinancialFact | null {
-  if (record.unit === '%' || record.value <= 0) return null
+  // Percentage columns aren't absolute monetary figures — drop those.
+  // Negative VALUES (deficits, negative net financing) are legitimate and
+  // used to be dropped here too, silently — now they flow through to
+  // runSanityChecks() (negative_value flag, confidence 0) so they're
+  // auditable instead of vanishing with no trace. Zero is still dropped:
+  // a real reported figure of exactly 0 is rare enough that it's far more
+  // likely a parse artifact (an empty cell read as 0) than a genuine value.
+  if (record.unit === '%' || record.value === 0) return null
 
   const valueMillions = tableValueToMillions(record.value, record.unit, record.entity_type)
   if (valueMillions == null) return null
@@ -472,6 +498,16 @@ export function tableRecordToFact(
       flags.push('forward_projection')
       confidence = Math.min(confidence, 55)
     }
+  }
+
+  // The unit had no real label in the source and was guessed as a
+  // fallback (detectUnit()) — a genuinely-billion or genuinely-thousand
+  // figure read under the wrong assumed unit lands off by 1000x. Flag it
+  // and keep confidence below the validated-facts gate (70) rather than
+  // letting a guess masquerade as a confirmed figure.
+  if (record.unit_inferred) {
+    flags.push('unit_inferred')
+    confidence = Math.min(confidence, 65)
   }
 
   return {
@@ -1113,7 +1149,13 @@ ${combined}`,
           const boundsEntityType = (entityType as keyof typeof PLAUSIBLE_VALUE_MILLIONS) in PLAUSIBLE_VALUE_MILLIONS
             ? (entityType as keyof typeof PLAUSIBLE_VALUE_MILLIONS) : 'ministry'
           const [min, max] = PLAUSIBLE_VALUE_MILLIONS[boundsEntityType]
-          if (valueMil < min || valueMil > max) {
+          // Magnitude, not a straight range — a negative figure (deficit,
+          // negative net financing) is exactly as plausible in size as its
+          // positive counterpart; dropping it here before runSanityChecks
+          // gets to apply its explicit negative_value flag silently
+          // discarded every deficit figure this pass ever found.
+          const magnitude = Math.abs(valueMil)
+          if (magnitude < min || magnitude > max) {
             const salvaged = salvageImplausibleMillions(f.value, boundsEntityType)
             if (salvaged == null) continue
             valueMil = salvaged

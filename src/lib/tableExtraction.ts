@@ -74,14 +74,23 @@ const UNIT_RX: { rx: RegExp; unit: string }[] = [
   { rx: /gh.?\s*c?\s*billion|billion/i, unit: 'billion' },
 ]
 
-function detectUnit(...texts: (string | null | undefined)[]): string {
+// Returns whether the unit was actually found in the source text
+// (inferred: false) or had to fall back to the 'million' default with no
+// real evidence for it (inferred: true) — a genuinely-billion or
+// genuinely-thousand figure with no detectable unit label previously fell
+// through to this default silently, and could pass the plausibility filter
+// off by 1000x with nothing distinguishing "unit confirmed from text" from
+// "unit guessed by default." Callers thread `inferred` into the resulting
+// record so tableRecordToFact can flag it rather than treat it as an
+// equally-trustworthy detection.
+function detectUnit(...texts: (string | null | undefined)[]): { unit: string; inferred: boolean } {
   for (const text of texts) {
     if (!text) continue
     for (const { rx, unit } of UNIT_RX) {
-      if (rx.test(text)) return unit
+      if (rx.test(text)) return { unit, inferred: false }
     }
   }
-  return 'million'
+  return { unit: 'million', inferred: true }
 }
 
 function detectYear(...texts: (string | null | undefined)[]): string | null {
@@ -113,7 +122,16 @@ function normalizeMinistryName(raw: string): string {
 
 function parseNumber(cell: string | null | undefined): number | null {
   if (!cell) return null
-  const cleaned = cell.trim().replace(/,/g, '').replace(/\s+/g, '').replace(/\(/g, '-').replace(/\)/g, '')
+  // Strip common footnote-marker conventions before the strict numeric
+  // check below, so a real value isn't discarded just because it carries
+  // a footnote reference — confirmed real losses on cells like
+  // "1,234.5*", "1,234.5¹", "1,234.5 1/" (a common government-budget
+  // appendix convention for a numbered footnote).
+  const withoutFootnotes = cell
+    .replace(/[*†‡]+\s*$/, '')
+    .replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]+\s*$/, '')
+    .replace(/\s+\d{1,2}\/\s*$/, '')
+  const cleaned = withoutFootnotes.trim().replace(/,/g, '').replace(/\s+/g, '').replace(/\(/g, '-').replace(/\)/g, '')
   if (!/^-?\d+(\.\d+)?$/.test(cleaned)) return null
   const n = parseFloat(cleaned)
   return Number.isFinite(n) ? n : null
@@ -172,6 +190,7 @@ interface RawTableRecord {
   fiscal_year: string | null
   value: number
   unit: string
+  unit_inferred?: boolean
   table_caption: string | null
 }
 
@@ -278,7 +297,7 @@ function extractNationalTable(
       // into the first header cell — fall back to it for unit detection too,
       // since the column headers themselves (e.g. "1999 Budget") often carry
       // no unit of their own.
-      const unit = detectUnit(colHeader, caption, header[0])
+      const { unit, inferred: unitInferred } = detectUnit(colHeader, caption, header[0])
       if (unit === '%') continue
 
       // header[0] often retains the table's caption text (e.g. "Table 23:
@@ -307,6 +326,7 @@ function extractNationalTable(
           fiscal_year: year,
           value: value / 10,
           unit: 'million',
+          unit_inferred: unitInferred,
           table_caption: caption,
         })
         continue
@@ -320,6 +340,7 @@ function extractNationalTable(
         fiscal_year: year,
         value,
         unit,
+        unit_inferred: unitInferred,
         table_caption: caption,
       })
     }
@@ -369,7 +390,7 @@ function extractMinistryTable(
       if (value == null) continue
 
       const colHeader = header[colIdx] ?? ''
-      const unit = detectUnit(colHeader, caption)
+      const { unit, inferred: unitInferred } = detectUnit(colHeader, caption)
       if (unit === '%') continue
 
       const year = detectYear(colHeader) ?? detectYear(caption) ?? fallbackYear
@@ -382,6 +403,7 @@ function extractMinistryTable(
         fiscal_year: year,
         value,
         unit,
+        unit_inferred: unitInferred,
         table_caption: caption,
       })
     }
