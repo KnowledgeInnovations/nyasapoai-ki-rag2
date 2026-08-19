@@ -41,7 +41,7 @@ export default function AppShell({ user, role, tenantName, isPlatformAdmin, isPl
   }, [])
 
   return (
-    <div className="flex overflow-hidden bg-[#f4f6fb]" style={{ height: '100dvh' }}>
+    <div className="flex overflow-hidden bg-paper font-editorial-sans" style={{ height: '100dvh' }}>
       <AuthListener />
       {/* Mobile overlay backdrop */}
       {mobileOpen && (

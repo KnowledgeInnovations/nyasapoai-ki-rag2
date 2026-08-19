@@ -47,20 +47,20 @@ export default function AppTopNav({ user, onMenuOpen, sidebarCollapsed, onToggle
   const pageTitle   = Object.entries(pageTitles).find(([k]) => pathname.startsWith(k))?.[1] ?? 'Workspace'
 
   return (
-    <header className="relative z-[300] flex h-14 shrink-0 items-center justify-between border-b border-gray-100 bg-white px-4 shadow-sm">
+    <header className="relative z-[300] flex h-14 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 font-editorial-sans">
 
       {/* Left: sidebar toggles + page title */}
       <div className="flex items-center gap-2">
         {/* Mobile hamburger */}
         <button onClick={onMenuOpen} aria-label="Open menu"
-          className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition md:hidden">
+          className="flex h-9 w-9 items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition md:hidden">
           <Menu className="h-5 w-5" />
         </button>
 
         {/* Desktop collapse/expand toggle */}
         <button onClick={onToggleSidebar} aria-label="Toggle sidebar"
           title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="hidden md:flex h-9 w-9 items-center justify-center rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition">
+          className="hidden md:flex h-9 w-9 items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition">
           {sidebarCollapsed
             ? <PanelLeft className="h-4.5 w-4.5" />
             : <PanelLeftClose className="h-4.5 w-4.5" />
@@ -68,15 +68,15 @@ export default function AppTopNav({ user, onMenuOpen, sidebarCollapsed, onToggle
         </button>
 
         <div className="h-4 w-px bg-gray-200 hidden md:block" />
-        <h1 className="text-sm font-bold text-gray-800">{pageTitle}</h1>
+        <h1 className="font-editorial text-base font-normal text-gray-800">{pageTitle}</h1>
       </div>
 
       {/* Right: user menu */}
       <div className="flex items-center">
         <div className="relative">
           <button onClick={() => setMenuOpen(!menuOpen)}
-            className="flex items-center gap-2 rounded-xl px-2 py-1.5 transition hover:bg-gray-100">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand text-[11px] font-bold text-white shadow-sm">
+            className="flex items-center gap-2 px-2 py-1.5 transition hover:bg-gray-100">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand text-[11px] font-semibold text-white">
               {initials}
             </div>
             <div className="hidden text-left sm:block">
@@ -91,9 +91,9 @@ export default function AppTopNav({ user, onMenuOpen, sidebarCollapsed, onToggle
               {/* Backdrop — closes menu on outside tap */}
               <div className="fixed inset-0 z-[350]" onClick={() => setMenuOpen(false)} />
               {/* Dropdown — fixed, above header z-index */}
-              <div className="fixed right-3 top-[58px] z-[400] w-56 rounded-2xl border border-gray-200 bg-white py-1.5 shadow-2xl shadow-black/10">
+              <div className="fixed right-3 top-[58px] z-[400] w-56 border border-gray-200 bg-white py-1.5 shadow-[0_24px_60px_-20px_rgba(20,20,20,0.3)]">
                 <div className="border-b border-gray-100 px-4 py-3">
-                  <p className="text-xs font-bold text-gray-800">{displayName}</p>
+                  <p className="text-xs font-semibold text-gray-800">{displayName}</p>
                   <p className="truncate text-[11px] text-gray-400">{user.email}</p>
                 </div>
                 <button onClick={() => { router.push('/settings'); setMenuOpen(false) }}

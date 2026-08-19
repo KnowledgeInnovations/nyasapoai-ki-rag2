@@ -182,26 +182,26 @@ export default function AppSidebar({ role, tenantName, isPlatformAdmin, isPlatfo
 
   const inner = (
     <div className={cn(
-      'flex h-full flex-col bg-white border-r border-gray-100 shadow-sm transition-all duration-300',
+      'flex h-full flex-col bg-white border-r border-gray-200 font-editorial-sans transition-all duration-300',
       collapsed ? 'w-14' : 'w-60'
     )}>
       {/* ── Header ─────────────────────────────────────────── */}
-      <div className="flex h-14 shrink-0 items-center border-b border-gray-100 px-3">
+      <div className="flex h-14 shrink-0 items-center border-b border-gray-200 px-3">
         {collapsed ? (
-          <div className="mx-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand text-[11px] font-extrabold text-white shadow-sm">
+          <div className="mx-auto flex h-8 w-8 shrink-0 items-center justify-center border border-brand/20 bg-brand text-[11px] font-semibold text-white">
             {initials}
           </div>
         ) : (
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand text-xs font-extrabold text-white shadow-sm">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center border border-brand/20 bg-brand text-xs font-semibold text-white">
               {initials}
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-bold text-gray-900 leading-tight truncate">{tenantName}</p>
+              <p className="text-sm font-semibold text-gray-900 leading-tight truncate">{tenantName}</p>
               <p className="text-[10px] leading-tight text-gray-400">Intelligence workspace</p>
             </div>
             <button onClick={onClose}
-              className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition md:hidden">
+              className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition md:hidden">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -219,11 +219,11 @@ export default function AppSidebar({ role, tenantName, isPlatformAdmin, isPlatfo
               <Link key={item.href} href={item.href} onClick={onClose}
                 title={collapsed ? item.label : undefined}
                 className={cn(
-                  'group flex items-center rounded-xl transition-all duration-150',
-                  collapsed ? 'h-10 w-10 mx-auto justify-center' : 'gap-3 px-3 py-2.5',
+                  'group flex items-center border-l-2 transition-all duration-150',
+                  collapsed ? 'h-10 w-10 mx-auto justify-center border-l-0' : 'gap-3 px-3 py-2.5',
                   active
-                    ? 'bg-brand/8 text-brand font-semibold ring-1 ring-brand/10'
-                    : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+                    ? 'border-brand bg-brand-light text-brand font-semibold'
+                    : 'border-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900'
                 )}>
                 <item.icon className={cn(
                   'h-4 w-4 shrink-0 transition-colors',
@@ -241,7 +241,7 @@ export default function AppSidebar({ role, tenantName, isPlatformAdmin, isPlatfo
             {/* New Chat button */}
             <div className="px-2 pb-2 shrink-0">
               <button onClick={handleNewChat}
-                className="flex w-full items-center gap-2 rounded-xl border border-dashed border-gray-300 px-3 py-2 text-xs font-semibold text-gray-500 transition hover:border-brand/40 hover:bg-brand-light hover:text-brand">
+                className="flex w-full items-center gap-2 border border-dashed border-gray-300 px-3 py-2 text-xs font-semibold text-gray-500 transition hover:border-brand/40 hover:bg-brand-light hover:text-brand">
                 <Plus className="h-3.5 w-3.5" /> New Chat
               </button>
             </div>
@@ -261,7 +261,7 @@ export default function AppSidebar({ role, tenantName, isPlatformAdmin, isPlatfo
                   {group.items.map(item => (
                     <div key={item.id}
                       className={cn(
-                        'group relative flex items-center rounded-xl transition',
+                        'group relative flex items-center transition',
                         activeConvId === item.id
                           ? 'bg-brand-light'
                           : 'hover:bg-gray-100'
@@ -298,16 +298,16 @@ export default function AppSidebar({ role, tenantName, isPlatformAdmin, isPlatfo
       <div className="shrink-0 border-t border-gray-200 p-2">
         <button onClick={onToggle}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="hidden md:flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition">
+          className="hidden md:flex w-full items-center justify-center gap-2 px-3 py-2.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition">
           {collapsed
             ? <ChevronRight className="h-4 w-4" />
             : <><ChevronLeft className="h-4 w-4" /><span className="text-xs font-medium">Collapse</span></>
           }
         </button>
         {!collapsed && (
-          <div className="mt-1 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-center">
+          <div className="mt-1 border border-gray-200 bg-gray-50 px-3 py-2 text-center">
             <p className="text-[10px] text-gray-400">Powered by</p>
-            <p className="text-xs font-semibold text-gray-600">Nyansa AI</p>
+            <p className="font-editorial text-sm text-gray-700">Nyansa<span className="text-brand">·</span>AI</p>
           </div>
         )}
       </div>
@@ -329,25 +329,25 @@ export default function AppSidebar({ role, tenantName, isPlatformAdmin, isPlatfo
 
       {/* ── Delete confirmation modal ─────────────────────── */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-          <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl shadow-black/10">
-            <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 border border-red-200">
+        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 font-editorial-sans">
+          <div className="w-full max-w-sm border border-gray-200 bg-white p-6 shadow-[0_24px_60px_-20px_rgba(20,20,20,0.3)]">
+            <div className="mb-1 flex h-10 w-10 items-center justify-center border border-red-200 bg-red-50">
               <Trash2 className="h-5 w-5 text-red-500" />
             </div>
-            <h3 className="mt-4 text-base font-bold text-gray-900">Delete this chat?</h3>
+            <h3 className="font-editorial mt-4 text-lg font-normal text-gray-900">Delete this chat?</h3>
             <p className="mt-1.5 text-sm text-gray-500 leading-relaxed">
               <span className="font-medium text-gray-700">&quot;{deleteTarget.title}&quot;</span> will be permanently removed and cannot be recovered.
             </p>
             <div className="mt-6 flex gap-3">
               <button
                 onClick={() => setDeleteTarget(null)}
-                className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 hover:text-gray-900"
+                className="flex-1 border border-gray-300 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 hover:text-gray-900"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDelete}
-                className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-500/25 transition hover:bg-red-600"
+                className="flex-1 bg-red-500 py-2.5 text-sm font-semibold text-white transition hover:bg-red-600"
               >
                 Delete
               </button>
