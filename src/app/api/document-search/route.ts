@@ -211,7 +211,7 @@ async function reviewSearchResult(
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
-      headers: OPENAI_HEADERS,
+      headers: OPENAI_HEADERS(),
       body: JSON.stringify({
         model: 'gpt-4o-mini',
         temperature: 0,

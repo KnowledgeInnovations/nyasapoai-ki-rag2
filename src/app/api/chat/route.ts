@@ -13,6 +13,7 @@ import {
   CUMULATIVE_RX, RANKING_RX, PROPORTION_RX, SUMMARY_RX, type FactRow,
 } from '@/lib/factsAnalysis'
 import { CLAUDE_REASONING_MODEL, ADAPTIVE_THINKING, getAnthropicHeaders, claudeComplete } from '@/lib/claude'
+import { embedBatch } from '@/lib/documentProcess'
 import { runAgenticAnswer } from '@/lib/agenticAnswer'
 import { AGENTIC_SYSTEM_ADDENDUM } from '@/lib/agentTools'
 import { canAccessTraining } from '@/lib/roles'
@@ -36,9 +37,17 @@ export function getServiceClient() {
   )
 }
 
-export const OPENAI_HEADERS = {
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+// A function, not a module-level constant — see getAnthropicHeaders() in
+// claude.ts (and the same pattern in rerank.ts/answerVerifier.ts/
+// genericFactExtraction.ts) for why: Next.js dev-server env reloads can bake
+// a stale/undefined key into a constant captured at import time. This one
+// used to be a plain object — the one OPENAI_HEADERS call site left in this
+// file (document-search/route.ts) still imports it by this name.
+export function OPENAI_HEADERS() {
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+  }
 }
 
 // Core rules that apply to any document type (contracts, policies, reports,
@@ -475,11 +484,22 @@ export async function POST(request: NextRequest) {
     /* ── 1. Embed query + fetch platform tenant + document inventory ── */
     const svc = getServiceClient()
 
-    const [embRes, { data: docInventory }] = await Promise.all([
-      fetch('https://api.openai.com/v1/embeddings', {
-        method: 'POST', headers: OPENAI_HEADERS,
-        body: JSON.stringify({ model: 'text-embedding-3-small', input: query }),
-      }),
+    // Was a raw, unretried single fetch — every other OpenAI-embeddings call
+    // site in this codebase (embedBatch, used during upload) already has
+    // timeout + network-retry + backoff, but this one, called on literally
+    // every chat message, had none: one transient blip and the whole request
+    // failed with a bare "Internal server error", with no fallback despite
+    // this system ALREADY having a text-only (FTS) retrieval path that needs
+    // no embedding at all (see the hybrid-RPC-empty fallback below). Reusing
+    // embedBatch gets the same hardening for free instead of duplicating it,
+    // and on final failure (rather than crashing the request) this now falls
+    // through to that same text-only path — see the `queryEmbedding ?`
+    // guards below.
+    let queryEmbedding: number[] | null = null
+    const [_embedResult, { data: docInventory }] = await Promise.all([
+      embedBatch([query], Date.now() + 15000)
+        .then(([e]) => { queryEmbedding = e })
+        .catch(err => console.error('[RAG] query embedding failed, falling back to text-only search:', err)),
       svc.from('documents')
         .select('title, department, status')
         .eq('tenant_id', tenantId)
@@ -487,8 +507,6 @@ export async function POST(request: NextRequest) {
         .order('created_at', { ascending: false })
         .limit(100),
     ])
-    const embData = await embRes.json()
-    const queryEmbedding = embData.data[0].embedding
 
     // Inventory is shown FIRST so the AI always knows what files exist
     const inventoryText = (docInventory ?? []).length
@@ -498,11 +516,17 @@ export async function POST(request: NextRequest) {
 
     /* ── 2. Hybrid retrieval (dense vector + BM25-ish FTS via RRF) ──
        Tenant isolation enforced by p_tenant_id — this is safe.
-       Returns up to 30 candidates, reranked down to the top 10. */
-    const { data: hybridChunks, error: rpcError } = await svc.rpc('match_document_chunks_hybrid', {
-      query_embedding: queryEmbedding, query_text: query, p_tenant_id: tenantId,
-      match_count: 30, p_platform_tenant_id: null,
-    })
+       Returns up to 30 candidates, reranked down to the top 10.
+       Skipped entirely (rather than called with a null vector, which the
+       RPC would likely error on rather than gracefully return empty) when
+       query embedding generation failed above — the FTS fallback
+       immediately below needs no embedding and picks up the slack. */
+    const { data: hybridChunks, error: rpcError } = queryEmbedding
+      ? await svc.rpc('match_document_chunks_hybrid', {
+          query_embedding: queryEmbedding, query_text: query, p_tenant_id: tenantId,
+          match_count: 30, p_platform_tenant_id: null,
+        })
+      : { data: null, error: null }
     if (rpcError) console.error('[RAG] hybrid RPC error:', JSON.stringify(rpcError))
 
     type RetrievedChunk = { id: string; document_id: string; chunk_text: string; metadata: Record<string, unknown>; similarity: number; rrf_score?: number; rerank_score?: number }
@@ -532,7 +556,7 @@ export async function POST(request: NextRequest) {
     // this only ADDS candidates, never narrows the pool, so it can't cause
     // an empty result if the metadata column is unset for older chunks.
     const queryYears = [...new Set(query.match(/\b(19|20)\d{2}\b/g) ?? [])]
-    if (queryYears.length === 1) {
+    if (queryYears.length === 1 && queryEmbedding) {
       // p_platform_tenant_id: null disambiguates between the two live DB
       // overloads (base + trailing p_platform_tenant_id) — without it
       // PostgREST fails with PGRST203 "Could not choose the best candidate
@@ -616,10 +640,12 @@ export async function POST(request: NextRequest) {
     const earlyQueryType = classifyQuery(query)
     const isDeepSearch = BROAD_QUERY_RX.test(query) || CROSS_DOCUMENT_RX.test(query) || earlyQueryType === 'comparison' || earlyQueryType === 'trend'
     if (isDeepSearch) {
-      const perDocRes = await svc.rpc('match_document_chunks_per_doc', {
-        query_embedding: queryEmbedding, p_tenant_id: tenantId,
-        match_count_per_doc: 3, match_threshold: 0.05, p_platform_tenant_id: null,
-      })
+      const perDocRes = queryEmbedding
+        ? await svc.rpc('match_document_chunks_per_doc', {
+            query_embedding: queryEmbedding, p_tenant_id: tenantId,
+            match_count_per_doc: 3, match_threshold: 0.05, p_platform_tenant_id: null,
+          })
+        : { data: null, error: null }
       let perDocChunks = perDocRes.data
       const perDocError = perDocRes.error
       if (perDocError) console.error('[RAG] per-doc RPC error:', JSON.stringify(perDocError))
