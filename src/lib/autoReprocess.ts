@@ -125,10 +125,17 @@ export async function runAutoReprocess(
 
       attempts.push(attempt)
       onAttempt?.(attempt)
-      await svc.from('auto_reprocess_log').insert({
+      // The actual re-extraction attempt above already completed and is
+      // recorded in `attempts`/reported via onAttempt — this insert only
+      // persists the audit trail, so a failure here shouldn't be fatal, but
+      // it was previously silent (not even destructured). Logging it at
+      // least makes a lost audit-log entry visible in server logs instead
+      // of vanishing without a trace.
+      const { error: logErr } = await svc.from('auto_reprocess_log').insert({
         tenant_id: tenantId, document_id: documentId, gap_topic: gap.topic,
         result: attempt.result, detail: attempt.detail,
       })
+      if (logErr) console.error('[AutoReprocess] log insert failed:', logErr)
     }
   }
 

@@ -47,92 +47,104 @@ export async function POST(request: NextRequest) {
   const service = svc()
   const tid = membership.tenant_id
 
-  // ── 1. Embed ALL questions in one batch call ───────────────
-  const embRes = await fetch('https://api.openai.com/v1/embeddings', {
-    method: 'POST',
-    headers: getOpenAIHeaders(),
-    body: JSON.stringify({
-      model: 'text-embedding-3-small',
-      input: questions.map(q => q.question),
-    }),
+  // Shared fallback for both the explicit embeddings-failure check below and
+  // any uncaught exception in the rest of this handler (a Supabase RPC
+  // throwing on a network blip, a malformed OpenAI response, etc.) — this
+  // route previously had no top-level try/catch at all, so any such failure
+  // crashed the ENTIRE batch with a generic 500 and blanked out every
+  // dashboard insight tile at once, instead of degrading the same way the
+  // embeddings-fetch failure already does.
+  const unavailableFallback = () => NextResponse.json({
+    insights: questions.map(q => ({ label: q.label, insight: 'Insight temporarily unavailable.', sentiment: 'neutral' as Sentiment, sources: [], noData: true })),
   })
-  if (!embRes.ok) {
-    return NextResponse.json({
-      insights: questions.map(q => ({ label: q.label, insight: 'Insight temporarily unavailable.', sentiment: 'neutral' as Sentiment, sources: [], noData: true })),
-    })
-  }
-  const embData = await embRes.json()
-  const embeddings: number[][] = (embData.data as { index: number; embedding: number[] }[])
-    .sort((a, b) => a.index - b.index)
-    .map(d => d.embedding)
 
-  // ── 2. Inventory + all vector searches in parallel ─────────
-  const [{ data: docInventory }, ...chunkResults] = await Promise.all([
-    service.from('documents').select('title, department').eq('tenant_id', tid).eq('status', 'ready').limit(100),
-    ...questions.map((_, i) =>
-      service.rpc('match_document_chunks', {
-        query_embedding: embeddings[i],
-        p_tenant_id: tid,
-        match_threshold: 0.1,
-        match_count: 6,
+  try {
+    // ── 1. Embed ALL questions in one batch call ───────────────
+    const embRes = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: getOpenAIHeaders(),
+      body: JSON.stringify({
+        model: 'text-embedding-3-small',
+        input: questions.map(q => q.question),
+      }),
+    })
+    if (!embRes.ok) return unavailableFallback()
+    const embData = await embRes.json()
+    const embeddings: number[][] = (embData.data as { index: number; embedding: number[] }[])
+      .sort((a, b) => a.index - b.index)
+      .map(d => d.embedding)
+
+    // ── 2. Inventory + all vector searches in parallel ─────────
+    const [{ data: docInventory }, ...chunkResults] = await Promise.all([
+      service.from('documents').select('title, department').eq('tenant_id', tid).eq('status', 'ready').limit(100),
+      ...questions.map((_, i) =>
+        service.rpc('match_document_chunks', {
+          query_embedding: embeddings[i],
+          p_tenant_id: tid,
+          match_threshold: 0.1,
+          match_count: 6,
+        })
+      ),
+    ])
+
+    const inventoryText = docInventory?.length
+      ? `KNOWLEDGE BASE: ${docInventory.map(d => `${d.title}${d.department ? ` [${d.department}]` : ''}`).join(', ')}`
+      : 'No documents uploaded yet.'
+
+    // ── 3. All GPT calls in parallel ───────────────────────────
+    const insights = await Promise.all(
+      questions.map(async (q, i) => {
+        const chunks = (chunkResults[i] as { data: { id: string; chunk_text: string }[] | null }).data
+
+        if (!chunks?.length) {
+          return { label: q.label, insight: 'No relevant documents found. Upload documents to see insights here.', sentiment: 'neutral' as Sentiment, sources: [], noData: true }
+        }
+
+        const context = chunks.map((c, j) => `[${j + 1}] ${c.chunk_text}`).join('\n\n')
+
+        // Stagger the parallel Claude calls — firing all of them in the same
+        // instant is the most common way to trip the org's per-minute
+        // input-token rate limit, even though claudeComplete() now retries
+        // on 429. Spreading them out reduces how often a 429 happens at all.
+        if (i > 0) await new Promise(r => setTimeout(r, i * 300))
+
+        const raw = await claudeComplete({
+          temperature: 0.3,
+          maxTokens: 150,
+          system: `You are a business analyst for ${orgName}, ${orgDescription}. Answer in 2-3 sentences with specific facts, figures, and names from the documents. End with: SENTIMENT:positive OR SENTIMENT:negative OR SENTIMENT:caution OR SENTIMENT:neutral`,
+          messages: [
+            {
+              role: 'user',
+              content: `${inventoryText}\n\nDocument excerpts:\n${context}\n\nQuestion: ${q.question}`,
+            },
+          ],
+        }).catch(() => '')
+        const sentimentMatch = raw.match(/SENTIMENT:(positive|negative|caution|neutral)/i)
+        const sentiment = (sentimentMatch?.[1]?.toLowerCase() ?? 'neutral') as Sentiment
+        const insight = raw.replace(/\s*SENTIMENT:\w+\s*$/i, '').trim()
+
+        // Get source titles (single lookup for all chunks in this insight)
+        const { data: details } = await service
+          .from('document_chunks')
+          .select('id, documents(title)')
+          .in('id', chunks.map(c => c.id))
+
+        const sources = [
+          ...new Set(
+            (details ?? []).map(d => {
+              const docs = d.documents as { title: string } | { title: string }[] | null
+              return Array.isArray(docs) ? docs[0]?.title : docs?.title
+            }).filter((t): t is string => Boolean(t))
+          ),
+        ].slice(0, 3)
+
+        return { label: q.label, insight, sentiment, sources }
       })
-    ),
-  ])
+    )
 
-  const inventoryText = docInventory?.length
-    ? `KNOWLEDGE BASE: ${docInventory.map(d => `${d.title}${d.department ? ` [${d.department}]` : ''}`).join(', ')}`
-    : 'No documents uploaded yet.'
-
-  // ── 3. All GPT calls in parallel ───────────────────────────
-  const insights = await Promise.all(
-    questions.map(async (q, i) => {
-      const chunks = (chunkResults[i] as { data: { id: string; chunk_text: string }[] | null }).data
-
-      if (!chunks?.length) {
-        return { label: q.label, insight: 'No relevant documents found. Upload documents to see insights here.', sentiment: 'neutral' as Sentiment, sources: [], noData: true }
-      }
-
-      const context = chunks.map((c, j) => `[${j + 1}] ${c.chunk_text}`).join('\n\n')
-
-      // Stagger the parallel Claude calls — firing all of them in the same
-      // instant is the most common way to trip the org's per-minute
-      // input-token rate limit, even though claudeComplete() now retries
-      // on 429. Spreading them out reduces how often a 429 happens at all.
-      if (i > 0) await new Promise(r => setTimeout(r, i * 300))
-
-      const raw = await claudeComplete({
-        temperature: 0.3,
-        maxTokens: 150,
-        system: `You are a business analyst for ${orgName}, ${orgDescription}. Answer in 2-3 sentences with specific facts, figures, and names from the documents. End with: SENTIMENT:positive OR SENTIMENT:negative OR SENTIMENT:caution OR SENTIMENT:neutral`,
-        messages: [
-          {
-            role: 'user',
-            content: `${inventoryText}\n\nDocument excerpts:\n${context}\n\nQuestion: ${q.question}`,
-          },
-        ],
-      }).catch(() => '')
-      const sentimentMatch = raw.match(/SENTIMENT:(positive|negative|caution|neutral)/i)
-      const sentiment = (sentimentMatch?.[1]?.toLowerCase() ?? 'neutral') as Sentiment
-      const insight = raw.replace(/\s*SENTIMENT:\w+\s*$/i, '').trim()
-
-      // Get source titles (single lookup for all chunks in this insight)
-      const { data: details } = await service
-        .from('document_chunks')
-        .select('id, documents(title)')
-        .in('id', chunks.map(c => c.id))
-
-      const sources = [
-        ...new Set(
-          (details ?? []).map(d => {
-            const docs = d.documents as { title: string } | { title: string }[] | null
-            return Array.isArray(docs) ? docs[0]?.title : docs?.title
-          }).filter((t): t is string => Boolean(t))
-        ),
-      ].slice(0, 3)
-
-      return { label: q.label, insight, sentiment, sources }
-    })
-  )
-
-  return NextResponse.json({ insights })
+    return NextResponse.json({ insights })
+  } catch (err) {
+    console.error('[Dashboard insights-batch] error:', err)
+    return unavailableFallback()
+  }
 }
