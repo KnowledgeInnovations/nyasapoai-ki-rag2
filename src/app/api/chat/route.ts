@@ -1503,7 +1503,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
       // this is still a local-only test branch.
       const agenticRetrievalScores = chunks.map(c => c.rerank_score ?? c.similarity ?? c.rrf_score ?? 0)
       const verification = verifyAnswer(parsed.answer, chunks, agenticRetrievalScores, validatedFactsForVerification)
-      const isHonestInsufficiency = /\b(insufficient evidence|cannot (?:be )?(?:reliably |responsibly )?(?:computed|produced|determined|calculated|constructed|derived|established|summarized|compute|produce|determine|calculate|construct|derive|establish|summarize)|no validated [\w\s/-]{0,40}?(?:facts|figures|allocations?|data)|does not contain (?:a )?(?:consolidated|sufficient)|not (?:enough|sufficient) (?:data|information|evidence))\b/i.test(parsed.answer)
+      const isHonestInsufficiency = /\b(insufficient evidence|cannot (?:be )?(?:reliably |responsibly )?(?:computed|produced|determined|calculated|constructed|derived|established|summarized|compute|produce|determine|calculate|construct|derive|establish|summarize)|no validated [\w\s/-]{0,40}?(?:facts|figures|allocations?|data)|does not (?:contain|specify|state|list|provide|name|include|give)\s+(?:a |the |an )?(?:consolidated|sufficient|defined|specific|concrete|named|actual|exact|clear|detailed)|not (?:enough|sufficient) (?:data|information|evidence))\b/i.test(parsed.answer)
       if (isHonestInsufficiency) {
         verification.confidenceScore = Math.max(20, Math.min(74, verification.confidenceScore))
         verification.confidenceLevel = verification.confidenceScore >= 75 ? 'High' : verification.confidenceScore >= 50 ? 'Medium' : 'Low'
@@ -1805,7 +1805,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           // response — don't pile the harsh AI-verifier penalty or the
           // "treat as unreliable" banner on top of an answer that already
           // disclosed its own limits.
-          const isHonestInsufficiency = /\b(insufficient evidence|cannot (?:be )?(?:reliably |responsibly )?(?:computed|produced|determined|calculated|constructed|derived|established|summarized|compute|produce|determine|calculate|construct|derive|establish|summarize)|no validated [\w\s/-]{0,40}?(?:facts|figures|allocations?|data)|does not contain (?:a )?(?:consolidated|sufficient)|not (?:enough|sufficient) (?:data|information|evidence))\b/i.test(answer)
+          const isHonestInsufficiency = /\b(insufficient evidence|cannot (?:be )?(?:reliably |responsibly )?(?:computed|produced|determined|calculated|constructed|derived|established|summarized|compute|produce|determine|calculate|construct|derive|establish|summarize)|no validated [\w\s/-]{0,40}?(?:facts|figures|allocations?|data)|does not (?:contain|specify|state|list|provide|name|include|give)\s+(?:a |the |an )?(?:consolidated|sufficient|defined|specific|concrete|named|actual|exact|clear|detailed)|not (?:enough|sufficient) (?:data|information|evidence))\b/i.test(answer)
           if (isHonestInsufficiency) {
             // An answer that admits the requested figure/trend/computation
             // couldn't be validated is by definition partial/hedged — per the

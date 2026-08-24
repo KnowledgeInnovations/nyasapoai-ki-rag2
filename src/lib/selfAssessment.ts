@@ -146,9 +146,17 @@ export interface RegressionResult {
   reason: string
 }
 
-// Same broadened pattern as isHonestInsufficiency in chat/route.ts — kept in
-// sync manually since the two live in different request lifecycles.
-const HONEST_INSUFFICIENCY_RX = /\b(insufficient evidence|cannot (?:be )?(?:reliably |responsibly )?(?:computed|produced|determined|calculated|constructed|derived|established|summarized|compute|produce|determine|calculate|construct|derive|establish|summarize)|no validated [\w\s/-]{0,40}?(?:facts|figures|allocations?|data)|does not contain (?:a )?(?:consolidated|sufficient)|not (?:enough|sufficient) (?:data|information|evidence))\b/i
+// Same pattern as isHonestInsufficiency in chat/route.ts (both copies) —
+// kept in sync manually since the three live in different request
+// lifecycles. Confirmed live: a genuinely excellent, honest answer ("the
+// SOP describes a KPI-setting process but does not specify the actual
+// indicators/metrics") kept scoring as a regression-suite FAILURE — not
+// because the RAG pipeline did anything wrong, but because this regex
+// only recognized a narrow set of exact phrasings ("does not contain a
+// consolidated/sufficient X") and missed the much more natural "does not
+// specify/state/list/provide the actual/defined/specific X" the model
+// wrote instead. Broadened to cover that shape too.
+const HONEST_INSUFFICIENCY_RX = /\b(insufficient evidence|cannot (?:be )?(?:reliably |responsibly )?(?:computed|produced|determined|calculated|constructed|derived|established|summarized|compute|produce|determine|calculate|construct|derive|establish|summarize)|no validated [\w\s/-]{0,40}?(?:facts|figures|allocations?|data)|does not (?:contain|specify|state|list|provide|name|include|give)\s+(?:a |the |an )?(?:consolidated|sufficient|defined|specific|concrete|named|actual|exact|clear|detailed)|not (?:enough|sufficient) (?:data|information|evidence))\b/i
 
 export function scoreRegressionAnswer(
   question: RegressionQuestion,
