@@ -5,7 +5,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { classifyQuery, computeGrowthCalculations, computeCAGR, computeAggregate, computeForecast, verifyAnswer, type QueryType, type FactForVerification } from '@/lib/ragAnalysis'
 import { rerankChunks } from '@/lib/rerank'
 import { extractQueryFilters } from '@/lib/factExtraction'
-import { verifyAnswerWithAI } from '@/lib/answerVerifier'
+import { verifyAnswerWithAI, isDegenerateIssue } from '@/lib/answerVerifier'
 import {
   canonicalizeEntity, parseRelativeYearRange, cumulativeByEntity, topNGrowth,
   proportionOfTotal, detectDeviations, summarizeTrend, forecastNextYear, yoySeries,
@@ -1076,7 +1076,28 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           // on "compliance") still falls back to the previous behavior
           // (first N by confidence/insertion order) rather than a random cut.
           scored.sort((a, b) => b.score - a.score || a.i - b.i)
-          docFacts = scored.slice(0, 60).map(s => s.f)
+
+          // A flat global top-N can still let one or two documents' many
+          // so-so matches crowd out ANOTHER document's single best match —
+          // confirmed live: "total number of units combined" needed Forte's
+          // own "total_units: 18" row and Pelican's "total_units: 134" row,
+          // each the clearest possible answer for its OWN property, but a
+          // pure global sort left both out because enough other documents'
+          // facts scored marginally higher overall. Reserve each represented
+          // document's own top rows first (so every document gets a fair
+          // shot at contributing its most relevant fact), then fill the rest
+          // of the budget with the next-best rows overall.
+          const CAP = 60
+          const RESERVED_PER_DOC = 2
+          const reserved: typeof scored = []
+          const reservedCountByDoc = new Map<string, number>()
+          for (const s of scored) {
+            const n = reservedCountByDoc.get(s.f.document_id) ?? 0
+            if (n < RESERVED_PER_DOC) { reserved.push(s); reservedCountByDoc.set(s.f.document_id, n + 1) }
+          }
+          const reservedIds = new Set(reserved.map(s => s.f.id))
+          const remainder = scored.filter(s => !reservedIds.has(s.f.id))
+          docFacts = [...reserved, ...remainder].slice(0, CAP).map(s => s.f)
         }
       }
 
@@ -1423,7 +1444,12 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
       controller: ReadableStreamDefaultController,
     ) {
       const parsed = parseDelimited(result.answerText)
-      const agenticRisks = [...parsed.risks]
+      // The model's own self-authored [RISKS] bullets are just as prone to
+      // the "stated as 11.00%, should be 11%" degenerate-formatting pattern
+      // as the AI verifier's separate issues — confirmed live — but never
+      // passed through isDegenerateIssue at all, since that filter only ever
+      // ran on verifyAnswerWithAI's output below.
+      const agenticRisks = parsed.risks.filter(r => !isDegenerateIssue(r))
 
       // Confidence scoring mirrors the existing pipeline's logic (same
       // verifyAnswer/verifyAnswerWithAI calls, same honest-insufficiency
@@ -1677,7 +1703,10 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
             return newNum != null ? `[${newNum}]` : m
           })
           const answer = renumber(parsed.answer)
-          const risks = parsed.risks.map(renumber)
+          // Same degenerate-formatting filter as the agentic branch above —
+          // the model's own self-authored risks get the same false-positive
+          // "stated as 11.00%, should be 11%" pattern.
+          const risks = parsed.risks.filter(r => !isDegenerateIssue(r)).map(renumber)
           const recommendations = parsed.recommendations.map(renumber)
           const citedChunks = sortedUsed.filter(n => n <= chunks.length).map(n => chunks[n - 1])
           const citedFactCitations = sortedUsed.filter(n => n > chunks.length).map(n => factCitations[n - chunks.length - 1])

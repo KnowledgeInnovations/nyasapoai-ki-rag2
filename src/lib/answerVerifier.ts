@@ -91,7 +91,14 @@ function numbersEffectivelyEqual(a: number, b: number): boolean {
 // the SYSTEM_PROMPT saying not to. Also catches multi-figure phrasings like
 // "stated as A/B, should be C/D" — split the non-year numbers into two equal
 // halves (stated values, then "should be" values) and check each pair.
-function isDegenerateIssue(issue: string): boolean {
+// Exported: the model's OWN self-authored [RISKS] bullets (from
+// parseDelimited, in chat/route.ts) are prone to the exact same degenerate
+// pattern (e.g. "incorrectly stated as 11.00%, should be 11%" — the same
+// number, just reformatted) but never passed through this file's filters at
+// all, since those only ever ran on verifyAnswerWithAI's separate second-pass
+// issues — confirmed live. Callers should run this same check on the
+// model's self-authored risks too.
+export function isDegenerateIssue(issue: string): boolean {
   const nums = extractNonYearNumbers(issue)
   if (nums.length < 2 || nums.length % 2 !== 0) return false
   const half = nums.length / 2
