@@ -288,8 +288,39 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
 
 
 
-  // Restore last active session from localStorage on mount
+  // Turns stored (DB or localStorage-cached) messages into render-ready
+  // Message state — shared so both the DB fetch and the local fallback
+  // below build the exact same shape.
+  function toRenderable(saved: StoredMessage[]): Message[] {
+    return saved.map(m => ({
+      role: m.role,
+      text: m.text,
+      ...(m.role === 'ai' && {
+        response: {
+          answer:           m.text,
+          citations:        [],
+          risks:            m.risks ?? [],
+          recommendations:  m.recommendations ?? [],
+          confidence_score: 0,
+          chart:            m.chart ?? null,
+          bar_chart:        m.bar_chart ?? null,
+        },
+      }),
+    }))
+  }
+
+  // Restore last active session on mount. localStorage only remembers WHICH
+  // conversation was active (and holds a convenience snapshot for the
+  // convId === null case, before the first exchange is ever saved) — the
+  // conversations row this route saves everything into is fetched fresh and
+  // used as the actual source of truth whenever a convId exists, rather
+  // than trusting the local snapshot's own copy of `messages`. That
+  // snapshot silently drifting out of sync with what's actually persisted
+  // is exactly what kept losing chart data on refresh: each time a new
+  // field was added to stored messages, the localStorage write path needed
+  // its own separate update to match, and it's easy for that to lag behind.
   useEffect(() => {
+    let cancelled = false
     try {
       const raw = localStorage.getItem('ki_last_session')
       if (!raw) return
@@ -298,25 +329,26 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
         messages: StoredMessage[]
       }
       if (!Array.isArray(saved) || saved.length === 0) return
-      // One-time restore of a previous session from localStorage on initial mount
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSessionConvId(convId ?? null)
-      setMessages(saved.map(m => ({
-        role: m.role,
-        text: m.text,
-        ...(m.role === 'ai' && {
-          response: {
-            answer:           m.text,
-            citations:        [],
-            risks:            m.risks ?? [],
-            recommendations:  m.recommendations ?? [],
-            confidence_score: 0,
-            chart:            m.chart ?? null,
-            bar_chart:        m.bar_chart ?? null,
-          },
-        }),
-      })))
+
+      const applyLocal = () => {
+        setSessionConvId(convId ?? null)
+        setMessages(toRenderable(saved))
+      }
+
+      if (!convId) { applyLocal(); return }
+
+      fetch(`/api/chat?id=${convId}`)
+        .then(r => r.ok ? r.json() : Promise.reject())
+        .then(d => {
+          if (cancelled) return
+          const conv = d?.conversation as { id: string; messages: StoredMessage[] | null } | null
+          if (!conv?.messages?.length) { applyLocal(); return }
+          setSessionConvId(conv.id)
+          setMessages(toRenderable(conv.messages))
+        })
+        .catch(() => { if (!cancelled) applyLocal() })
     } catch {}
+    return () => { cancelled = true }
   }, [])
 
   // Restored sessions (from localStorage or the sidebar history) start with
@@ -405,21 +437,7 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
 
       if (item.messages && item.messages.length > 0) {
         // Restore full multi-turn thread from the DB messages column
-        setMessages(item.messages.map(m => ({
-          role: m.role,
-          text: m.text,
-          ...(m.role === 'ai' && {
-            response: {
-              answer:           m.text,
-              citations:        [],
-              risks:            m.risks ?? [],
-              recommendations:  m.recommendations ?? [],
-              confidence_score: 0,
-              chart:            m.chart ?? null,
-              bar_chart:        m.bar_chart ?? null,
-            },
-          }),
-        })))
+        setMessages(toRenderable(item.messages))
       } else {
         // Fallback for old conversations recorded before this migration
         setMessages([

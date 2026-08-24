@@ -265,6 +265,28 @@ export async function GET(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const supabase = await createClient()
 
+  // Single-conversation fetch, straight from the database — used to restore
+  // a session on page load/refresh instead of trusting the parallel
+  // localStorage snapshot's own copy of `messages`. That snapshot is a
+  // convenience cache (so an in-progress conversation survives an
+  // accidental reload before it's ever saved), not a second source of
+  // truth: whatever fields it happens to include drift from what's
+  // actually persisted every time a new field (like chart data) is added
+  // to messages without a matching update to that write path — confirmed
+  // live as exactly what kept happening with chart/bar_chart. The DB row
+  // this route already saves everything into is the one place that can't
+  // silently fall behind.
+  const singleId = new URL(request.url).searchParams.get('id')
+  if (singleId) {
+    const { data } = await supabase
+      .from('conversations')
+      .select('id, query, response, risks, recommendations, messages, created_at')
+      .eq('user_id', user.id)
+      .eq('id', singleId)
+      .maybeSingle()
+    return NextResponse.json({ conversation: data ?? null })
+  }
+
   const convId = new URL(request.url).searchParams.get('citations')
   if (convId) {
     // RLS (citations_select) restricts this to citations on conversations
