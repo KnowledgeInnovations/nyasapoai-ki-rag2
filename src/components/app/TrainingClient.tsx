@@ -9,9 +9,13 @@ import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import type { TrainingDoc, Performance, SelfAssessmentRun, RegressionResultRow } from '@/app/(app)/training/page'
 import type { RecurringGap } from '@/lib/extractionGaps'
-import { REGRESSION_QUESTIONS } from '@/lib/selfAssessment'
 
-const REGRESSION_QUESTION_COUNT = REGRESSION_QUESTIONS.length
+// getRegressionQuestions() (selfAssessment.ts) now generates a tenant-
+// grounded suite server-side at run time, so the frontend can no longer
+// read REGRESSION_QUESTIONS.length ahead of a run to know the count — it
+// always asks for exactly 10 questions (falling back to the same-length
+// static set on failure), so this stays a fixed display constant.
+const REGRESSION_QUESTION_COUNT = 10
 
 type TrainStatus = 'idle' | 'running' | 'done' | 'error'
 
@@ -468,8 +472,10 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, per
 }
 
 /* ── Regression Suite Card ────────────────────────────────────
-   Runs the fixed set of REGRESSION_QUESTIONS (src/lib/selfAssessment.ts)
-   through /api/chat and records pass/fail + confidence per question. */
+   Runs a tenant-grounded set of questions (getRegressionQuestions() in
+   src/lib/selfAssessment.ts, generated from this tenant's own documents/
+   facts each run) through /api/chat and records pass/fail + confidence
+   per question. */
 function RegressionSuiteCard({ lastRun, live, open, onToggle, onRun }: {
   lastRun: SelfAssessmentRun | null
   live: {

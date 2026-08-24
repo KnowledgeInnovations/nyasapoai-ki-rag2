@@ -25,7 +25,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { computeRecurringGaps } from './extractionGaps'
 import { reExtractDocumentFacts } from './reExtract'
-import { REGRESSION_QUESTIONS, scoreRegressionAnswer } from './selfAssessment'
+import { scoreRegressionAnswer, type RegressionQuestion } from './selfAssessment'
 
 export interface AutoReprocessAttempt {
   documentId: string
@@ -88,6 +88,12 @@ const MIN_VIABLE_ATTEMPT_MS = 30_000
 
 export async function runAutoReprocess(
   svc: SupabaseClient, tenantId: string, origin: string, cookie: string,
+  // The CALLER's tenant-grounded question set (see getRegressionQuestions in
+  // selfAssessment.ts) — using the generic static REGRESSION_QUESTIONS here
+  // would look up the wrong tenant's category-to-query mapping (or, worse,
+  // one built for a different tenant entirely) once questions are generated
+  // per tenant rather than fixed.
+  regressionQuestions: RegressionQuestion[],
   onAttempt?: (attempt: AutoReprocessAttempt) => void,
   deadline: number = Date.now() + 120_000,
 ): Promise<AutoReprocessAttempt[]> {
@@ -96,7 +102,7 @@ export async function runAutoReprocess(
   const attempts: AutoReprocessAttempt[] = []
 
   outer: for (const gap of actionable) {
-    const question = REGRESSION_QUESTIONS.find(q => q.category === gap.topic)
+    const question = regressionQuestions.find(q => q.category === gap.topic)
     if (!question) continue
 
     for (const documentId of gap.documentIds) {

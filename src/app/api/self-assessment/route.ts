@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { getUser, getMembership } from '@/lib/supabase/server'
+import { getUser, getMembership, getTenant } from '@/lib/supabase/server'
 import { canAccessTraining } from '@/lib/roles'
-import { REGRESSION_QUESTIONS, scoreRegressionAnswer, type RegressionResult } from '@/lib/selfAssessment'
+import { getRegressionQuestions, scoreRegressionAnswer, type RegressionResult } from '@/lib/selfAssessment'
 import { runAutoReprocess } from '@/lib/autoReprocess'
 import { runAutoPromptFix } from '@/lib/answerHeuristics'
 import { computeRecurringGaps } from '@/lib/extractionGaps'
+import { DEFAULT_TENANT_DESCRIPTION } from '@/lib/tenant'
 
 export const maxDuration = 300
 
@@ -56,8 +57,15 @@ export async function POST(request: NextRequest) {
     async start(controller) {
       const send = (data: object) => controller.enqueue(enc.encode(`data: ${JSON.stringify(data)}\n\n`))
       const results: RegressionResult[] = []
+      const svc = getServiceClient()
 
-      for (const question of REGRESSION_QUESTIONS) {
+      const tenant = await getTenant(membership.tenant_id)
+      send({ stage: 'generating_questions' })
+      const regressionQuestions = await getRegressionQuestions(
+        svc, membership.tenant_id, tenant?.name ?? 'this organization', tenant?.description ?? DEFAULT_TENANT_DESCRIPTION,
+      )
+
+      for (const question of regressionQuestions) {
         send({ stage: 'running', id: question.id, message: `Asking: ${question.query}` })
 
         try {
@@ -123,7 +131,6 @@ export async function POST(request: NextRequest) {
       const accuracy = total ? Math.round((passed / total) * 10000) / 100 : 0
       const avgConfidence = total ? Math.round((results.reduce((a, r) => a + r.confidenceScore, 0) / total) * 100) / 100 : 0
 
-      const svc = getServiceClient()
       const { error } = await svc.from('self_assessments').insert({
         tenant_id: membership.tenant_id,
         run_by: user.id,
@@ -152,7 +159,7 @@ export async function POST(request: NextRequest) {
         const promptFixable = gaps
           .filter(g => g.source === 'self_assessment')
           .map(g => ({ category: g.topic, exampleQuestion: g.exampleQuestion, exampleReason: g.exampleReason }))
-        await runAutoPromptFix(svc, membership.tenant_id, origin, cookie, promptFixable, a => send({ stage: 'auto_prompt_fix', ...a }), requestDeadline)
+        await runAutoPromptFix(svc, membership.tenant_id, origin, cookie, promptFixable, regressionQuestions, a => send({ stage: 'auto_prompt_fix', ...a }), requestDeadline)
       } catch (e) {
         console.error('[SelfAssessment] auto-prompt-fix failed:', e)
       }
@@ -164,7 +171,7 @@ export async function POST(request: NextRequest) {
       // the regression suite's own results are already saved either way.
       try {
         send({ stage: 'auto_reprocess_starting' })
-        await runAutoReprocess(svc, membership.tenant_id, origin, cookie, a => send({ stage: 'auto_reprocess', ...a }), requestDeadline)
+        await runAutoReprocess(svc, membership.tenant_id, origin, cookie, regressionQuestions, a => send({ stage: 'auto_reprocess', ...a }), requestDeadline)
       } catch (e) {
         console.error('[SelfAssessment] auto-reprocess failed:', e)
       }

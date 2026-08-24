@@ -14,7 +14,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { claudeComplete } from './claude'
-import { REGRESSION_QUESTIONS, scoreRegressionAnswer, type RegressionResult } from './selfAssessment'
+import { scoreRegressionAnswer, type RegressionResult, type RegressionQuestion } from './selfAssessment'
 
 interface Entry<T> { v: T; exp: number }
 const HEURISTICS_TTL_MS = 60_000
@@ -108,9 +108,10 @@ export interface PromptFixAttempt {
 // recurrence count.
 async function testCandidateAgainstSuite(
   origin: string, cookie: string, category: string, candidate: string,
+  regressionQuestions: RegressionQuestion[],
 ): Promise<{ passed: boolean; detail: string }> {
   const results: RegressionResult[] = []
-  for (const q of REGRESSION_QUESTIONS) {
+  for (const q of regressionQuestions) {
     try {
       const r = await askChatWithExtraInstruction(origin, cookie, q.query, candidate)
       const { passed, reason } = scoreRegressionAnswer(q, r.answer, r.confidenceScore, r.confidenceLevel, r.citationCount)
@@ -149,6 +150,11 @@ const MAX_ATTEMPTS = 5
 export async function runAutoPromptFix(
   svc: SupabaseClient, tenantId: string, origin: string, cookie: string,
   failingCategories: { category: string; exampleQuestion: string; exampleReason: string }[],
+  // The CALLER's tenant-grounded question set (see getRegressionQuestions in
+  // selfAssessment.ts) — a candidate prompt fix must be verified against
+  // THIS tenant's own suite, not a generic/fixed one, or "zero regressions"
+  // wouldn't mean anything for this tenant's actual data.
+  regressionQuestions: RegressionQuestion[],
   onAttempt?: (attempt: PromptFixAttempt) => void,
   deadline: number = Date.now() + 120_000,
 ): Promise<PromptFixAttempt[]> {
@@ -171,7 +177,7 @@ export async function runAutoPromptFix(
         ? { instruction: existing.instruction, testDetail: existing.test_detail ?? '' }
         : null
       const candidate = await generateCandidateInstruction(gap.category, gap.exampleQuestion, gap.exampleReason, priorAttempt)
-      const { passed, detail } = await testCandidateAgainstSuite(origin, cookie, gap.category, candidate)
+      const { passed, detail } = await testCandidateAgainstSuite(origin, cookie, gap.category, candidate, regressionQuestions)
       await svc.from('answer_heuristics').upsert({
         tenant_id: tenantId, category: gap.category, instruction: candidate,
         status: passed ? 'confirmed' : 'rejected', source_reason: gap.exampleReason,
