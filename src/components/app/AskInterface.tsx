@@ -11,6 +11,7 @@ import { uploadDocument } from '@/lib/uploadDocument'
 import type { RAGResponse, Citation } from '@/types'
 import MessageContent from './MessageContent'
 import AnswerChart from './AnswerChart'
+import BarAnswerChart from './BarAnswerChart'
 import SourceViewer, { fetchSourceDownloadUrl } from './SourceViewer'
 
 /* ── Types ────────────────────────────────────────────────── */
@@ -181,6 +182,9 @@ function MessageBubble({
         {/* Chart */}
         {!msg.streaming && msg.response?.chart && (
           <AnswerChart data={msg.response.chart} />
+        )}
+        {!msg.streaming && !msg.response?.chart && msg.response?.bar_chart && (
+          <BarAnswerChart data={msg.response.bar_chart} />
         )}
 
         {/* Risks */}
@@ -527,7 +531,7 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
 
       function processLine(line: string) {
         if (!line.startsWith('data: ')) return
-        let event: { t?: string; retract?: boolean; done?: boolean; answer?: string; risks?: string[]; recommendations?: string[]; citations?: RAGResponse['citations']; chart?: RAGResponse['chart']; confidence_score?: number; confidence_level?: RAGResponse['confidence_level']; convId?: string | null; title?: string }
+        let event: { t?: string; retract?: boolean; done?: boolean; answer?: string; risks?: string[]; recommendations?: string[]; citations?: RAGResponse['citations']; chart?: RAGResponse['chart']; bar_chart?: RAGResponse['bar_chart']; confidence_score?: number; confidence_level?: RAGResponse['confidence_level']; convId?: string | null; title?: string }
         try { event = JSON.parse(line.slice(6)) } catch { return }
 
         // The user has switched to a different chat (or started a new one)
@@ -582,6 +586,7 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
               confidence_score: event.confidence_score ?? 85,
               confidence_level: event.confidence_level,
               chart:            event.chart ?? null,
+              bar_chart:        event.bar_chart ?? null,
             },
           }
           if (!stale) {

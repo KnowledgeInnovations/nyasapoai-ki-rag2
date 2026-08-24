@@ -120,6 +120,21 @@ export interface ChartData {
   series: ChartPoint[]
 }
 
+export interface BarChartDatum {
+  label: string
+  value: number
+}
+
+// A comparison chart — extracted deterministically from a markdown table
+// already present in the answer (see answerChartExtractor.ts), not
+// model-declared, so it never introduces a number the answer didn't already
+// state and cite.
+export interface BarChartData {
+  title: string
+  unit: string | null
+  data: BarChartDatum[]
+}
+
 export interface RAGResponse {
   answer: string
   citations: Citation[]
@@ -128,4 +143,5 @@ export interface RAGResponse {
   risks: string[]
   recommendations: string[]
   chart?: ChartData | null
+  bar_chart?: BarChartData | null
 }

@@ -6,6 +6,7 @@ import { classifyQuery, computeGrowthCalculations, computeCAGR, computeAggregate
 import { rerankChunks } from '@/lib/rerank'
 import { extractQueryFilters } from '@/lib/factExtraction'
 import { verifyAnswerWithAI, isDegenerateIssue } from '@/lib/answerVerifier'
+import { extractBarChart } from '@/lib/answerChartExtractor'
 import {
   canonicalizeEntity, parseRelativeYearRange, cumulativeByEntity, topNGrowth,
   proportionOfTotal, detectDeviations, summarizeTrend, forecastNextYear, yoySeries,
@@ -1576,13 +1577,18 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
         ...agenticCitedFactCitations.map(f => ({ ...f, conversation_id: agenticConvId ?? '' })),
       ]
 
+      // A bar chart when the answer's own comparison table cleanly supports
+      // one (see answerChartExtractor.ts) — never both chart kinds at once,
+      // and skipped entirely when a real trend/forecast chart already exists.
+      const barChartData = chartData ? null : extractBarChart(finalAnswer)
+
       // Text already streamed live via onToken above — this "done" event
       // just carries the metadata that could only be known once the answer
       // was fully assembled and verified (citations/confidence/convId),
       // same as the non-agentic branch's closing enqueue.
       controller.enqueue(enc.encode(`data: ${JSON.stringify({
         done: true, answer: finalAnswer, risks: finalRisks, recommendations: finalRecommendations,
-        citations: agenticCitations, chart: chartData,
+        citations: agenticCitations, chart: chartData, bar_chart: barChartData,
         confidence_score: verification.confidenceScore, confidence_level: verification.confidenceLevel,
         convId: agenticConvId, title,
       })}\n\n`))
@@ -1959,9 +1965,11 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
             ...citedFactCitations.map(f => ({ ...f, conversation_id: convId ?? '' })),
           ]
 
+          const barChartData = chartData ? null : extractBarChart(answer)
+
           controller.enqueue(enc.encode(
             `data: ${JSON.stringify({
-              done: true, answer, risks, recommendations, citations, chart: chartData,
+              done: true, answer, risks, recommendations, citations, chart: chartData, bar_chart: barChartData,
               confidence_score: verification.confidenceScore,
               confidence_level: verification.confidenceLevel,
               convId, title,
