@@ -68,6 +68,17 @@ export async function extractStructuredText(buffer: Buffer, filename: string): P
     // `tables` field comment on ExtractedPage. getTable() does a heavier
     // geometric analysis that can fail on some PDFs; a failure here must
     // not block extraction of the page's regular text.
+    //
+    // getTable() with no `partial` filter processes every page in one call
+    // and throws as a single unit — confirmed live on a real 95-page,
+    // table/image-dense brochure: one page's geometry crashed
+    // pdf-parse's internal Table.getRow(), and the try/catch below (as it
+    // used to be, wrapping only the bulk call) silently discarded EVERY
+    // page's tables, not just the bad one — losing the document's entire
+    // pricing table in the process even though 94 other pages parsed fine.
+    // Keep the fast bulk call as the common path, but on failure retry
+    // page-by-page (getTable() accepts `partial: [pageNum]`) so one bad
+    // page's crash only costs that page's tables, not the whole document's.
     const tablesByPage = new Map<number, string[][][]>()
     try {
       const tableResult = await parser.getTable()
@@ -75,7 +86,16 @@ export async function extractStructuredText(buffer: Buffer, filename: string): P
         if (p.tables?.length) tablesByPage.set(p.num, p.tables)
       }
     } catch (e) {
-      console.error(`[extract] ${filename}: getTable() failed:`, e)
+      console.error(`[extract] ${filename}: getTable() failed for the whole document, retrying per-page so one bad page doesn't drop every table:`, e)
+      for (const p of pages) {
+        try {
+          const single = await parser.getTable({ partial: [p.num] })
+          const pageResult = (single?.pages as { num: number; tables: string[][][] }[] | undefined)?.[0]
+          if (pageResult?.tables?.length) tablesByPage.set(p.num, pageResult.tables)
+        } catch (pageErr) {
+          console.error(`[extract] ${filename}: getTable() also failed on page ${p.num}, skipping this page's tables:`, pageErr)
+        }
+      }
     }
 
     if (pages.length > 0) {

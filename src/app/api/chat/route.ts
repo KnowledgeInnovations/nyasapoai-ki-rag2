@@ -213,8 +213,17 @@ export const BROAD_QUERY_RX = /\beach year\b|\bevery year\b|\byear[\s-]?(over|on
 // Generic cross-document questions (e.g. "summarize what our policies say
 // about X across all files") — not budget-shaped, so BROAD_QUERY_RX won't
 // catch them, but they still need at least one chunk from every document
-// rather than just the top-10 globally-similar chunks.
-export const CROSS_DOCUMENT_RX = /\b(all|every|each|across)\b.*\b(documents?|files?|contracts?|policies|policy|reports?|agreements?)\b|\bsummari[sz]e\b.*\b(all|our|every)\b|\boverview of (all|our)\b/i
+// rather than just the top-10 globally-similar chunks. The noun list here
+// was document-centric (contracts/policies/reports) and missed plain
+// business-entity nouns a non-budget tenant actually asks about — confirmed
+// live: "the total number of residential units across all our property
+// developments combined" never matched, so only the top few globally-similar
+// chunks were searched instead of guaranteeing a chunk from every property's
+// brochure, and the answer wrongly reported no data existed for developments
+// that simply weren't in that top-K. Broadened the noun list, and added a
+// separate "combined/altogether/in total" trigger that doesn't depend on
+// guessing the right noun at all.
+export const CROSS_DOCUMENT_RX = /\b(all|every|each|across)\b.*\b(documents?|files?|contracts?|policies|policy|reports?|agreements?|properties|developments?|units?|departments?|projects?|locations?|branches|products?|entities|records?|accounts?|stores?|brochures?|sops?)\b|\bsummari[sz]e\b.*\b(all|our|every)\b|\boverview of (all|our)\b|\b(combined|altogether|in total)\b/i
 
 // Questions about the knowledge base's contents/inventory itself (e.g. "do
 // we have X?", "what files exist?") — the inventory passed to the model is
@@ -1030,15 +1039,44 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
       if (!validFacts.length && !flaggedFacts.length) {
         const docIds = [...new Set(chunks.map(c => c.document_id).filter(Boolean))]
         if (docIds.length) {
+          // For a non-budget tenant, document_facts is the ONLY structured
+          // fact layer — a "deep analytics" question (average/total/range
+          // across many units, properties, or line items) typically needs
+          // MANY rows for the same subject family (e.g. every studio unit's
+          // price at one property) to answer completely. A flat cap with no
+          // ordering returned whatever 50 rows Postgres happened to hand
+          // back — for a tenant with hundreds of facts spread across
+          // several documents, that's effectively an ARBITRARY sample,
+          // frequently missing the exact rows the question needs and
+          // producing false "I can't find this data" answers even when the
+          // data exists. Fetch a much larger candidate pool, then rank by
+          // keyword overlap against the query (same tokenizer as
+          // findHighlightSpan) so the rows actually relevant to THIS
+          // question are the ones that survive the final cap.
           const { data, error: docFactsError } = await svc
             .from('document_facts')
             .select('id, document_id, category, subject, attribute, value_text, unit, page_number, section_title, confidence')
             .eq('tenant_id', tenantId)
             .in('document_id', docIds)
             .gte('confidence', 70)
-            .limit(50)
+            .limit(400)
           if (docFactsError) console.error('[RAG] document_facts query error:', JSON.stringify(docFactsError))
-          docFacts = data ?? []
+
+          const candidates = data ?? []
+          const queryTokens = (query.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [])
+            .filter(t => !HIGHLIGHT_STOPWORDS.has(t))
+          const scored = candidates.map((f, i) => {
+            const haystack = `${f.subject ?? ''} ${f.attribute ?? ''} ${f.value_text ?? ''}`.toLowerCase()
+            const score = queryTokens.reduce((acc, t) => acc + (haystack.includes(t) ? 1 : 0), 0)
+            return { f, score, i }
+          })
+          // Stable-ish: higher keyword overlap first, original order as
+          // tiebreak — so a query with no useful keyword overlap (e.g. a
+          // broad "what compliance requirements exist" that already matched
+          // on "compliance") still falls back to the previous behavior
+          // (first N by confidence/insertion order) rather than a random cut.
+          scored.sort((a, b) => b.score - a.score || a.i - b.i)
+          docFacts = scored.slice(0, 60).map(s => s.f)
         }
       }
 
