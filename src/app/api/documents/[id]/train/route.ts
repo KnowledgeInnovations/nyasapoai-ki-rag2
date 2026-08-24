@@ -2,7 +2,7 @@ import { NextRequest, after } from 'next/server'
 import path from 'node:path'
 import { getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
+import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH, insertChunkBatch, insertFactsResilient } from '@/lib/documentProcess'
 import { canAccessTraining } from '@/lib/roles'
 import { extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks, runCrossDocumentCorroboration, supersedeForwardProjections, applyLearnedHeuristics, looksLikeBudgetDocument, type FinancialFact } from '@/lib/factExtraction'
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
@@ -94,6 +94,24 @@ export async function POST(
 
         if (!pages.some(p => p.text.trim())) throw new Error('No text could be extracted. The file may be image-based, password-protected, or has an unsupported format.')
 
+        // See the matching note in finalize/route.ts — a document with SOME
+        // real text can still have individual pages that extracted nothing
+        // (scanned pages, image-only appendices) with no visibility
+        // anywhere that they were silently skipped. Surface it as a warning
+        // rather than fixing it silently — this pipeline has no OCR, so the
+        // content genuinely isn't recoverable here, but an admin should be
+        // able to see the gap instead of assuming full coverage.
+        const emptyPageNumbers = pages
+          .filter(p => !p.text.trim())
+          .map(p => p.page_number)
+          .filter((n): n is number => n != null)
+        if (emptyPageNumbers.length) {
+          warn(
+            'empty_pages',
+            `${emptyPageNumbers.length} of ${pages.length} page(s) had no extractable text (likely scanned/image content, not covered by this system) — page(s): ${emptyPageNumbers.slice(0, 25).join(', ')}${emptyPageNumbers.length > 25 ? '…' : ''}`,
+          )
+        }
+
         // ── 3. Chunk ──────────────────────────────────────────────
         send({ stage: 'chunking', message: 'Analysing document structure…', progress: 25 })
 
@@ -145,29 +163,37 @@ export async function POST(
 
           const embeddings = await embedBatch(batch.map(c => c.text), routeDeadline)
 
-          const { data: inserted } = await service.from('document_chunks').insert(
-            batch.map((c, j) => ({
-              document_id: id,
-              tenant_id:   membership.tenant_id,
-              chunk_text:  c.text,
-              chunk_index: i + j,
-              embedding:   embeddings[j],
-              metadata: {
-                source: doc.source,
+          // insertWithRetry throws (rather than silently returning
+          // null/[]) after exhausting retries — the outer try/catch below
+          // marks the document "failed" with the real reason instead of
+          // this batch's chunks quietly vanishing while the document still
+          // gets marked "ready" with whatever earlier batches DID land.
+          const inserted = await insertChunkBatch(
+            () => service.from('document_chunks').insert(
+              batch.map((c, j) => ({
+                document_id: id,
+                tenant_id:   membership.tenant_id,
+                chunk_text:  c.text,
                 chunk_index: i + j,
-                total_chunks: chunks.length,
-                page_number: c.page_number,
-                section_title: c.section_title,
-                fiscal_year: c.fiscal_year,
-                ministry: c.ministry,
-                sector: c.sector,
-                is_table: c.is_table,
-                trained_at: new Date().toISOString(),
-              },
-            }))
-          ).select('id, document_id, tenant_id, chunk_text, metadata')
+                embedding:   embeddings[j],
+                metadata: {
+                  source: doc.source,
+                  chunk_index: i + j,
+                  total_chunks: chunks.length,
+                  page_number: c.page_number,
+                  section_title: c.section_title,
+                  fiscal_year: c.fiscal_year,
+                  ministry: c.ministry,
+                  sector: c.sector,
+                  is_table: c.is_table,
+                  trained_at: new Date().toISOString(),
+                },
+              }))
+            ).select('id, document_id, tenant_id, chunk_text, metadata'),
+            `document_chunks insert (batch ${batchNum})`,
+          )
 
-          for (const row of inserted ?? []) {
+          for (const row of inserted) {
             allFacts.push(...extractFactsFromChunk(row as {
               id: string; document_id: string; tenant_id: string; chunk_text: string; metadata: Record<string, unknown>
             }))
@@ -200,7 +226,7 @@ export async function POST(
         // background below — see the note at the split point.)
         runSanityChecks(allFacts)
         if (allFacts.length) {
-          await service.from('financial_facts').insert(allFacts)
+          await insertFactsResilient(() => service.from('financial_facts').insert(allFacts), 'financial_facts_insert', warn)
         }
         send({ stage: 'facts', message: `Extracted ${allFacts.length} financial facts`, progress: 95 })
 
@@ -269,7 +295,7 @@ export async function POST(
             }
 
             if (enrichmentFacts.length) {
-              await service.from('financial_facts').insert(enrichmentFacts)
+              await insertFactsResilient(() => service.from('financial_facts').insert(enrichmentFacts), 'financial_facts_insert', warn)
             }
 
             // ── 7.4. Generic fact extraction fallback (non-budget documents) ──
@@ -285,7 +311,7 @@ export async function POST(
                   ({ reason, network }) => warn('generic_facts_fallback', reason, network),
                 )
                 if (genericFacts.length) {
-                  await service.from('document_facts').insert(genericFacts)
+                  await insertFactsResilient(() => service.from('document_facts').insert(genericFacts), 'document_facts_insert', warn)
                 }
               } catch (err) {
                 console.error('[Train] generic fact extraction failed', err)

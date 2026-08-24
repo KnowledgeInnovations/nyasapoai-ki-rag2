@@ -4,7 +4,7 @@
  */
 
 import path from 'path'
-import { claudeComplete, isNetworkError } from './claude'
+import { claudeComplete, isNetworkError, withRetry } from './claude'
 
 // The DOMMatrix/ImageData/Path2D polyfills pdf-parse needs are installed in
 // src/instrumentation.ts, which Next.js guarantees runs to completion before
@@ -415,5 +415,57 @@ export async function embedBatch(texts: string[], deadline?: number): Promise<nu
       if (attempt >= EMBED_MAX_ATTEMPTS) throw e
       await new Promise(r => setTimeout(r, attempt * 1000))
     }
+  }
+}
+
+// ── Resilient chunk insert ──────────────────────────────────────────
+// Both finalize/route.ts and train/route.ts inserted each embedded batch
+// with `const { data } = await ...insert(...)` — discarding `error`
+// entirely. Confirmed as a real, silent data-loss path: a failed batch
+// insert (a transient DB error, a constraint violation, a momentary
+// connection drop) left `data` null/empty and nothing ever threw, logged,
+// or warned — the loop just moved on to the next batch as if that one had
+// succeeded, and the document was later marked "ready" with however many
+// chunks DID make it in, no different from a document that genuinely only
+// had that many.
+//
+// Reuses the existing withRetry (claude.ts) — the same network-aware retry
+// primitive reExtract.ts already relies on — rather than inventing a second,
+// differently-behaved retry helper: it only retries genuinely transient
+// network errors with backoff and returns non-network errors (a constraint
+// violation, bad data) immediately rather than retrying something retrying
+// can't fix. insertChunkBatch always throws on a final error so the
+// caller's existing top-level catch marks the document "failed" with a real
+// reason instead of quietly shipping a partial document as complete.
+export async function insertChunkBatch<T>(
+  fn: () => PromiseLike<{ data: T | null; error: unknown }>,
+  label: string,
+): Promise<T> {
+  const { data, error } = await withRetry(fn, label)
+  if (error) throw new Error(`${label} failed: ${(error as Error).message ?? String(error)}`)
+  return data as T
+}
+
+// ── Resilient fact-store inserts (financial_facts / document_facts) ────
+// The same blind `await X.insert(Y)` pattern (not even destructured, let
+// alone checked) existed for all six financial_facts/document_facts insert
+// calls across finalize/route.ts and train/route.ts — a failed insert here
+// silently dropped an entire batch of extracted facts with no retry, log, or
+// warning. Unlike chunk inserts, these all happen inside the best-effort
+// enrichment phase (see finalize/route.ts's fast-path/background split) —
+// losing facts degrades analytics quality but never makes a document
+// unusable for chat, so this warns (via the caller's existing `warn()`
+// closure, surfaced in processing_warnings/status_detail) rather than
+// throwing and failing the whole document over an enrichment-only hiccup.
+export async function insertFactsResilient(
+  fn: () => PromiseLike<{ data: unknown; error: unknown }>,
+  step: string,
+  warn: (step: string, message: string, network?: boolean) => void,
+): Promise<void> {
+  const { error } = await withRetry(fn, step)
+  if (error) {
+    const message = (error as Error).message ?? String(error)
+    console.error(`[${step}] insert failed:`, message)
+    warn(step, message, isNetworkError(error))
   }
 }

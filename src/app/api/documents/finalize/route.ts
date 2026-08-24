@@ -2,7 +2,7 @@ import { NextRequest, NextResponse, after } from 'next/server'
 import nodePath from 'node:path'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH } from '@/lib/documentProcess'
+import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH, insertChunkBatch, insertFactsResilient } from '@/lib/documentProcess'
 import { normalizeRole, canUploadDocuments } from '@/lib/roles'
 import {
   extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks,
@@ -150,6 +150,26 @@ export async function POST(request: NextRequest) {
           return fail('No text could be extracted. The file may be image-based, password-protected, or corrupted.', 422)
         }
 
+        // A document with SOME real text passes the check above even if a
+        // subset of its pages are individually empty (e.g. a scanned
+        // signature page, an appendix inserted as an image, a blank
+        // separator page) — those pages silently contribute nothing to the
+        // knowledge base with no record anywhere that they were skipped.
+        // Surfacing this doesn't fix the underlying content gap (this
+        // pipeline has no OCR), but it turns a silent, invisible hole in
+        // the document's coverage into something an admin can actually see
+        // and decide whether to act on (re-scan, re-upload a text version).
+        const emptyPageNumbers = pages
+          .filter(p => !p.text.trim())
+          .map(p => p.page_number)
+          .filter((n): n is number => n != null)
+        if (emptyPageNumbers.length) {
+          warn(
+            'empty_pages',
+            `${emptyPageNumbers.length} of ${pages.length} page(s) had no extractable text (likely scanned/image content, not covered by this system) — page(s): ${emptyPageNumbers.slice(0, 25).join(', ')}${emptyPageNumbers.length > 25 ? '…' : ''}`,
+          )
+        }
+
         const tableCount = pages.reduce((n, p) => n + (p.tables?.length ?? 0), 0)
         emit({
           stage: 'extracted',
@@ -195,28 +215,37 @@ export async function POST(request: NextRequest) {
             console.error('Embedding error at batch', start, embedErr)
             return fail(`Embedding failed: ${(embedErr as Error).message}`)
           }
-          const { data: inserted } = await serviceClient.from('document_chunks').insert(
-            batch.map((c, j) => ({
-              document_id: document.id,
-              tenant_id:   membership.tenant_id,
-              chunk_text:  c.text,
-              chunk_index: start + j,
-              embedding:   embeddings[j],
-              metadata: {
-                source: originalFilename,
-                chunk_index: start + j,
-                total_chunks: chunks.length,
-                page_number: c.page_number,
-                section_title: c.section_title,
-                fiscal_year: c.fiscal_year,
-                ministry: c.ministry,
-                sector: c.sector,
-                is_table: c.is_table,
-              },
-            }))
-          ).select('id, document_id, tenant_id, chunk_text, metadata')
+          let inserted: { id: string; document_id: string; tenant_id: string; chunk_text: string; metadata: Record<string, unknown> }[]
+          try {
+            inserted = await insertChunkBatch(
+              () => serviceClient.from('document_chunks').insert(
+                batch.map((c, j) => ({
+                  document_id: document.id,
+                  tenant_id:   membership.tenant_id,
+                  chunk_text:  c.text,
+                  chunk_index: start + j,
+                  embedding:   embeddings[j],
+                  metadata: {
+                    source: originalFilename,
+                    chunk_index: start + j,
+                    total_chunks: chunks.length,
+                    page_number: c.page_number,
+                    section_title: c.section_title,
+                    fiscal_year: c.fiscal_year,
+                    ministry: c.ministry,
+                    sector: c.sector,
+                    is_table: c.is_table,
+                  },
+                }))
+              ).select('id, document_id, tenant_id, chunk_text, metadata'),
+              `document_chunks insert (batch ${batchNum})`,
+            )
+          } catch (insertErr) {
+            console.error('Chunk insert error at batch', start, insertErr)
+            return fail(`Storing document chunks failed: ${(insertErr as Error).message}`)
+          }
 
-          for (const row of inserted ?? []) {
+          for (const row of inserted) {
             allFacts.push(...extractFactsFromChunk(row as {
               id: string; document_id: string; tenant_id: string; chunk_text: string; metadata: Record<string, unknown>
             }))
@@ -238,7 +267,7 @@ export async function POST(request: NextRequest) {
         emit({ stage: 'facts', count: allFacts.length })
         runSanityChecks(allFacts)
         if (allFacts.length) {
-          await serviceClient.from('financial_facts').insert(allFacts)
+          await insertFactsResilient(() => serviceClient.from('financial_facts').insert(allFacts), 'financial_facts_insert', warn)
         }
 
         // --- Fast path ends here. ------------------------------------------
@@ -305,7 +334,7 @@ export async function POST(request: NextRequest) {
             }
 
             if (enrichmentFacts.length) {
-              await serviceClient.from('financial_facts').insert(enrichmentFacts)
+              await insertFactsResilient(() => serviceClient.from('financial_facts').insert(enrichmentFacts), 'financial_facts_insert', warn)
             }
 
             // Not every document is a table/budget document — most aren't.
@@ -320,7 +349,7 @@ export async function POST(request: NextRequest) {
                   ({ reason, network }) => warn('generic_facts_fallback', reason, network),
                 )
                 if (genericFacts.length) {
-                  await serviceClient.from('document_facts').insert(genericFacts)
+                  await insertFactsResilient(() => serviceClient.from('document_facts').insert(genericFacts), 'document_facts_insert', warn)
                 }
               } catch (err) {
                 console.error('Generic fact extraction error:', err)
