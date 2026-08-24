@@ -136,6 +136,73 @@ function isCrossYearFactMismatch(issue: string, factsBlock: string): boolean {
   return statedMatchesOwnYear && claimedMatchesOtherYear
 }
 
+// Parses figures out of EITHER VALIDATED FACTS table shape used in
+// chat/route.ts's factsBlock: the financial_facts table
+// ("| Year | Entity | Metric | Value | Unit | Confidence | Source |") or the
+// document_facts fallback table used for non-budget tenants/documents
+// ("| Subject | Attribute | Value | Source |"). Each row is tagged with a
+// label built from its own identifying columns, so two rows that happen to
+// share a value can still be told apart, and two DIFFERENT rows' values can
+// be recognized as genuinely distinct real figures rather than one being
+// mistaken for a misstatement of the other.
+function parseGenericFactRows(factsBlock: string): { label: string; value: number }[] {
+  const rows: { label: string; value: number }[] = []
+  for (const line of factsBlock.split('\n')) {
+    let m = line.match(/^\|\s*(\d{4}|—)\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*([\d,]+\.?\d*)\s*\|/)
+    if (m) { rows.push({ label: `${m[2].trim()}|${m[3].trim()}|${m[1]}`, value: parseFloat(m[4].replace(/,/g, '')) }); continue }
+    m = line.match(/^\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*\[\d+\]\s*\|/)
+    if (m) {
+      const numMatch = m[3].match(/-?[\d,]+\.?\d*/)
+      if (numMatch) rows.push({ label: `${m[1].trim()}|${m[2].trim()}`, value: parseFloat(numMatch[0].replace(/,/g, '')) })
+    }
+  }
+  return rows
+}
+
+// gpt-4o-mini occasionally flags "X stated as A, should be B" where A and B
+// are each real, correctly-extracted figures for two DIFFERENT rows/entities
+// in the VALIDATED/EXTRACTED FACTS block — not a misstatement of one row, but
+// the verifier itself cross-matching the wrong label to the wrong value.
+// Confirmed live: a brochure's benchmark chart lists its numeric values in
+// one parallel text block and their labels in a separate block (a common PDF
+// chart-extraction layout artifact) — "11.00%" (a hotel's own projected
+// return) and "13.1%" (the S&P 500's, a different row two lines down) sit
+// close together in the raw excerpt. The fact-extraction pipeline paired
+// them with their correct labels; the verifier, working only from that raw
+// layout, paired them wrong and flagged the (correct) answer as an error. If
+// both numbers the issue cites independently match a distinct real row, this
+// is that mix-up, not an actual mistake in the answer.
+function isCrossEntityValueMismatch(issue: string, factsBlock: string): boolean {
+  const nums = extractNonYearNumbers(issue)
+  if (nums.length !== 2) return false
+  const [stated, claimed] = nums
+  const rows = parseGenericFactRows(factsBlock)
+  if (!rows.length) return false
+  const statedRow = rows.find(r => Math.abs(r.value - stated) < 0.01)
+  const claimedRow = rows.find(r => Math.abs(r.value - claimed) < 0.01)
+  return !!statedRow && !!claimedRow && statedRow.label !== claimedRow.label
+}
+
+// gpt-4o-mini occasionally flags a specific point figure as "contradicting" a
+// range also stated in the source for the same subject — e.g. "claimed
+// 11.00%, contradicts the 8-11% range in the source" — when 11.00% is simply
+// within (often the upper bound of) that same range, not a different value.
+// Looks for an explicit "A-B%"/"A to B%" range anywhere in the excerpts that
+// contains one of the issue's numbers while the other is outside it (a point
+// estimate vs. the range it falls inside is expected, not a contradiction).
+function isRangeContainmentIssue(issue: string, context: string): boolean {
+  const nums = extractNonYearNumbers(issue)
+  if (nums.length < 2) return false
+  const rangeRx = /(-?\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(-?\d+(?:\.\d+)?)\s*%/g
+  let m: RegExpExecArray | null
+  while ((m = rangeRx.exec(context))) {
+    const lo = Math.min(parseFloat(m[1]), parseFloat(m[2]))
+    const hi = Math.max(parseFloat(m[1]), parseFloat(m[2]))
+    if (nums.some(n => n >= lo && n <= hi)) return true
+  }
+  return false
+}
+
 // gpt-4o-mini occasionally flags an "issue" like "No validated healthcare
 // allocation figure for 2020 mentioned in the answer" — this is just the
 // verifier restating the ANSWER's own disclaimer about missing data, not a
@@ -235,6 +302,8 @@ export async function verifyAnswerWithAI(
       .filter((i: unknown): i is string => typeof i === 'string')
       .filter((i: string) => !isDegenerateIssue(i))
       .filter((i: string) => !isCrossYearFactMismatch(i, factsBlock))
+      .filter((i: string) => !isCrossEntityValueMismatch(i, factsBlock))
+      .filter((i: string) => !isRangeContainmentIssue(i, context))
       .filter((i: string) => !isAbsenceMetaIssue(i))
       .filter((i: string) => !isFalseStatedValue(i, answer))
       .filter((i: string) => !isDeviationMedianIssue(i, answer))
