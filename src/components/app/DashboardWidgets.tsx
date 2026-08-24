@@ -3,6 +3,19 @@ import { FileText, MessageSquare, CheckCircle2, Clock } from 'lucide-react'
 import type { CATEGORIES } from '@/lib/documentCategories'
 import { cn } from '@/lib/utils'
 
+// ── Shared insight-card sentiment styling ───────────────────────
+// Used by DashboardInsightsGroup (theme insight cards) and AdaptiveDashboard
+// (the ask-anything result + pinned cards) so all three read as one visual
+// system instead of three near-identical color maps drifting apart.
+export type Sentiment = 'positive' | 'negative' | 'caution' | 'neutral'
+
+export const SENTIMENT_CONFIG: Record<Sentiment, { dot: string; badge: string; border: string; bg: string; text: string }> = {
+  positive: { dot: 'bg-green-500',  badge: 'bg-green-50 text-green-700 border-green-200',  border: 'border-green-200', bg: 'bg-green-50/40',  text: 'Positive' },
+  negative: { dot: 'bg-red-500',    badge: 'bg-red-50 text-red-700 border-red-200',        border: 'border-red-200',   bg: 'bg-red-50/40',    text: 'Needs Attention' },
+  caution:  { dot: 'bg-amber-500',  badge: 'bg-amber-50 text-amber-700 border-amber-200',  border: 'border-amber-200', bg: 'bg-amber-50/40',  text: 'Caution' },
+  neutral:  { dot: 'bg-gray-400',   badge: 'bg-gray-50 text-gray-600 border-gray-200',     border: 'border-gray-200',  bg: 'bg-white',        text: 'Neutral' },
+}
+
 // ── StatCard ───────────────────────────────────────────────────
 export function StatCard({ icon: Icon, label, value, sub, live, color }: {
   icon: React.ElementType

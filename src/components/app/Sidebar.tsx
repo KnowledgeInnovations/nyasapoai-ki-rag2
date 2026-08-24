@@ -30,7 +30,7 @@ function getNavItems(role: string, isPlatformAdmin?: boolean, isPlatformTenant?:
     ...(isPlatformTenant ? [] : [{ href: '/ask', icon: MessageSquare, label: 'Ask AI' }]),
     ...(isPlatformTenant ? [] : [{ href: '/documents', icon: FileText, label: 'Documents' }]),
     ...(canAccessTraining(r) && !isPlatformTenant   ? [{ href: '/training',   icon: Brain,           label: 'Training'   }] : []),
-    ...(canAccessDashboards(r) && !isPlatformTenant  ? [{ href: '/dashboards', icon: LayoutDashboard, label: 'Dashboards' }] : []),
+    ...(canAccessDashboards(r) && !isPlatformTenant  ? [{ href: '/dashboards', icon: LayoutDashboard, label: 'Dashboard' }] : []),
     ...(canManageUsers(r) && !isPlatformTenant       ? [{ href: '/users',      icon: Users,           label: 'Users'      }] : []),
     ...(isPlatformAdmin                              ? [{ href: '/admin/tenants', icon: Building2,    label: 'Tenants'    }] : []),
     { href: '/settings',   icon: Settings,         label: 'Settings'   },

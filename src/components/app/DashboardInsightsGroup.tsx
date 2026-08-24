@@ -3,8 +3,7 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-type Sentiment = 'positive' | 'negative' | 'caution' | 'neutral'
+import { SENTIMENT_CONFIG, type Sentiment } from './DashboardWidgets'
 
 interface InsightData {
   label: string
@@ -21,13 +20,6 @@ export interface InsightConfig {
 
 interface Props {
   insights: InsightConfig[]
-}
-
-const SENTIMENT_CONFIG: Record<Sentiment, { dot: string; badge: string; border: string; bg: string; text: string }> = {
-  positive: { dot: 'bg-green-500',  badge: 'bg-green-50 text-green-700 border-green-200',  border: 'border-green-200', bg: 'bg-green-50/40',  text: 'Positive' },
-  negative: { dot: 'bg-red-500',    badge: 'bg-red-50 text-red-700 border-red-200',        border: 'border-red-200',   bg: 'bg-red-50/40',    text: 'Needs Attention' },
-  caution:  { dot: 'bg-amber-500',  badge: 'bg-amber-50 text-amber-700 border-amber-200',  border: 'border-amber-200', bg: 'bg-amber-50/40',  text: 'Caution' },
-  neutral:  { dot: 'bg-gray-400',   badge: 'bg-gray-50 text-gray-600 border-gray-200',     border: 'border-gray-200',  bg: 'bg-white',        text: 'Neutral' },
 }
 
 const CACHE_TTL = 15 * 60 * 1000
