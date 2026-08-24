@@ -18,7 +18,7 @@ import { runAgenticAnswer } from '@/lib/agenticAnswer'
 import { AGENTIC_SYSTEM_ADDENDUM } from '@/lib/agentTools'
 import { canAccessTraining } from '@/lib/roles'
 import { getConfirmedHeuristicsText } from '@/lib/answerHeuristics'
-import type { ChartData } from '@/types'
+import type { ChartData, RAGResponse } from '@/types'
 
 // The agentic path (default for all real chat traffic — see the `agentic`
 // branch below) can take several Claude round-trips plus tool execution per
@@ -411,14 +411,27 @@ export async function POST(request: NextRequest) {
   const enc = new TextEncoder()
   const tenantId = membership.tenant_id
 
-  type StoredMessage = { role: string; text: string; risks?: string[]; recommendations?: string[] }
+  // chart/bar_chart were never part of this shape — confirmed live: a
+  // chart-bearing answer rendered fine for the live response, then
+  // vanished on refresh (or when reopening the conversation) because
+  // reloaded history is built entirely from these stored rows, and
+  // whatever isn't saved here just isn't there to render. Both fields
+  // optional/omittable so a message without a chart doesn't grow the
+  // stored JSON for no reason.
+  type StoredMessage = {
+    role: string; text: string; risks?: string[]; recommendations?: string[]
+    chart?: RAGResponse['chart']; bar_chart?: RAGResponse['bar_chart']
+  }
 
   // Insert a new conversation row (first message of a session).
-  async function saveConv(answer: string, risks: string[], recommendations: string[], confidence = 0.85): Promise<string | null> {
+  async function saveConv(
+    answer: string, risks: string[], recommendations: string[], confidence = 0.85,
+    chart: RAGResponse['chart'] = null, barChart: RAGResponse['bar_chart'] = null,
+  ): Promise<string | null> {
     try {
       const messages: StoredMessage[] = [
         { role: 'user', text: query },
-        { role: 'ai',   text: answer, risks, recommendations },
+        { role: 'ai', text: answer, risks, recommendations, ...(chart ? { chart } : {}), ...(barChart ? { bar_chart: barChart } : {}) },
       ]
       const { data, error } = await supabase
         .from('conversations')
@@ -435,11 +448,14 @@ export async function POST(request: NextRequest) {
   }
 
   // Append a user+AI pair to an existing conversation (subsequent messages).
-  async function appendConv(id: string, answer: string, risks: string[], recommendations: string[]): Promise<void> {
+  async function appendConv(
+    id: string, answer: string, risks: string[], recommendations: string[],
+    chart: RAGResponse['chart'] = null, barChart: RAGResponse['bar_chart'] = null,
+  ): Promise<void> {
     try {
       const newMessages: StoredMessage[] = [
         { role: 'user', text: query },
-        { role: 'ai',   text: answer, risks, recommendations },
+        { role: 'ai', text: answer, risks, recommendations, ...(chart ? { chart } : {}), ...(barChart ? { bar_chart: barChart } : {}) },
       ]
       const { error } = await supabase.rpc('append_conversation_messages', {
         p_conversation_id: id,
@@ -1572,12 +1588,23 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
       const agenticCitedChunks = agenticSortedUsed.filter(n => n <= chunks.length).map(n => chunks[n - 1])
       const agenticCitedFactCitations = agenticSortedUsed.filter(n => n > chunks.length).map(n => factCitations[n - chunks.length - 1])
 
+      // A bar chart when the answer's own comparison table cleanly supports
+      // one (see answerChartExtractor.ts) — never both chart kinds at once,
+      // and skipped entirely when a real trend/forecast chart already exists.
+      // Computed here (before saveConv/appendConv) rather than down by the
+      // "done" event, so it can actually be PERSISTED — it previously
+      // rendered fine for the live response, then vanished on refresh or on
+      // reopening the conversation, because reloaded history is built
+      // entirely from the stored conversation row, and chart data was never
+      // part of what got saved there.
+      const barChartData = chartData ? null : extractBarChart(finalAnswer)
+
       let agenticConvId: string | null = null
       if (newSession) {
-        agenticConvId = await saveConv(finalAnswer, finalRisks, finalRecommendations, verification.confidenceScore / 100)
+        agenticConvId = await saveConv(finalAnswer, finalRisks, finalRecommendations, verification.confidenceScore / 100, chartData, barChartData)
       } else if (existingConvId) {
         agenticConvId = existingConvId
-        await appendConv(existingConvId, finalAnswer, finalRisks, finalRecommendations)
+        await appendConv(existingConvId, finalAnswer, finalRisks, finalRecommendations, chartData, barChartData)
       }
       if (agenticConvId && (agenticCitedChunks.length || agenticCitedFactCitations.length)) {
         const { error: citationsErr } = await svc.from('citations').insert([
@@ -1618,11 +1645,6 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
         ...agenticChunkCitations,
         ...agenticCitedFactCitations.map(f => ({ ...f, conversation_id: agenticConvId ?? '' })),
       ]
-
-      // A bar chart when the answer's own comparison table cleanly supports
-      // one (see answerChartExtractor.ts) — never both chart kinds at once,
-      // and skipped entirely when a real trend/forecast chart already exists.
-      const barChartData = chartData ? null : extractBarChart(finalAnswer)
 
       // Text already streamed live via onToken above — this "done" event
       // just carries the metadata that could only be known once the answer
@@ -1930,11 +1952,17 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           }
 
           let convId: string | null = null
+          // Computed here (before the save below) rather than only at the
+          // "done" event, so it's actually part of what gets persisted —
+          // see the matching note in the agentic branch above for why a
+          // chart otherwise vanishes on refresh/reopen.
+          const barChartData = chartData ? null : extractBarChart(answer)
+
           if (newSession) {
             try {
               const messages = [
                 { role: 'user', text: query },
-                { role: 'ai',   text: answer, risks, recommendations },
+                { role: 'ai', text: answer, risks, recommendations, ...(chartData ? { chart: chartData } : {}), ...(barChartData ? { bar_chart: barChartData } : {}) },
               ]
               const { data: conv, error: convErr } = await supabase
                 .from('conversations')
@@ -1960,7 +1988,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
             } catch (e) { console.error('Save failed:', e) }
           } else if (existingConvId) {
             convId = existingConvId
-            await appendConv(existingConvId, answer, risks, recommendations)
+            await appendConv(existingConvId, answer, risks, recommendations, chartData, barChartData)
             if (citedChunks.length || citedFactCitations.length) {
               const { error: citationsErr } = await svc.from('citations').insert([
                 ...citedChunks.map(c => ({
@@ -2006,8 +2034,6 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
             ...chunkCitations,
             ...citedFactCitations.map(f => ({ ...f, conversation_id: convId ?? '' })),
           ]
-
-          const barChartData = chartData ? null : extractBarChart(answer)
 
           controller.enqueue(enc.encode(
             `data: ${JSON.stringify({

@@ -27,6 +27,8 @@ interface StoredMessage {
   text: string
   risks?: string[]
   recommendations?: string[]
+  chart?: RAGResponse['chart']
+  bar_chart?: RAGResponse['bar_chart']
 }
 
 interface HistoryItem {
@@ -309,6 +311,8 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
             risks:            m.risks ?? [],
             recommendations:  m.recommendations ?? [],
             confidence_score: 0,
+            chart:            m.chart ?? null,
+            bar_chart:        m.bar_chart ?? null,
           },
         }),
       })))
@@ -405,6 +409,8 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
               risks:            m.risks ?? [],
               recommendations:  m.recommendations ?? [],
               confidence_score: 0,
+              chart:            m.chart ?? null,
+              bar_chart:        m.bar_chart ?? null,
             },
           }),
         })))
