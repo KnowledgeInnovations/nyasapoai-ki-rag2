@@ -531,7 +531,7 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
 
       function processLine(line: string) {
         if (!line.startsWith('data: ')) return
-        let event: { t?: string; retract?: boolean; done?: boolean; answer?: string; risks?: string[]; recommendations?: string[]; citations?: RAGResponse['citations']; chart?: RAGResponse['chart']; bar_chart?: RAGResponse['bar_chart']; confidence_score?: number; confidence_level?: RAGResponse['confidence_level']; convId?: string | null; title?: string }
+        let event: { t?: string; retract?: boolean; done?: boolean; error?: string; answer?: string; risks?: string[]; recommendations?: string[]; citations?: RAGResponse['citations']; chart?: RAGResponse['chart']; bar_chart?: RAGResponse['bar_chart']; confidence_score?: number; confidence_level?: RAGResponse['confidence_level']; convId?: string | null; title?: string }
         try { event = JSON.parse(line.slice(6)) } catch { return }
 
         // The user has switched to a different chat (or started a new one)
@@ -539,6 +539,26 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
         // server-side, but don't touch this component's `messages` state
         // (it now belongs to a different conversation).
         const stale = streamGuardRef.current !== myGuard
+
+        // A server-side failure BEFORE any token was ever streamed (Claude
+        // API down/rate-limited, a network error) previously closed the
+        // connection with no signal at all — the reader loop just saw
+        // `done: true` cleanly, threw nothing, and the request silently
+        // went nowhere: no answer, no error, the loading state just
+        // vanished. chat/route.ts now emits this explicit error event in
+        // that case; treat it exactly like the catch block below's fallback
+        // so the user sees SOMETHING instead of a message that
+        // disappeared into the void.
+        if (event.error) {
+          receivedDone = true
+          if (!stale) {
+            const finalMsg: Message = aiMsgAdded
+              ? { role: 'ai', text: streamText, streaming: false }
+              : { role: 'ai', text: /rate limit/i.test(event.error) ? event.error : "I'm sorry, something didn't go quite right. Please try again and I'll do my best to help." }
+            setMessages(prev => aiMsgAdded ? [...prev.slice(0, -1), finalMsg] : [...prev, finalMsg])
+          }
+          return
+        }
 
         // The agentic loop speculatively streamed some text assuming it was
         // the final answer, but a tool call turned up in the same turn —

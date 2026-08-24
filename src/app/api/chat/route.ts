@@ -1457,7 +1457,23 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
               })
               await runAgenticFinish(result, controller)
             } catch (err) {
-              if ((err as Error).name !== 'AbortError') console.error('Agentic stream error:', err)
+              if ((err as Error).name !== 'AbortError') {
+                console.error('Agentic stream error:', err)
+                // A failure here (Claude API down/rate-limited, a network
+                // error) before any token was ever streamed previously
+                // closed the connection with NO client-visible signal at
+                // all — confirmed live: the frontend's own fallback only
+                // covers a THROWN fetch/reader exception or a stream that
+                // cut off after some text already arrived; a clean, empty,
+                // immediate close (this catch, then controller.close())
+                // triggers neither, so the user's message just silently
+                // went nowhere with no error, no answer, nothing. Emitting
+                // an explicit error event here gives the frontend something
+                // to actually detect and show.
+                try {
+                  controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: (err as Error).message || 'Something went wrong generating a response.' })}\n\n`))
+                } catch { /* controller may already be closed/errored — nothing more to do */ }
+              }
             } finally {
               controller.close()
             }
@@ -2003,7 +2019,15 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           ))
 
         } catch (err) {
-          if ((err as Error).name !== 'AbortError') console.error('Stream error:', err)
+          if ((err as Error).name !== 'AbortError') {
+            console.error('Stream error:', err)
+            // Same fix as the agentic branch above — a failure here (before
+            // the closing "done" event) previously closed the connection
+            // with no client-visible signal at all.
+            try {
+              controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: (err as Error).message || 'Something went wrong generating a response.' })}\n\n`))
+            } catch { /* controller may already be closed/errored — nothing more to do */ }
+          }
         } finally {
           controller.close()
         }
