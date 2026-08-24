@@ -372,6 +372,12 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
         text:            m.text,
         risks:           m.response?.risks,
         recommendations: m.response?.recommendations,
+        // Confirmed live: a plain browser refresh restores from THIS
+        // localStorage snapshot (not the DB-backed conversation reload,
+        // which was fixed separately), and this mapping never included the
+        // chart at all — so a refresh still lost it even after that fix.
+        chart:           m.response?.chart,
+        bar_chart:       m.response?.bar_chart,
       }))
       localStorage.setItem('ki_last_session', JSON.stringify({ convId: sessionConvId, messages: storable }))
     } catch {}
