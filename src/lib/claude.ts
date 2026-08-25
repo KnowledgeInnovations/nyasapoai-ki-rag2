@@ -34,9 +34,16 @@ export const CLAUDE_MODEL = 'claude-sonnet-4-6'
 export const CLAUDE_REASONING_MODEL = 'claude-opus-4-8'
 export const ADAPTIVE_THINKING = { type: 'adaptive' } as const
 
+// Additive widening for vision calls (visionExtraction.ts) — every existing
+// caller passes a plain string and is unaffected. Anthropic's Messages API
+// accepts either shape for `content` interchangeably.
+export type ClaudeContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; source: { type: 'base64'; media_type: 'image/png' | 'image/jpeg'; data: string } }
+
 export interface ClaudeMessage {
   role: 'user' | 'assistant'
-  content: string
+  content: string | ClaudeContentBlock[]
 }
 
 interface ClaudeCompleteOptions {

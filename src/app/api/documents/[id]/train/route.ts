@@ -7,6 +7,7 @@ import { canAccessTraining } from '@/lib/roles'
 import { extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks, runCrossDocumentCorroboration, supersedeForwardProjections, applyLearnedHeuristics, looksLikeBudgetDocument, type FinancialFact } from '@/lib/factExtraction'
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
 import { extractGenericFacts } from '@/lib/genericFactExtraction'
+import { visionTranscribePage, visionExtractFactsFromPage } from '@/lib/visionExtraction'
 import type { ProcessingWarning } from '@/types'
 
 // Below this many budget-specific facts, a document is unlikely to be a
@@ -14,6 +15,13 @@ import type { ProcessingWarning } from '@/types'
 // alone) — run the domain-agnostic extractor as a fallback so it still gets
 // a structured, citable fact layer instead of none.
 const DOCUMENT_FACTS_FALLBACK_THRESHOLD = 3
+
+// Caps on how many pages get a vision-model pass per document — a vision
+// call costs meaningfully more than a text call, so both stages are scoped
+// to CONFIRMED gaps (pages already known to have failed some other way),
+// not run speculatively across a whole document. See visionExtraction.ts.
+const MAX_VISION_RECOVERY_PAGES = 8   // Stage 1: pages with zero extracted text
+const MAX_VISION_FACT_PAGES = 10      // Stage 2: table-flagged pages that produced no facts
 
 // Number of independently-degradable steps below (table cleaning, table
 // extraction, AI table facts, generic-fact fallback, cross-doc
@@ -97,18 +105,42 @@ export async function POST(
         // See the matching note in finalize/route.ts — a document with SOME
         // real text can still have individual pages that extracted nothing
         // (scanned pages, image-only appendices) with no visibility
-        // anywhere that they were silently skipped. Surface it as a warning
-        // rather than fixing it silently — this pipeline has no OCR, so the
-        // content genuinely isn't recoverable here, but an admin should be
-        // able to see the gap instead of assuming full coverage.
-        const emptyPageNumbers = pages
+        // anywhere that they were silently skipped.
+        let emptyPageNumbers = pages
           .filter(p => !p.text.trim())
           .map(p => p.page_number)
           .filter((n): n is number => n != null)
+
+        // Vision recovery — see the matching block (and its full comment) in
+        // finalize/route.ts. Recovered pages are mutated in place BEFORE
+        // chunking runs below.
+        if (emptyPageNumbers.length && path.extname(doc.source).toLowerCase() === '.pdf') {
+          const toRecover = emptyPageNumbers.slice(0, MAX_VISION_RECOVERY_PAGES)
+          let recovered = 0
+          for (const pageNum of toRecover) {
+            const text = await visionTranscribePage(buffer, pageNum, routeDeadline)
+            if (text) {
+              const p = pages.find(p => p.page_number === pageNum)
+              if (p) { p.text = text; recovered++ }
+            }
+          }
+          if (recovered) {
+            warn('vision_recovery', `Recovered readable text from ${recovered} of ${toRecover.length} image-only page(s) via vision extraction.`)
+          }
+          emptyPageNumbers = pages
+            .filter(p => !p.text.trim())
+            .map(p => p.page_number)
+            .filter((n): n is number => n != null)
+        }
+
+        // Whatever's still empty after the vision attempt above genuinely
+        // isn't recoverable by this pipeline — surface it as a warning
+        // rather than fixing it silently, so an admin can see the gap and
+        // decide whether to act on it (re-scan, re-upload a text version).
         if (emptyPageNumbers.length) {
           warn(
             'empty_pages',
-            `${emptyPageNumbers.length} of ${pages.length} page(s) had no extractable text (likely scanned/image content, not covered by this system) — page(s): ${emptyPageNumbers.slice(0, 25).join(', ')}${emptyPageNumbers.length > 25 ? '…' : ''}`,
+            `${emptyPageNumbers.length} of ${pages.length} page(s) had no extractable text (likely scanned/image content) — page(s): ${emptyPageNumbers.slice(0, 25).join(', ')}${emptyPageNumbers.length > 25 ? '…' : ''}`,
           )
         }
 
@@ -304,9 +336,10 @@ export async function POST(
             // type, so whenever the table-driven paths above found too
             // little, fall back to general-purpose AI fact extraction over
             // the document's own prose/lists/definitions.
+            let genericFacts: Awaited<ReturnType<typeof extractGenericFacts>> = []
             if (allFacts.length + enrichmentFacts.length < DOCUMENT_FACTS_FALLBACK_THRESHOLD) {
               try {
-                const genericFacts = await extractGenericFacts(
+                genericFacts = await extractGenericFacts(
                   cleanedChunks, membership.tenant_id, id, routeDeadline,
                   ({ reason, network }) => warn('generic_facts_fallback', reason, network),
                 )
@@ -317,6 +350,41 @@ export async function POST(
                 console.error('[Train] generic fact extraction failed', err)
                 warn('generic_facts_fallback', (err as Error).message)
               }
+            }
+
+            // ── 7.45. Stage 2 vision backfill ──────────────────────────
+            // For a table-flagged chunk whose text-based fact extraction
+            // above found nothing on its page — a table can extract as
+            // genuinely scrambled/unreadable text even on an otherwise-fine
+            // page (see visionExtraction.ts's module comment), so the text
+            // extractors correctly decline to guess at it. Re-check just
+            // those specific pages against the actual page image. Only
+            // targets pages already confirmed to have failed some other
+            // way, not run speculatively.
+            try {
+              const factPages = new Set(genericFacts.map(f => f.page_number).filter((n): n is number => n != null))
+              const emptyTablePages = [...new Set(
+                cleanedChunks
+                  .filter(c => c.is_table && c.page_number != null && !factPages.has(c.page_number))
+                  .map(c => c.page_number as number),
+              )].slice(0, MAX_VISION_FACT_PAGES)
+              if (emptyTablePages.length) {
+                const visionFacts: Awaited<ReturnType<typeof visionExtractFactsFromPage>> = []
+                for (const pageNum of emptyTablePages) {
+                  const facts = await visionExtractFactsFromPage(
+                    buffer, pageNum, membership.tenant_id, id, routeDeadline,
+                    ({ reason, network }) => warn('vision_facts_backfill', reason, network),
+                  )
+                  visionFacts.push(...facts)
+                }
+                if (visionFacts.length) {
+                  await insertFactsResilient(() => service.from('document_facts').insert(visionFacts), 'document_facts_insert', warn)
+                  warn('vision_facts_backfill', `Recovered ${visionFacts.length} fact(s) from ${emptyTablePages.length} table page(s) via vision extraction.`)
+                }
+              }
+            } catch (err) {
+              console.error('[Train] vision fact backfill failed', err)
+              warn('vision_facts_backfill', (err as Error).message)
             }
 
             // ── 7.5. Cross-document corroboration (national total_budget) ──
