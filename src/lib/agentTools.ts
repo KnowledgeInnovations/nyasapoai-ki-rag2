@@ -22,6 +22,20 @@ import { computeDocumentReliability } from './sourceReliability'
 import { lookupResolution, recordResolution, type ResolutionPattern } from './factResolutions'
 
 const FACTS_SELECT = 'fiscal_year, entity, entity_type, metric, value, unit, value_millions, page_number, section_title, document_id, confidence, flags'
+const DOC_FACTS_SELECT = 'id, document_id, category, subject, attribute, value_text, unit, page_number, section_title, confidence'
+
+interface DocFactRow {
+  id: string
+  document_id: string
+  category: string | null
+  subject: string | null
+  attribute: string | null
+  value_text: string
+  unit: string | null
+  page_number: number | null
+  section_title: string | null
+  confidence: number
+}
 
 // Appended to the existing core system prompt for the agentic path only —
 // the base prompt was written for the single-shot pipeline and has no
@@ -33,6 +47,7 @@ export const AGENTIC_SYSTEM_ADDENDUM = `
 You have tools available: lookup_financial_fact, compute_aggregate, search_documents, verify_figure, record_resolution. Use them deliberately, not reflexively:
 - If the document excerpts already contain a clear, well-cited figure, you do not need to call a tool just to double-check something obvious — that wastes a turn.
 - Before stating a specific number that is NOT already verbatim in an excerpt shown to you (e.g. you are about to round, recompute, or recall it from a structured block), call verify_figure first. If it comes back unsupported or conflicting, say so in your answer rather than asserting the number with confidence.
+- This applies just as much to a comparison or benchmark figure you're adding as supporting context (e.g. citing a market/industry benchmark alongside a property's or product's own numbers) as it does to the main figure the question is about — these are often pulled from a chart or table where the labels and values extracted as separate, scattered text, so a value can easily get attached to the wrong label. Call verify_figure on each one before stating it, even if the question wasn't directly about that figure.
 - When lookup_financial_fact or verify_figure return conflicting values from different source documents, each conflicting entry includes that document's reliability_score (the fraction of ITS OWN extracted figures that came out clean elsewhere, not a judgment on this specific figure) — treat it as a tie-breaker, not proof. Prefer the higher-reliability source if you must pick one, but disclose the conflict either way.
 - If lookup_financial_fact returns a previous_resolution field, this exact conflict was already resolved before — use that resolution directly (cite its reasoning) instead of re-deriving it from scratch. Don't call record_resolution again for the same entity/metric/year unless you've genuinely found new evidence that changes the answer.
 - If lookup_financial_fact returned conflicting_or_flagged values (no previous_resolution) and you've worked out which one is actually correct and why, call record_resolution to save that reasoning — this is the system's own permanent memory, not a scratch note, so the same conflict never needs to be re-reasoned from zero again. Pick the resolution_pattern that genuinely matches your reasoning; if none of the structured patterns fit, use "other" rather than forcing a mismatch.
@@ -45,7 +60,7 @@ You have tools available: lookup_financial_fact, compute_aggregate, search_docum
 export const AGENT_TOOLS = [
   {
     name: 'lookup_financial_fact',
-    description: 'Look up a specific validated financial figure (allocation, revenue, debt, etc.) for a named entity (e.g. "Ministry of Education", "National") and optional fiscal year. Returns validated figures only, plus any known conflicting/flagged values for the same entity+year so you can reason about discrepancies. Use this instead of guessing a number from document excerpts when you need an exact, structured figure.',
+    description: 'Look up a specific validated figure for a named entity/subject (e.g. "Ministry of Education", "National", "Ghana Stock Market", "The Address") and optional fiscal year. Checks the financial_facts store (budget/allocation-style figures) first; if this tenant has none for the entity, falls back to the generic document_facts store (any extracted figure — property prices, benchmark returns, unit counts, etc.) and returns matching rows there instead. Use this instead of guessing a number from document excerpts when you need an exact, structured figure.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -86,12 +101,12 @@ export const AGENT_TOOLS = [
   },
   {
     name: 'verify_figure',
-    description: 'Check a specific number you are about to state against the validated facts store BEFORE including it in your answer. Returns whether it is supported, and if not, what the closest known validated value actually is (or whether multiple conflicting values exist). Use this on any figure you are not 100% sure is verbatim from an excerpt already shown to you.',
+    description: 'Check a specific number you are about to state against the validated facts store BEFORE including it in your answer — checks financial_facts, and for tenants/subjects with none, falls back to document_facts (any extracted figure, e.g. a benchmark return, price, or count named in a table or chart). Returns whether it is supported, and if not, what the closest known validated value actually is (or whether multiple conflicting values exist). Use this on any figure you are not 100% sure is verbatim from an excerpt already shown to you — this is ESPECIALLY important for a number you are recalling from a chart or table, since those often extract as scattered/jumbled text and are easy to mis-pair with the wrong label.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        value: { type: 'number', description: 'The raw figure as you intend to state it (e.g. 39233795022)' },
-        entity: { type: 'string', description: 'The entity the figure belongs to' },
+        value: { type: 'number', description: 'The raw figure as you intend to state it (e.g. 39233795022, or 13.1 for "13.1%")' },
+        entity: { type: 'string', description: 'The entity/subject the figure belongs to, e.g. "Ministry of Education" or "Ghana Stock Market"' },
         fiscal_year: { type: 'string', description: 'The fiscal year the figure belongs to' },
       },
       required: ['value', 'entity'],
@@ -150,6 +165,35 @@ async function fetchAllFactsForEntity(
   return (data ?? []) as FactRow[]
 }
 
+// document_facts fallback — the generic, category/subject/attribute/value_text
+// shaped extraction store used for non-budget tenants (e.g. real estate, SOPs)
+// that have no financial_facts at all. Without this, lookup_financial_fact
+// and verify_figure are dead tools for any such tenant: every call returns
+// "no validated facts", so the model never gets a chance to double-check a
+// figure before stating it and falls back on raw, sometimes ambiguous chunk
+// text. Confirmed live: a sales-pitch answer stated "Ghana Stock Market
+// 13.1%, Ghana T-Bill 11.00%" — the actual extracted document_facts rows
+// were "Ghana Stock Market -1.6%, Ghana T-Bill 1.4%" (S&P 500 was 13.1%) —
+// the model had mis-paired labels to values while reading a chart that had
+// extracted as scattered text, and had no tool available that could have
+// caught it. Matched by subject substring (not an exact key like entity/
+// fiscal_year — document_facts has no fiscal_year concept), scoped to the
+// tenant only (no document_id scoping — verify_figure/lookup_financial_fact
+// are asked about a specific claim, not a specific document).
+async function fetchValidatedDocFacts(svc: SupabaseClient, tenantId: string, subject: string): Promise<DocFactRow[]> {
+  const { data } = await svc.from('document_facts').select(DOC_FACTS_SELECT)
+    .eq('tenant_id', tenantId).gte('confidence', 70).ilike('subject', `%${subject}%`).limit(50)
+  return (data ?? []) as DocFactRow[]
+}
+
+// Parses a document_facts value_text ("-1.6%", "GH₵450,000", "18 units")
+// into a plain number for comparison, stripping currency symbols/commas/unit
+// words while keeping the leading sign and decimal point.
+function parseDocFactNumber(valueText: string): number | null {
+  const m = valueText.replace(/,/g, '').match(/-?\d+(\.\d+)?/)
+  return m ? parseFloat(m[0]) : null
+}
+
 // ── Tool executors ───────────────────────────────────────────────────────
 
 export interface AgentToolContext {
@@ -186,6 +230,15 @@ export async function executeLookupFinancialFact(ctx: AgentToolContext, input: {
     }
   }
 
+  // financial_facts has nothing at all for this entity — likely a non-budget
+  // tenant (or a genuinely non-financial entity name). Fall back to the
+  // generic document_facts store rather than leaving this tool permanently
+  // useless for such tenants. See fetchValidatedDocFacts for why this matters.
+  let docFacts: DocFactRow[] = []
+  if (all.length === 0) {
+    docFacts = await fetchValidatedDocFacts(ctx.svc, ctx.tenantId, input.entity)
+  }
+
   return {
     validated: clean.slice(0, 20).map(f => ({
       entity: f.entity, metric: f.metric, fiscal_year: f.fiscal_year,
@@ -197,10 +250,16 @@ export async function executeLookupFinancialFact(ctx: AgentToolContext, input: {
       value_millions: f.value_millions, flags: f.flags, confidence: f.confidence,
       source_reliability: f.document_id ? reliability.get(f.document_id)?.reliabilityScore : undefined,
     })),
+    document_facts: docFacts.length ? docFacts.map(f => ({
+      subject: f.subject, attribute: f.attribute, value: f.unit ? `${f.value_text} ${f.unit}` : f.value_text,
+      confidence: f.confidence, source_document_id: f.document_id, page: f.page_number,
+    })) : undefined,
     previous_resolution: previousResolution,
-    note: clean.length === 0
-      ? 'No validated figure found for this entity/metric/year. Do not guess — say so, or check flagged values below for context only (never state a flagged value as fact).'
-      : undefined,
+    note: clean.length === 0 && docFacts.length === 0
+      ? 'No validated figure found for this entity/metric/year in either the financial_facts or document_facts store. Do not guess — say so, or check flagged values below for context only (never state a flagged value as fact).'
+      : clean.length === 0 && docFacts.length > 0
+        ? 'No financial_facts figure for this entity, but matching rows were found in document_facts (see that field) — prefer those exact values over anything recalled from raw excerpt text.'
+        : undefined,
   }
 }
 
@@ -289,7 +348,32 @@ export async function executeSearchDocuments(ctx: AgentToolContext, input: { que
 export async function executeVerifyFigure(ctx: AgentToolContext, input: { value: number; entity: string; fiscal_year?: string }) {
   const facts = await fetchValidatedFacts(ctx.svc, ctx.tenantId, { entity: input.entity, fiscal_year: input.fiscal_year })
   if (!facts.length) {
-    return { supported: false, note: 'No validated facts at all for this entity/year — cannot confirm or deny this figure from structured data. Check document excerpts directly.' }
+    // financial_facts has nothing for this entity at all — before giving up,
+    // check the generic document_facts store (the only structured fact layer
+    // for non-budget tenants). See fetchValidatedDocFacts for the confirmed
+    // real-world case this closes: a model mis-pairing a chart's scattered
+    // labels/values (e.g. stating "Ghana Stock Market 13.1%" when the
+    // extracted fact was "-1.6%") with no tool available to catch it.
+    const docFacts = await fetchValidatedDocFacts(ctx.svc, ctx.tenantId, input.entity)
+    if (!docFacts.length) {
+      return { supported: false, note: 'No validated facts at all for this entity/year — cannot confirm or deny this figure from structured data. Check document excerpts directly.' }
+    }
+    const parsed = docFacts.map(f => ({ f, n: parseDocFactNumber(f.value_text) })).filter((p): p is { f: DocFactRow; n: number } => p.n != null)
+    const match = parsed.find(p => Math.abs(p.n - input.value) <= Math.max(Math.abs(p.n) * 0.02, 0.05))
+    if (match) {
+      return {
+        supported: true, matched_value: match.f.unit ? `${match.f.value_text} ${match.f.unit}` : match.f.value_text,
+        subject: match.f.subject, attribute: match.f.attribute, confidence: match.f.confidence,
+      }
+    }
+    const distinctDoc = [...new Map(parsed.map(p => [p.f.subject, p])).values()]
+    return {
+      supported: false,
+      closest_validated_values: distinctDoc.slice(0, 5).map(p => ({
+        subject: p.f.subject, attribute: p.f.attribute, value: p.f.unit ? `${p.f.value_text} ${p.f.unit}` : p.f.value_text,
+      })),
+      note: 'This figure does not match any validated document_facts value for a matching subject — do not state it. If you were about to cite a different value than what is shown here, use the value shown here instead.',
+    }
   }
 
   // Same tolerance logic as verifyAnswer's factMatch (~1%), normalized to millions.
