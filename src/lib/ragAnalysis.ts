@@ -9,7 +9,17 @@
 
 export type QueryType = 'fact_lookup' | 'trend' | 'comparison' | 'forecast' | 'evidence' | 'anomaly_detection' | 'general'
 
-const FORECAST_RX  = /\b(predict|forecast|projection|project(ed)?|next year|upcoming year|estimate for \d{4})\b/i
+// Confirmed live: "what is the estimated contribution to GDP in 2027" fell
+// through to fact_lookup (this regex's only "estimate" pattern was the
+// narrow literal phrase "estimate for <year>") — so computeForecast() below
+// never ran, no PRE-COMPUTED FORECAST block was ever built, and the model
+// (correctly, per its own hallucination-prevention rules, given nothing
+// backed a number) declined outright — even on a document with a genuine
+// 5-year time series it had ALREADY reasoned about correctly one turn
+// earlier when asked more openly. Broadened to catch the much more natural
+// "estimated/expected X in/for/by <year>" and "what will X be" shapes
+// alongside the existing keywords.
+const FORECAST_RX  = /\b(predict|forecast|projection|project(ed)?|next year|upcoming year|(?:estimat\w*|expect\w*)\b[\w\s,'-]{0,35}?\b(?:in|for|by)\s+(?:19|20)\d{2}\b|what\s+will\b[\w\s]{0,25}\bbe\b)\b/i
 const TREND_RX     = /\b(trends?|trend(ed|ing)|over (the|\d+|the (last|past|next)) (years?|decades?)|year[\s-]?(on|over)[\s-]?year|growth|increase|decrease|change (over|from)|since \d{4}|\d{4}\s*(to|-|–|—)\s*\d{4})\b/i
 const COMPARISON_RX = /\b(compare|comparison|versus|\bvs\.?\b|difference between|relative to|against|top\s+(?:five|5|three|3|ten|10|\d+)|largest\s+percentage)\b/i
 const EVIDENCE_RX  = /\b(evidence|prove|support(ing)?\s+(this|that|the)\s+claim|cite|source(s)?\s+for|justify)\b/i
