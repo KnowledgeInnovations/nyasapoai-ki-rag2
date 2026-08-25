@@ -109,8 +109,23 @@ export async function extractStructuredText(buffer: Buffer, filename: string): P
     return [{ page_number: null, text: ast.toText() ?? '' }]
   }
 
-  // CSV, TXT, JSON, Markdown, etc.
-  return [{ page_number: null, text: buffer.toString('utf-8') }]
+  // CSV, TXT, JSON, Markdown, etc. — Excel-exported CSVs in particular are
+  // very often Windows-1252/Latin-1, not UTF-8. Decoding those as UTF-8
+  // doesn't throw — it silently produces mojibake (a run of U+FFFD
+  // replacement characters, or garbled accented text) with no error
+  // anywhere in the pipeline, corrupting the very numbers/names a fact
+  // extractor most needs to read correctly. A high density of U+FFFD (the
+  // standard "invalid UTF-8 byte sequence" marker) is a cheap, reliable
+  // signal that the wrong encoding was used — re-decode as latin1, which
+  // covers the common real-world culprit (any non-UTF-8 single-byte
+  // encoding round-trips through latin1 without loss, even if it isn't
+  // literally Windows-1252/ISO-8859-1).
+  const utf8Text = buffer.toString('utf-8')
+  const replacementCount = (utf8Text.match(/�/g) ?? []).length
+  if (replacementCount > 3 && replacementCount > utf8Text.length * 0.01) {
+    return [{ page_number: null, text: buffer.toString('latin1') }]
+  }
+  return [{ page_number: null, text: utf8Text }]
 }
 
 // Backwards-compatible plain-text extraction (used where structure isn't needed)
