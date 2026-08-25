@@ -1,12 +1,27 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import Image from 'next/image'
+import { headers } from 'next/headers'
 import { ArrowRight } from 'lucide-react'
 import DemoChat from '@/components/marketing/DemoChat'
 import FAQ from '@/components/marketing/FAQ'
+import { getTenantBySubdomain } from '@/lib/supabase/server'
+import { subdomainFromHost, ROOT_DOMAIN } from '@/lib/domain'
+import type { SubdomainTenant } from '@/components/auth/LoginClient'
 
-// Statically generated — revalidated every 24 hours
-export const revalidate = 86400
+// This page used to be statically generated (revalidate = 86400) — that
+// only works when every visitor sees the same HTML. A visitor on a
+// tenant's own subdomain (e.g. devtraco.nyansaai.com) previously got the
+// exact same generic sales pitch as a first-time prospect on the main
+// domain, right down to "Request a workspace" / "Create your workspace"
+// CTAs that make no sense for someone who already has one — the login
+// page has branded itself per-tenant this whole time (see LoginClient's
+// `tenant` prop) but the page in front of it never matched. Reading the
+// Host header to resolve the tenant requires per-request rendering, so
+// this page trades the 24h static cache for that — proportionate here
+// since getTenantBySubdomain() has its own cross-request TTL cache (see
+// src/lib/supabase/server.ts), so the added cost per visit is small.
+export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
   title: 'Nyansa AI — Enterprise Document Intelligence',
@@ -50,7 +65,24 @@ const trust = [
   'Every answer grounded in a citation — nothing guessed',
 ]
 
-export default function HomePage() {
+export default async function HomePage() {
+  const host = (await headers()).get('host')
+  const subdomain = subdomainFromHost(host)
+  const tenant = subdomain ? await getTenantBySubdomain(subdomain) : null
+
+  return <HomePageContent tenant={tenant} />
+}
+
+function HomePageContent({ tenant }: { tenant: SubdomainTenant | null }) {
+  // An existing tenant's own subdomain is never a prospect landing on the
+  // site for the first time — "Request a workspace" / "Create your
+  // workspace" would be actively wrong (they already have one). Same CTA
+  // slot, tenant-aware destination and label, mirroring how the login page
+  // already brands itself per-tenant.
+  const primaryCta = tenant
+    ? { href: '/auth/login', label: `Sign in to ${tenant.name}` }
+    : { href: '/auth/signup', label: 'Request a workspace' }
+
   return (
     <div className="min-h-screen bg-paper text-gray-900 overflow-x-hidden font-editorial-sans">
 
@@ -58,36 +90,42 @@ export default function HomePage() {
       <section className="mx-auto grid max-w-7xl items-center gap-14 px-6 pb-16 pt-24 md:grid-cols-2 md:px-8 md:pt-28">
         <div>
           <div className="animate-fade-up mb-6 inline-block border-b border-brand pb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-brand" style={{ animationDelay: '0.05s' }}>
-            Document intelligence, institutional grade
+            {tenant ? `${tenant.name} workspace` : 'Document intelligence, institutional grade'}
           </div>
 
           <h1 className="animate-fade-up font-editorial max-w-xl text-[52px] font-normal leading-[1.14] text-gray-900" style={{ animationDelay: '0.15s' }}>
-            Every question your documents can already answer —{' '}
-            <span className="italic text-brand-dark">answered in seconds.</span>
+            {tenant ? (
+              <>Welcome back to <span className="italic text-brand-dark">{tenant.name}.</span></>
+            ) : (
+              <>Every question your documents can already answer —{' '}
+                <span className="italic text-brand-dark">answered in seconds.</span></>
+            )}
           </h1>
 
           <p className="animate-fade-up mt-6 max-w-lg text-base leading-relaxed text-gray-500" style={{ animationDelay: '0.28s' }}>
-            Nyansa AI reads your contracts, reports and filings, and answers plain-English
-            questions with a citation your team can verify — page, paragraph and source,
-            every time.
+            {tenant
+              ? `Sign in to pick up where you left off — every document, every cited answer, right where ${tenant.name} keeps them.`
+              : 'Nyansa AI reads your contracts, reports and filings, and answers plain-English questions with a citation your team can verify — page, paragraph and source, every time.'}
           </p>
 
           <div className="animate-fade-up mt-8 flex flex-col gap-4 sm:flex-row sm:items-center" style={{ animationDelay: '0.4s' }}>
-            <Link href="/auth/signup"
+            <Link href={primaryCta.href}
               className="inline-flex items-center justify-center gap-2 bg-brand px-7 py-3.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-brand-dark hover:shadow-xl hover:shadow-brand/25">
-              Request a workspace <ArrowRight className="h-4 w-4" />
+              {primaryCta.label} <ArrowRight className="h-4 w-4" />
             </Link>
             <a href="#demo" className="border-b border-gray-900 pb-0.5 text-sm text-gray-900 transition hover:border-brand hover:text-brand">
               Watch a 90-second walkthrough
             </a>
           </div>
 
-          <div className="animate-fade-up mt-14 border-t border-gray-200 pt-6" style={{ animationDelay: '0.55s' }}>
-            <div className="mb-3 text-[11px] uppercase tracking-[0.08em] text-gray-500">Trusted by teams at</div>
-            <div className="flex flex-wrap gap-7 font-editorial text-sm italic text-gray-500">
-              <span>[Client wordmark]</span><span>[Client wordmark]</span><span>[Client wordmark]</span>
+          {!tenant && (
+            <div className="animate-fade-up mt-14 border-t border-gray-200 pt-6" style={{ animationDelay: '0.55s' }}>
+              <div className="mb-3 text-[11px] uppercase tracking-[0.08em] text-gray-500">Trusted by teams at</div>
+              <div className="flex flex-wrap gap-7 font-editorial text-sm italic text-gray-500">
+                <span>[Client wordmark]</span><span>[Client wordmark]</span><span>[Client wordmark]</span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Photo + product-preview composition */}
@@ -112,7 +150,7 @@ export default function HomePage() {
 
           <div className="animate-float absolute bottom-4 right-0 z-10 w-[320px] border border-gray-200 bg-white shadow-[0_24px_60px_-20px_rgba(20,20,20,0.22)]" style={{ animationDelay: '1.2s' }}>
             <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3.5 text-[11.5px] text-gray-600">
-              <span>yourcompany.nyansaai.com</span>
+              <span>{tenant ? `${tenant.subdomain}.${ROOT_DOMAIN}` : 'yourcompany.nyansaai.com'}</span>
               <span className="text-brand">Workspace</span>
             </div>
             <div className="px-5 pb-2 pt-5">
@@ -238,14 +276,20 @@ export default function HomePage() {
       <section className="relative overflow-hidden bg-brand px-6 py-22 text-center md:px-8">
         <div className="animate-spark absolute right-28 top-10 h-2 w-2 rounded-full bg-gold" />
         <div className="animate-spark absolute bottom-14 left-40 h-1.5 w-1.5 rounded-full bg-gold" style={{ animationDelay: '1s' }} />
-        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gold">Your workspace is one click away</span>
-        <h2 className="font-editorial mt-4 text-4xl font-normal text-white">Stop searching. Start knowing.</h2>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gold">
+          {tenant ? `${tenant.name}'s workspace is one click away` : 'Your workspace is one click away'}
+        </span>
+        <h2 className="font-editorial mt-4 text-4xl font-normal text-white">
+          {tenant ? 'Welcome back.' : 'Stop searching. Start knowing.'}
+        </h2>
         <p className="mx-auto mt-4 max-w-md text-[14.5px] leading-relaxed text-white/75">
-          Every document. Every answer. Every source cited. Waiting for you right now.
+          {tenant
+            ? `Sign in to continue — every document, every answer, every source cited.`
+            : 'Every document. Every answer. Every source cited. Waiting for you right now.'}
         </p>
-        <Link href="/auth/signup"
+        <Link href={primaryCta.href}
           className="mt-8 inline-flex items-center gap-2 bg-white px-7 py-3.5 text-sm font-bold text-brand-dark transition hover:-translate-y-0.5 hover:shadow-xl">
-          Create your workspace <ArrowRight className="h-4 w-4" />
+          {primaryCta.label} <ArrowRight className="h-4 w-4" />
         </Link>
       </section>
 
