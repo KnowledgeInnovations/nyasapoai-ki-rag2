@@ -3,7 +3,7 @@ import path from 'node:path'
 import { getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH, insertChunkBatch, insertFactsResilient } from '@/lib/documentProcess'
-import { canAccessTraining } from '@/lib/roles'
+import { canAccessTraining, type Role } from '@/lib/roles'
 import { extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks, runCrossDocumentCorroboration, supersedeForwardProjections, applyLearnedHeuristics, looksLikeBudgetDocument, type FinancialFact } from '@/lib/factExtraction'
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
 import { extractGenericFacts } from '@/lib/genericFactExtraction'
@@ -54,22 +54,34 @@ export async function POST(
 ) {
   const routeDeadline = Date.now() + PROCESSING_BUDGET_MS
   const { id } = await params
-  const membership = await getMembership()
-  if (!membership || !canAccessTraining(membership.role)) {
-    return new Response('Unauthorized', { status: 401 })
+
+  // Two ways in: the normal authenticated-admin flow (session cookie), or
+  // the scheduled auto-heal cron job (api/cron/auto-reprocess-documents)
+  // re-running a document that finished degraded last time. The cron path
+  // never has a user session, so it authenticates with a server-only
+  // shared secret instead and derives tenant_id from the document row
+  // itself (the cron route already selected this specific document under
+  // its own service-role query) rather than from a membership record.
+  const isCronCall = !!process.env.CRON_SECRET && _request.headers.get('x-cron-secret') === process.env.CRON_SECRET
+  let membership: { tenant_id: string; role: Role } | null = null
+  if (!isCronCall) {
+    membership = await getMembership()
+    if (!membership || !canAccessTraining(membership.role)) {
+      return new Response('Unauthorized', { status: 401 })
+    }
   }
 
   const service = svc()
 
-  // Fetch document record
-  const { data: doc } = await service
-    .from('documents')
-    .select('id, title, source, file_path, tenant_id, status')
-    .eq('id', id)
-    .eq('tenant_id', membership.tenant_id)
-    .single()
+  // Fetch document record — scoped by the authenticated user's own tenant
+  // for the normal path; the cron path is trusted and already chose this
+  // specific document_id, so it derives tenant_id from the row instead.
+  let docQuery = service.from('documents').select('id, title, source, file_path, tenant_id, status').eq('id', id)
+  if (membership) docQuery = docQuery.eq('tenant_id', membership.tenant_id)
+  const { data: doc } = await docQuery.single()
 
   if (!doc) return new Response('Document not found', { status: 404 })
+  if (!membership) membership = { tenant_id: doc.tenant_id, role: 'senior' }
 
   const enc = new TextEncoder()
 
@@ -459,6 +471,14 @@ export async function POST(
               : null
             await service.from('documents').update({
               status_detail: statusDetail, processing_warnings: warnings,
+              // A clean run (no warnings at all) means whatever earlier
+              // problem this document had is actually resolved now — give
+              // it a fresh auto_reprocess_count budget rather than leaving
+              // it part-spent from an unrelated past episode, so a NEW
+              // degraded run in the future (a different cause) gets its own
+              // full set of auto-heal attempts instead of inheriting
+              // whatever was left over from this one.
+              ...(degradedStepCount === 0 ? { auto_reprocess_count: 0 } : {}),
             }).eq('id', id)
           } catch (err) {
             // The document is already "ready" with its chunks/embeddings —
