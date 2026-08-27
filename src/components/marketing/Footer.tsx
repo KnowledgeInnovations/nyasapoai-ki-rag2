@@ -3,6 +3,7 @@ import Link from 'next/link'
 const links = [
   { href: '/pricing', label: 'Pricing' },
   { href: '/security', label: 'Security' },
+  { href: '/sovereign', label: 'Sovereign AI' },
   { href: '/contact', label: 'Contact' },
   { href: '/auth/login', label: 'Sign in' },
 ]
