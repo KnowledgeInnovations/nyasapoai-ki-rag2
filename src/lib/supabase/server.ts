@@ -117,11 +117,20 @@ export const getMembership = cache(async () => {
   if (hit && hit.exp > Date.now()) return hit.v
 
   const supabase = await createClient()
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('memberships')
     .select('tenant_id, role')
     .eq('user_id', user.id)
     .single()
+
+  // A transient query failure (network blip, rate limit, momentary outage)
+  // is not the same as "this user has no membership" — caching it as such
+  // would silently strip a real user's role/tenant for MEMBERSHIP_TTL on
+  // whichever server instance hit the error.
+  if (error) {
+    console.error('getMembership query failed', { userId: user.id, error })
+    return null
+  }
 
   const raw = data as { tenant_id: string; role: string } | null
   const val = raw ? { tenant_id: raw.tenant_id, role: normalizeRole(raw.role) } : null
@@ -136,11 +145,18 @@ export const getTenant = cache(async (tenantId: string) => {
   if (hit && hit.exp > Date.now()) return hit.v
 
   const supabase = await createClient()
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('tenants')
     .select('id, name, subdomain, description, is_platform, email_domains')
     .eq('id', tenantId)
     .single()
+
+  // Same reasoning as getMembership above — don't let a transient query
+  // failure get cached as "this tenant doesn't exist" for TENANT_TTL.
+  if (error) {
+    console.error('getTenant query failed', { tenantId, error })
+    return null
+  }
 
   const val = data as { id: string; name: string; subdomain: string; description: string | null; is_platform: boolean; email_domains: string[] } | null
   evict(tenantCache)
@@ -161,11 +177,20 @@ export const getTenantBySubdomain = cache(async (subdomain: string) => {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
-  const { data } = await service
+  const { data, error } = await service
     .from('tenants')
     .select('id, name, subdomain')
     .eq('subdomain', subdomain)
     .maybeSingle()
+
+  // Don't cache a transient query failure as "no tenant at this subdomain"
+  // — that would silently show the generic landing page (instead of the
+  // personalized one) to that tenant's visitors for TENANT_TTL, on
+  // whichever server instance hit the error.
+  if (error) {
+    console.error('getTenantBySubdomain query failed', { subdomain, error })
+    return null
+  }
 
   evict(subdomainTenantCache)
   subdomainTenantCache.set(subdomain, { v: data, exp: Date.now() + TENANT_TTL })
