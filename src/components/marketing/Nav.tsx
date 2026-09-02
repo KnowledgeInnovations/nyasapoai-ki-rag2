@@ -10,6 +10,7 @@ const navLinks = [
   { href: '/#features', label: 'Features' },
   { href: '/pricing', label: 'Pricing' },
   { href: '/security', label: 'Security' },
+  { href: '/sovereign', label: 'Sovereign AI' },
   { href: '/contact', label: 'Contact' },
 ]
 
