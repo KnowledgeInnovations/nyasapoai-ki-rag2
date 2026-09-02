@@ -1,9 +1,10 @@
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { getUser, getMembership, getTenant, createClient, getSessionId, touchLastActive } from '@/lib/supabase/server'
+import { getUser, getMembership, getTenant, getTenantLogoPath, createClient, getSessionId, touchLastActive } from '@/lib/supabase/server'
 import { subdomainFromHost, tenantUrlForHost, rootUrlForHost } from '@/lib/domain'
 import { isSessionEmailMfaVerified } from '@/lib/emailMfa'
+import { publicUrlFor } from '@/lib/tenantLogo'
 import AppShell from '@/components/app/AppShell'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -52,8 +53,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     redirect(tenant.is_platform ? rootUrlForHost('/admin/tenants', host) : tenantUrlForHost(tenant.subdomain, '/ask', host))
   }
 
+  // The same workspace icon the browser tab uses, shown on the sidebar badge
+  // in place of the tenant's initials. Tolerates the column being absent —
+  // resolves to null and the badge falls back to initials.
+  const logoPath = tenant ? await getTenantLogoPath(tenant.subdomain) : null
+  const tenantLogoUrl = logoPath ? publicUrlFor(logoPath) : null
+
   return (
-    <AppShell user={user} role={role} tenantName={tenantName} isPlatformAdmin={isPlatformAdmin} isPlatformTenant={tenant?.is_platform === true}>
+    <AppShell user={user} role={role} tenantName={tenantName} tenantLogoUrl={tenantLogoUrl} isPlatformAdmin={isPlatformAdmin} isPlatformTenant={tenant?.is_platform === true}>
       {children}
     </AppShell>
   )

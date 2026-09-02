@@ -40,6 +40,8 @@ function getNavItems(role: string, isPlatformAdmin?: boolean, isPlatformTenant?:
 interface Props {
   role: string
   tenantName: string
+  /** The workspace icon set in Settings → Workspace; falls back to initials. */
+  tenantLogoUrl?: string | null
   isPlatformAdmin?: boolean
   isPlatformTenant?: boolean
   collapsed: boolean
@@ -56,6 +58,37 @@ function tenantInitials(name: string): string {
   return (words[0][0] + words[1][0]).toUpperCase()
 }
 
+// The workspace badge: the tenant's own icon once they've set one in
+// Settings → Workspace (the same image the browser tab uses), otherwise their
+// initials. An uploaded logo sits on white rather than the brand fill — it
+// carries its own colours and usually its own background, so painting brand
+// blue behind it just muddies whatever they uploaded.
+//
+// Plain <img> rather than next/image: the source is a Supabase storage URL
+// built from an env var, which next/image would need a matching
+// images.remotePatterns entry for, and there's nothing to optimise on a 32px
+// badge.
+function WorkspaceBadge({ logoUrl, initials, tenantName, className }: {
+  logoUrl?: string | null
+  initials: string
+  tenantName: string
+  className?: string
+}) {
+  if (logoUrl) {
+    return (
+      <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden border border-gray-200 bg-white', className)}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={logoUrl} alt={tenantName} className="h-full w-full object-contain" />
+      </div>
+    )
+  }
+  return (
+    <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center border border-brand/20 bg-brand text-xs font-semibold text-white', className)}>
+      {initials}
+    </div>
+  )
+}
+
 // Generate a short readable title from the query
 function deriveTitle(query: string): string {
   const q = query.trim().replace(/[?!.]+$/, '')
@@ -64,7 +97,7 @@ function deriveTitle(query: string): string {
   return words.join(' ') + (q.split(/\s+/).length > 6 ? '…' : '')
 }
 
-export default function AppSidebar({ role, tenantName, isPlatformAdmin, isPlatformTenant, collapsed, mobileOpen, onClose, onToggle }: Props) {
+export default function AppSidebar({ role, tenantName, tenantLogoUrl, isPlatformAdmin, isPlatformTenant, collapsed, mobileOpen, onClose, onToggle }: Props) {
   const pathname = usePathname()
   const router   = useRouter()
   const isAsk    = pathname.startsWith('/ask')
@@ -188,14 +221,10 @@ export default function AppSidebar({ role, tenantName, isPlatformAdmin, isPlatfo
       {/* ── Header ─────────────────────────────────────────── */}
       <div className="flex h-14 shrink-0 items-center border-b border-gray-200 px-3">
         {collapsed ? (
-          <div className="mx-auto flex h-8 w-8 shrink-0 items-center justify-center border border-brand/20 bg-brand text-[11px] font-semibold text-white">
-            {initials}
-          </div>
+          <WorkspaceBadge logoUrl={tenantLogoUrl} initials={initials} tenantName={tenantName} className="mx-auto text-[11px]" />
         ) : (
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center border border-brand/20 bg-brand text-xs font-semibold text-white">
-              {initials}
-            </div>
+            <WorkspaceBadge logoUrl={tenantLogoUrl} initials={initials} tenantName={tenantName} />
             <div className="min-w-0">
               <p className="text-sm font-semibold text-gray-900 leading-tight truncate">{tenantName}</p>
               <p className="text-[10px] leading-tight text-gray-400">Intelligence workspace</p>
