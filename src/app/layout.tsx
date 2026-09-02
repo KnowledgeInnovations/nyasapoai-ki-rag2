@@ -18,6 +18,16 @@ export const metadata: Metadata = {
   metadataBase: new URL(
     process.env.NEXT_PUBLIC_APP_URL || 'https://nyansaai.com'
   ),
+  // Pointed at a route rather than a static app/icon.* file so a tenant's own
+  // logo can be served on their subdomain (see src/app/tenant-icon/route.ts,
+  // deliberately outside /api so next.config's no-store rule doesn't apply),
+  // falling back to the Nyansa AI logo everywhere else. This is a static
+  // string, so pages are not forced into dynamic rendering — the per-host
+  // lookup happens when the browser fetches the icon.
+  icons: {
+    icon: '/tenant-icon',
+    apple: '/tenant-icon',
+  },
 }
 
 export default function RootLayout({

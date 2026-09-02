@@ -172,6 +172,51 @@ export const getTenantBySubdomain = cache(async (subdomain: string) => {
   return data
 })
 
+// ── getTenantLogoPath — per-subdomain favicon lookup ──────────────────
+// Deliberately a separate query from getTenantBySubdomain rather than another
+// column on it: that one is on the critical path for the login page and the
+// marketing landing page, and adding a column to its select would make both
+// fail outright on any deployment where migration 033 hasn't run yet. Here a
+// missing column just means "no custom logo" and the caller falls back to the
+// Nyansa AI default, so code and migration can land in either order.
+//
+// Cached per subdomain like the lookups above; errors are never cached (see
+// getTenantBySubdomain for why).
+const subdomainLogoCache = new Map<string, Entry<string | null>>()
+
+export const getTenantLogoPath = cache(async (subdomain: string): Promise<string | null> => {
+  const hit = subdomainLogoCache.get(subdomain)
+  if (hit && hit.exp > Date.now()) return hit.v
+
+  const service = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  )
+  const { data, error } = await service
+    .from('tenants')
+    .select('logo_path')
+    .eq('subdomain', subdomain)
+    .maybeSingle()
+
+  if (error) {
+    // Includes "column does not exist" before migration 033 has run — degrade
+    // to the default icon rather than 500ing on a favicon request.
+    console.error('getTenantLogoPath query failed', { subdomain, error })
+    return null
+  }
+
+  const path = (data as { logo_path: string | null } | null)?.logo_path ?? null
+  evict(subdomainLogoCache)
+  subdomainLogoCache.set(subdomain, { v: path, exp: Date.now() + TENANT_TTL })
+  return path
+})
+
+/** Drop a tenant's cached logo path — call after changing it. */
+export function invalidateTenantLogo(subdomain: string) {
+  subdomainLogoCache.delete(subdomain)
+}
+
 // ── touchLastActive — debounced "is this person actually using the app
 // right now" signal for the Users admin page ────────────────────────
 // auth.users.last_sign_in_at only updates on sign-in, not on ongoing use —

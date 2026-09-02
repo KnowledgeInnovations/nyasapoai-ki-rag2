@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { CheckCircle2, Loader2, X, Plus, User, ShieldCheck, Building2 } from 'lucide-react'
+import { CheckCircle2, Loader2, X, Plus, User, ShieldCheck, Building2, Upload, Image as ImageIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { normalizeRole, ROLE_LABELS, ROLE_DESCRIPTIONS, canUploadDocuments } from '@/lib/roles'
 import PasswordSettings from './PasswordSettings'
@@ -16,6 +16,8 @@ interface Props {
   role: string
   emailDomains: string[]
   isPlatformTenant: boolean
+  /** Public URL of the tenant's custom icon, or null when using the default. */
+  logoUrl: string | null
 }
 
 type TabId = 'profile' | 'security' | 'workspace'
@@ -35,7 +37,7 @@ function initialsFor(name: string, email: string): string {
   return email.slice(0, 2).toUpperCase()
 }
 
-export default function SettingsClient({ email, name, role, emailDomains, isPlatformTenant }: Props) {
+export default function SettingsClient({ email, name, role, emailDomains, isPlatformTenant, logoUrl }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('profile')
 
   const [displayName, setDisplayName] = useState(name)
@@ -108,6 +110,48 @@ export default function SettingsClient({ email, name, role, emailDomains, isPlat
 
   function removeDomain(d: string) {
     saveDomains(domains.filter(x => x !== d))
+  }
+
+  /* ── Workspace icon ──────────────────────────────────────── */
+  const [logo,        setLogo]        = useState(logoUrl)
+  const [logoBusy,    setLogoBusy]    = useState(false)
+  const [logoError,   setLogoError]   = useState('')
+  const logoInputRef = useRef<HTMLInputElement>(null)
+
+  async function uploadLogo(file: File) {
+    setLogoBusy(true)
+    setLogoError('')
+    try {
+      const body = new FormData()
+      body.append('file', file)
+      const res = await fetch('/api/tenants/logo', { method: 'POST', body })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Upload failed')
+      // Cache-bust so the preview reflects the new file immediately.
+      setLogo(`${data.url}?v=${Date.now()}`)
+      router.refresh()
+    } catch (e) {
+      setLogoError((e as Error).message)
+    } finally {
+      setLogoBusy(false)
+      if (logoInputRef.current) logoInputRef.current.value = ''
+    }
+  }
+
+  async function clearLogo() {
+    setLogoBusy(true)
+    setLogoError('')
+    try {
+      const res = await fetch('/api/tenants/logo', { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Could not remove logo')
+      setLogo(null)
+      router.refresh()
+    } catch (e) {
+      setLogoError((e as Error).message)
+    } finally {
+      setLogoBusy(false)
+    }
   }
 
   const TABS: { id: TabId; label: string; icon: typeof User }[] = [
@@ -211,6 +255,69 @@ export default function SettingsClient({ email, name, role, emailDomains, isPlat
                   </p>
                 </div>
               </section>
+
+              {normalizedRole === 'senior' && !isPlatformTenant && (
+                <section className="overflow-hidden  border border-gray-200 bg-white shadow-sm">
+                  <div className="border-b border-gray-100 bg-gray-50/60 px-6 py-4">
+                    <h2 className="text-sm font-bold text-gray-800">Workspace Icon</h2>
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      The icon shown in browser tabs and link previews on your workspace&apos;s
+                      own address. Leave it unset to use the Nyansa AI logo.
+                    </p>
+                  </div>
+                  <div className="space-y-4 p-6">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden border border-gray-200 bg-gray-50">
+                        {logo ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={logo} alt="Workspace icon" className="h-full w-full object-contain" />
+                        ) : (
+                          <ImageIcon className="h-6 w-6 text-gray-300" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm text-gray-600">
+                          {logo ? 'Using your workspace icon.' : 'Using the default Nyansa AI logo.'}
+                        </p>
+                        <p className="mt-0.5 text-xs text-gray-400">
+                          PNG, JPEG, WebP, SVG or ICO. Up to 1 MB. Square images work best.
+                        </p>
+                      </div>
+                    </div>
+
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/svg+xml,image/x-icon"
+                      className="hidden"
+                      onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f) }}
+                    />
+
+                    <div className="flex flex-wrap gap-2">
+                      <button onClick={() => logoInputRef.current?.click()} disabled={logoBusy}
+                        className="flex items-center gap-1.5  border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 disabled:opacity-50">
+                        {logoBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                        {logo ? 'Replace icon' : 'Upload icon'}
+                      </button>
+                      {logo && (
+                        <button onClick={clearLogo} disabled={logoBusy}
+                          className="flex items-center gap-1.5  border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-500 transition hover:bg-gray-50 disabled:opacity-50">
+                          <X className="h-4 w-4" /> Reset to default
+                        </button>
+                      )}
+                    </div>
+
+                    <p className="text-xs text-gray-400">
+                      Anyone who can open your workspace address can load this image — browsers
+                      request icons without signing in, so it can&apos;t be access-controlled.
+                    </p>
+
+                    {logoError && (
+                      <p className=" border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{logoError}</p>
+                    )}
+                  </div>
+                </section>
+              )}
 
               {normalizedRole === 'senior' && !isPlatformTenant && (
                 <section className="overflow-hidden  border border-gray-200 bg-white shadow-sm">

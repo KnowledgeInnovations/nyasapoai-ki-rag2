@@ -1,0 +1,12 @@
+-- Per-tenant browser icon (favicon), shown on that tenant's own subdomain.
+--
+-- Until this ran, src/app/icon.png — one tenant's logo — was the app icon for
+-- the entire site, so every browser tab and shared-link preview on the root
+-- domain rendered that tenant's branding. The default is now the Nyansa AI
+-- logo; this column lets a tenant put their own back, scoped to their subdomain.
+--
+-- Stores the object path inside the public `tenant-logos` storage bucket
+-- (e.g. "<tenant-id>/1712345678-logo.png"), not a full URL — the bucket's
+-- public base URL is derived at read time, so moving projects/buckets doesn't
+-- strand rows pointing at a dead host. NULL means "use the Nyansa AI default".
+alter table public.tenants add column if not exists logo_path text;

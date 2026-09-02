@@ -39,7 +39,12 @@ export async function proxy(request: NextRequest) {
     // not a cookie, so it must bypass this redirect or every auth email
     // Supabase tries to send would fail.
     const isPublicWebhook = url.pathname === '/api/auth/send-email-hook'
-    if (!user && !url.pathname.startsWith('/auth') && !isMarketingRoute && !isPublicWebhook) {
+    // The workspace favicon must stay public: browsers and link-preview
+    // crawlers fetch it with no session, and redirecting it to /auth/login
+    // hands them an HTML page where an image should be, so the tab icon
+    // silently breaks on exactly the tenant subdomains it exists for.
+    const isPublicIcon = url.pathname === '/tenant-icon'
+    if (!user && !url.pathname.startsWith('/auth') && !isMarketingRoute && !isPublicWebhook && !isPublicIcon) {
       url.pathname = '/auth/login'
       url.searchParams.set('tenant', subdomain)
       return NextResponse.redirect(url)
