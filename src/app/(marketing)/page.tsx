@@ -97,7 +97,7 @@ function HomePageContent({ tenant }: { tenant: SubdomainTenant | null }) {
             {tenant ? (
               <>Welcome back to <span className="italic text-brand-dark">{tenant.name}.</span></>
             ) : (
-              <>Every question your documents can already answer —{' '}
+              <>Every question in your knowledge base —{' '}
                 <span className="italic text-brand-dark">answered in seconds.</span></>
             )}
           </h1>
