@@ -20,7 +20,7 @@ export async function GET() {
   const service = svc()
   const { data: memberships, error } = await service
     .from('memberships')
-    .select('user_id, role, created_at, users:user_id (id, email, name)')
+    .select('user_id, role, created_at, last_active_at, users:user_id (id, email, name)')
     .eq('tenant_id', membership.tenant_id)
     .order('created_at', { ascending: true })
 
@@ -33,23 +33,14 @@ export async function GET() {
     user_id: string
     role: string
     created_at: string
+    last_active_at: string | null
     users: { id: string; email: string; name: string | null } | { id: string; email: string; name: string | null }[] | null
   }
 
-  // Determine invite-acceptance status from auth.users — a member who hasn't
-  // signed in yet is still "pending" even though their membership row exists.
-  const authStatusById = new Map<string, 'active' | 'pending'>()
-  let page = 1
-  for (;;) {
-    const { data, error: listError } = await service.auth.admin.listUsers({ page, perPage: 1000 })
-    if (listError) { console.error('List auth users error:', listError); break }
-    for (const u of data.users) {
-      authStatusById.set(u.id, u.last_sign_in_at ? 'active' : 'pending')
-    }
-    if (data.users.length < 1000) break
-    page++
-  }
-
+  // Acceptance is judged by actual use of the workspace, not by
+  // auth.users.last_sign_in_at — see the note in src/app/(app)/users/page.tsx
+  // for why that field is unreliable here (mail security scanners follow the
+  // invite link and sign the invitee in before they ever see the email).
   const members = ((memberships ?? []) as Row[]).map(m => {
     const user = Array.isArray(m.users) ? m.users[0] : m.users
     return {
@@ -58,7 +49,8 @@ export async function GET() {
       name:      user?.name ?? '',
       role:      normalizeRole(m.role),
       createdAt: m.created_at,
-      status:    authStatusById.get(m.user_id) ?? 'pending',
+      status:    m.last_active_at ? 'active' : 'pending',
+      lastActiveAt: m.last_active_at,
     }
   })
 

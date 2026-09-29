@@ -68,8 +68,28 @@ export async function POST(req: Request) {
   const { user, email_data } = payload
   const actionType = email_data.email_action_type
 
-  const confirmationURL = email_data.token_hash
-    ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/verify?token=${email_data.token_hash}&type=${verifyTypeFor(actionType)}&redirect_to=${encodeURIComponent(email_data.redirect_to ?? '')}`
+  // Link to our own interstitial rather than straight to Supabase's one-time
+  // verify endpoint. Corporate mail scanners (Microsoft Defender Safe Links
+  // and friends) fetch every URL in an incoming message; against the verify
+  // endpoint that fetch consumes the token, confirms the address and creates a
+  // session, so the real recipient's click later fails as an expired link.
+  // Measured on the Devtraco tenant: invitees confirmed and signed in 20-51
+  // seconds after the invite was created, before any of them opened the app.
+  //
+  // The interstitial renders harmlessly for a scanner and redeems the token
+  // only on a real click. See src/app/auth/accept-invite/page.tsx.
+  // Host the interstitial on the same origin the link ultimately lands on —
+  // redirect_to already carries the tenant's own subdomain, so the invitee
+  // stays on their workspace's host the whole way through.
+  let appOrigin = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') ?? ''
+  try {
+    if (email_data.redirect_to) appOrigin = new URL(email_data.redirect_to).origin
+  } catch {
+    // redirect_to absent or malformed — fall back to the configured app URL.
+  }
+
+  const confirmationURL = email_data.token_hash && appOrigin
+    ? `${appOrigin}/auth/accept-invite?token_hash=${encodeURIComponent(email_data.token_hash)}&type=${encodeURIComponent(verifyTypeFor(actionType))}&redirect_to=${encodeURIComponent(email_data.redirect_to ?? '')}`
     : undefined
 
   const email = buildAuthEmail(actionType, { confirmationURL, token: email_data.token })

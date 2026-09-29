@@ -36,20 +36,18 @@ export default async function UsersPage() {
     users: { id: string; email: string; name: string | null } | { id: string; email: string; name: string | null }[] | null
   }
 
-  // Determine invite-acceptance status from auth.users — a member who hasn't
-  // signed in yet is still "pending" even though their membership row exists.
-  const authStatusById = new Map<string, 'active' | 'pending'>()
-  let page = 1
-  for (;;) {
-    const { data, error: listError } = await service.auth.admin.listUsers({ page, perPage: 1000 })
-    if (listError) { console.error('List auth users error:', listError); break }
-    for (const u of data.users) {
-      authStatusById.set(u.id, u.last_sign_in_at ? 'active' : 'pending')
-    }
-    if (data.users.length < 1000) break
-    page++
-  }
-
+  // An invite counts as accepted only once the person has actually used the
+  // workspace — memberships.last_active_at, which the app layout touches on
+  // every protected request.
+  //
+  // auth.users.last_sign_in_at cannot be used for this. Corporate mail
+  // security scanners (Microsoft Defender Safe Links and the like) fetch every
+  // URL in an incoming message, which lands on Supabase's one-time verify
+  // endpoint and signs the invitee in before they have seen the email at all.
+  // Observed on this tenant: four invitees were "signed in" 20-51 seconds
+  // after their invites were created, none of whom had ever opened the app.
+  // Keying off last_sign_in_at therefore flipped every invite from "Invite
+  // pending" to accepted within a minute of sending it.
   const members: Member[] = ((memberships ?? []) as Row[]).map(m => {
     const u = Array.isArray(m.users) ? m.users[0] : m.users
     return {
@@ -58,7 +56,7 @@ export default async function UsersPage() {
       name:      u?.name ?? '',
       role:      normalizeRole(m.role),
       createdAt: m.created_at,
-      status:    authStatusById.get(m.user_id) ?? 'pending',
+      status:    m.last_active_at ? 'active' : 'pending',
       lastActiveAt: m.last_active_at,
     }
   })
