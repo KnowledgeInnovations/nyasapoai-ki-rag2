@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getMembership, getTenant } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { canManageUsers, normalizeRole, type Role } from '@/lib/roles'
+import { limitsFor, canAddUser, canAddSeniorUser } from '@/lib/plans'
 
 function svc() {
   return createServiceClient(
@@ -81,6 +82,36 @@ export async function POST(request: NextRequest) {
   }
 
   const service = svc()
+
+  // Seat limits for the workspace's plan. Checked here on the server, before
+  // the invite is sent — an invite that succeeds and then cannot be seated
+  // leaves an auth user with no membership, which is how orphaned accounts
+  // appear. The platform tenant is exempt; it is not a paying workspace.
+  if (!tenant?.is_platform) {
+    const limits = limitsFor(tenant?.plan)
+    const { data: seats, error: seatsError } = await service
+      .from('memberships')
+      .select('role')
+      .eq('tenant_id', membership.tenant_id)
+
+    if (seatsError) {
+      console.error('Seat count failed:', seatsError)
+      return NextResponse.json({ error: 'Could not verify plan limits' }, { status: 500 })
+    }
+
+    const userCheck = canAddUser(limits, seats?.length ?? 0)
+    if (!userCheck.allowed) {
+      return NextResponse.json({ error: userCheck.reason }, { status: 403 })
+    }
+
+    if (normalizeRole(role ?? 'junior') === 'senior') {
+      const seniors = (seats ?? []).filter(s => normalizeRole(s.role) === 'senior').length
+      const seniorCheck = canAddSeniorUser(limits, seniors)
+      if (!seniorCheck.allowed) {
+        return NextResponse.json({ error: seniorCheck.reason }, { status: 403 })
+      }
+    }
+  }
 
   const { data: invited, error: inviteError } = await service.auth.admin.inviteUserByEmail(email, {
     redirectTo: `${request.nextUrl.origin}/auth/set-password`,

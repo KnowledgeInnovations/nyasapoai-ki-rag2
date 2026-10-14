@@ -19,7 +19,7 @@ const TENANT_TTL     = 300_000 // 5 min — tenant name/subdomain rarely changes
 
 const userCache       = new Map<string, Entry<User | null>>()
 const membershipCache = new Map<string, Entry<{ tenant_id: string; role: Role } | null>>()
-const tenantCache      = new Map<string, Entry<{ id: string; name: string; subdomain: string; description: string | null; is_platform: boolean; email_domains: string[] } | null>>()
+const tenantCache      = new Map<string, Entry<{ id: string; name: string; subdomain: string; plan: string | null; description: string | null; is_platform: boolean; email_domains: string[] } | null>>()
 const subdomainTenantCache = new Map<string, Entry<{ id: string; name: string; subdomain: string } | null>>()
 
 /** Derive a compact, unique cache key from the Supabase session cookies. */
@@ -147,7 +147,7 @@ export const getTenant = cache(async (tenantId: string) => {
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('tenants')
-    .select('id, name, subdomain, description, is_platform, email_domains')
+    .select('id, name, subdomain, plan, description, is_platform, email_domains')
     .eq('id', tenantId)
     .single()
 
@@ -158,7 +158,7 @@ export const getTenant = cache(async (tenantId: string) => {
     return null
   }
 
-  const val = data as { id: string; name: string; subdomain: string; description: string | null; is_platform: boolean; email_domains: string[] } | null
+  const val = data as { id: string; name: string; subdomain: string; plan: string | null; description: string | null; is_platform: boolean; email_domains: string[] } | null
   evict(tenantCache)
   tenantCache.set(tenantId, { v: val, exp: Date.now() + TENANT_TTL })
   return val
