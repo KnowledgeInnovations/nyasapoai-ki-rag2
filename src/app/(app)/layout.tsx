@@ -1,7 +1,8 @@
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { getUser, getMembership, getTenant, getTenantLogoPath, createClient, getSessionId, touchLastActive } from '@/lib/supabase/server'
+import { getUser, getMembership, getTenant, getTenantLogoPath, getWorkspaceStatus, createClient, getSessionId, touchLastActive } from '@/lib/supabase/server'
+import { workspaceAccess } from '@/lib/workspaceStatus'
 import { subdomainFromHost, tenantUrlForHost, rootUrlForHost } from '@/lib/domain'
 import { isSessionEmailMfaVerified } from '@/lib/emailMfa'
 import { publicUrlFor } from '@/lib/tenantLogo'
@@ -36,6 +37,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const membership = await getMembership()
   if (!membership) redirect('/auth/setup-workspace')
+
+  // A workspace that is suspended, unpaid or not yet provisioned is closed to
+  // its members. Nothing is deleted — see workspaceAccess() — and access
+  // returns the moment it is reactivated. Checked before touchLastActive so a
+  // blocked workspace does not register activity it never had.
+  const lifecycle = await getWorkspaceStatus(membership.tenant_id)
+  if (!workspaceAccess(lifecycle.status, lifecycle.access_until).allowed) {
+    redirect('/workspace-unavailable')
+  }
+
   await touchLastActive(user.id, membership.tenant_id)
   const role = membership.role
   const tenant = await getTenant(membership.tenant_id)

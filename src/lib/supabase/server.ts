@@ -289,3 +289,45 @@ export function invalidateMembership(userId: string) {
 export function invalidateTenant(tenantId: string) {
   tenantCache.delete(tenantId)
 }
+
+// ── getWorkspaceStatus — lifecycle + grace window for one tenant ───────
+// Separate query from getTenant() for the same reason getTenantLogoPath is
+// separate: getTenant() is on the critical path for every authenticated
+// request, and adding columns to its select would make the whole app fail on
+// any deployment where migration 034 has not yet run. Here a missing column
+// means "no billing columns yet", which resolves to active — so the code and
+// the migration can land in either order without an outage.
+//
+// Errors are never cached, for the reason given on getTenantBySubdomain.
+const workspaceStatusCache = new Map<string, Entry<{ status: string | null; access_until: string | null }>>()
+
+export const getWorkspaceStatus = cache(async (tenantId: string) => {
+  const hit = workspaceStatusCache.get(tenantId)
+  if (hit && hit.exp > Date.now()) return hit.v
+
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('tenants')
+    .select('status, access_until')
+    .eq('id', tenantId)
+    .maybeSingle()
+
+  if (error) {
+    // Includes "column does not exist" before migration 034 — treat as active
+    // rather than locking every workspace out over a schema mismatch.
+    console.error('getWorkspaceStatus query failed', { tenantId, error })
+    return { status: null, access_until: null }
+  }
+
+  const val = (data ?? { status: null, access_until: null }) as { status: string | null; access_until: string | null }
+  evict(workspaceStatusCache)
+  // Short TTL: restoring access after payment should take effect promptly,
+  // not after the 5 minutes the slower-moving tenant lookups use.
+  workspaceStatusCache.set(tenantId, { v: val, exp: Date.now() + 30_000 })
+  return val
+})
+
+/** Drop a workspace's cached status — call right after changing it. */
+export function invalidateWorkspaceStatus(tenantId: string) {
+  workspaceStatusCache.delete(tenantId)
+}
