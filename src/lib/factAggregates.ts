@@ -48,7 +48,7 @@ const MAX_VALUES_PER_ATTRIBUTE = 30
 
 // How many attributes to describe. A dense register can extract dozens;
 // the ones that matter are those the question names.
-const MAX_ATTRIBUTES = 6
+const MAX_ATTRIBUTES = 10
 
 const STOPWORDS = new Set([
   'how', 'many', 'much', 'the', 'and', 'are', 'was', 'were', 'for', 'from',
@@ -99,39 +99,171 @@ async function readAllFacts(
   return rows
 }
 
-/** Attribute names, scored by how well they match what was asked. */
-function rankAttributes(rows: FactRow[], query: string): string[] {
-  const queryTokens = (query.toLowerCase().match(/[a-z]{3,}/g) ?? []).filter(t => !STOPWORDS.has(t))
-  const counts = new Map<string, number>()
-  for (const r of rows) {
-    if (!r.attribute) continue
-    counts.set(r.attribute, (counts.get(r.attribute) ?? 0) + 1)
-  }
-  const scored = [...counts.entries()].map(([attribute, n]) => {
-    // Attribute names come back from extraction in free form
-    // (date_of_first_authorisation, authorization_date, licence_date all
-    // appeared in one document), so match on the words rather than the
-    // whole name.
-    const words = attribute.toLowerCase().split(/[^a-z]+/).filter(Boolean)
-    const overlap = queryTokens.reduce(
-      (acc, t) => acc + (words.some(w => w.startsWith(t) || t.startsWith(w)) ? 1 : 0),
-      0,
-    )
-    return { attribute, n, overlap }
-  })
-  // Matching the question first, then the attributes the document holds
-  // most of — a column covering nearly every subject is what a "how many"
-  // question is usually about even when it names nothing.
-  scored.sort((a, b) => b.overlap - a.overlap || b.n - a.n)
-  return scored.slice(0, MAX_ATTRIBUTES).map(s => s.attribute)
+const DATE_ATTRIBUTE_RX = /date|year|authoris|authoriz|licen[cs]e|renewal|expir|issued|commenc/i
+
+// Reduces a word to something that matches its relatives. "authorised",
+// "authorisation" and "authorization" have to compare equal, or a question
+// asking how many stations were *authorised* in 2025 finds no overlap with
+// the column named date_of_first_authorisation — which is exactly what
+// happened: the view answered with station type and status, the question
+// got "a complete count cannot be produced", and the column holding the
+// answer was never looked at.
+function stem(word: string): string {
+  // Five characters, not six: at six, "renew", "renewal" and "renewed"
+  // stem to three different things, so "renewed" slipped past the guard
+  // that keeps a renewal column from being merged into an authorisation
+  // one — the single most consequential conflation in this data.
+  return word.toLowerCase().replace(/z/g, 's').slice(0, 5)
 }
 
-const DATE_ATTRIBUTE_RX = /date|year|authoris|authoriz|licen[cs]e|renewal|expir|issued|commenc/i
+// Words that say nothing about which column is meant, so two attribute
+// names differing only by these are the same column under two names.
+const FILLER_WORDS = new Set(['of', 'the', 'for', 'and', 'type', 'kind', 'value', 'name', 'fm', 'radio', 'no', 'num', 'number'])
+
+// Words that DO distinguish two columns, and must never be merged away.
+// A register's "date of first authorisation" and "date of last renewal"
+// both hold dates for the same station, and conflating them is the trap
+// that makes a 2025 renewal look like a 2025 authorisation.
+const DISTINGUISHING_WORDS = new Set(['first', 'last', 'start', 'end', 'renewal', 'renew', 'expiry', 'expire', 'issue', 'issued', 'previous', 'next', 'original'])
+
+interface AttributeGroup {
+  /** The name shown, the most common of the merged names. */
+  label: string
+  names: string[]
+  values: string[]
+  subjects: Set<string>
+}
+
+/**
+ * Groups the attribute names that mean the same column, then ranks the
+ * groups by how well they match the question.
+ *
+ * Extraction names attributes in free form, one call at a time, so a single
+ * column arrives under several names. Measured on one register: station
+ * type was extracted as station_type (616), type_of_fm_radio_station (66),
+ * type_of_fm_station (23) and type_of_station (11) — four names for one
+ * column, which between them filled every slot in the view, reported
+ * coverage of 616 of 748 subjects when the real figure was 716, and left no
+ * room for the column the question was actually about.
+ */
+function groupAttributes(rows: FactRow[], query: string): AttributeGroup[] {
+  const byName = new Map<string, AttributeGroup>()
+  for (const row of rows) {
+    if (!row.attribute) continue
+    const value = (row.value_text ?? '').trim()
+    if (!value) continue
+    let group = byName.get(row.attribute)
+    if (!group) {
+      group = { label: row.attribute, names: [row.attribute], values: [], subjects: new Set() }
+      byName.set(row.attribute, group)
+    }
+    group.values.push(value)
+    if (row.subject) group.subjects.add(row.subject)
+  }
+
+  // Merge, largest first, so the biggest name becomes the label.
+  const ordered = [...byName.values()].sort((a, b) => b.values.length - a.values.length)
+  const merged: AttributeGroup[] = []
+  for (const group of ordered) {
+    const host = merged.find(m => sameColumn(m.names[0], group.names[0]))
+    if (host) {
+      host.names.push(...group.names)
+      host.values.push(...group.values)
+      for (const subject of group.subjects) host.subjects.add(subject)
+    } else {
+      merged.push(group)
+    }
+  }
+
+  // A name carrying no distinguishing word is the vaguer spelling of a
+  // column that has one: "authorization_date" against
+  // "date_of_first_authorisation". Merged only when exactly one group
+  // subsumes it, so the register's authorisation and renewal columns — the
+  // pair whose conflation makes a 2025 renewal look like a 2025
+  // authorisation — can never absorb each other, since neither subsumes
+  // the other's words.
+  for (let i = merged.length - 1; i >= 0; i--) {
+    const vague = merged[i]
+    if (hasDistinguishingWord(vague.names)) continue
+    const vagueStems = meaningfulStems(vague.names[0])
+    if (!vagueStems.size) continue
+    const hosts = merged.filter((candidate, j) =>
+      j !== i &&
+      hasDistinguishingWord(candidate.names) &&
+      [...vagueStems].every(stemmed => meaningfulStems(candidate.names[0]).has(stemmed)))
+    if (hosts.length !== 1) continue
+    const host = hosts[0]
+    host.names.push(...vague.names)
+    host.values.push(...vague.values)
+    for (const subject of vague.subjects) host.subjects.add(subject)
+    merged.splice(i, 1)
+  }
+
+  const queryStems = new Set(
+    (query.toLowerCase().match(/[a-z]{3,}/g) ?? []).filter(t => !STOPWORDS.has(t)).map(stem),
+  )
+  // A question naming a year is about whatever column holds dates, whether
+  // or not it names that column.
+  const mentionsYear = /\b(19|20)\d\d\b/.test(query)
+
+  const scored = merged.map(group => {
+    const groupStems = new Set(group.names.flatMap(n => n.split(/[^a-zA-Z]+/).filter(Boolean).map(stem)))
+    let overlap = 0
+    for (const s of queryStems) if (groupStems.has(s)) overlap++
+    if (mentionsYear && DATE_ATTRIBUTE_RX.test(group.names.join(' '))) overlap += 2
+    return { group, overlap }
+  })
+  scored.sort((a, b) => b.overlap - a.overlap || b.group.values.length - a.group.values.length)
+  return scored.slice(0, MAX_ATTRIBUTES).map(s => s.group)
+}
+
+function meaningfulStems(name: string): Set<string> {
+  return new Set(
+    name.split(/[^a-zA-Z]+/).filter(Boolean)
+      .map(w => w.toLowerCase())
+      .filter(w => !FILLER_WORDS.has(w))
+      .map(stem),
+  )
+}
+
+function hasDistinguishingWord(names: string[]): boolean {
+  const marks = new Set([...DISTINGUISHING_WORDS].map(stem))
+  return names.some(n => [...meaningfulStems(n)].some(s => marks.has(s)))
+}
+
+/** Whether two attribute names are the same column under different names. */
+function sameColumn(a: string, b: string): boolean {
+  const left = meaningfulStems(a)
+  const right = meaningfulStems(b)
+  if (!left.size || !right.size) return false
+
+  // Anything that distinguishes the two columns blocks the merge, even when
+  // everything else matches.
+  const distinguishing = (set: Set<string>) =>
+    [...set].filter(s => [...DISTINGUISHING_WORDS].some(d => stem(d) === s))
+  const leftMarks = distinguishing(left).sort().join(',')
+  const rightMarks = distinguishing(right).sort().join(',')
+  if (leftMarks !== rightMarks) return false
+
+  // Otherwise the same column if one name's meaningful words contain the
+  // other's — "station type" and "type of station" do, "station type" and
+  // "station status" do not.
+  const subset = (small: Set<string>, big: Set<string>) => [...small].every(s => big.has(s))
+  return subset(left, right) || subset(right, left)
+}
+
+// Attribute names are machine-shaped (date_of_first_authorisation); a
+// reader should never see one. Without this the answer explained itself in
+// terms of an "authorization_date column", which is our internal naming
+// leaking into a customer's answer.
+function humanise(attribute: string): string {
+  return attribute.replace(/_/g, ' ').trim()
+}
 
 function describeAttribute(attribute: string, values: string[]): string[] {
   const lines: string[] = []
   const distinct = new Set(values)
-  lines.push(`- ${attribute}: ${values.length} value(s) across ${distinct.size} distinct value(s)`)
+  lines.push(`- ${humanise(attribute)}: ${values.length} value(s) across ${distinct.size} distinct value(s)`)
 
   if (DATE_ATTRIBUTE_RX.test(attribute)) {
     // Only a four-digit year is read as a year. A two-digit field cannot be
@@ -152,10 +284,9 @@ function describeAttribute(attribute: string, values: string[]): string[] {
     if (unreadable.length) {
       const examples = [...new Set(unreadable)].slice(0, 4).map(v => `"${v}"`).join(', ')
       lines.push(
-        `  ${unreadable.length} value(s) carry no four-digit year and cannot be assigned to one ` +
-        `without assuming how the source prints dates (e.g. ${examples}). ` +
-        `These are NOT included in the year counts above and must not be ignored when answering — ` +
-        `say how many could not be read.`,
+        `  ${unreadable.length} further value(s) are printed in a short form that carries no ` +
+        `four-digit year (e.g. ${examples}), so they sit outside the counts above. ` +
+        `Report that number alongside the figure; do not treat it as a reason to withhold one.`,
       )
     }
     return lines
@@ -175,6 +306,18 @@ function describeAttribute(attribute: string, values: string[]): string[] {
   return lines
 }
 
+export interface FactAggregate {
+  /** The text handed to the model. */
+  block: string
+  /**
+   * Every number this view states. Passed to the verifier as evidence: a
+   * count computed over the whole document is the most reliable figure in
+   * an answer, and without this it scored as the least reliable, because it
+   * appears in no retrieved chunk.
+   */
+  figures: number[]
+}
+
 /**
  * The block handed to the model, or null when there is nothing to compute.
  */
@@ -184,7 +327,7 @@ export async function buildFactAggregateBlock(
   documentIds: string[],
   query: string,
   documentTitles?: Map<string, string>,
-): Promise<string | null> {
+): Promise<FactAggregate | null> {
   if (!documentIds.length) return null
 
   const rows = await readAllFacts(svc, tenantId, documentIds)
@@ -197,40 +340,61 @@ export async function buildFactAggregateBlock(
     .filter((t): t is string => !!t)
 
   const header = [
-    'AGGREGATE VIEW — computed over EVERY extracted fact in ' +
+    'AGGREGATE VIEW — counted across EVERY extracted fact in ' +
     (titles.length ? titles.map(t => `"${t}"`).join(', ') : `${documentIds.length} document(s)`) +
     ', not a retrieved sample.',
     '',
-    `Scope: ${rows.length} extracted fact(s) about ${subjects.size} distinct subject(s)` +
+    `Scope: ${rows.length} extracted fact(s) about ${subjects.size} distinct record(s)` +
     (pages.size ? `, spanning ${pages.size} page(s)` : '') + '.',
     '',
-    'Use these counts for any question about how many, which ones, or how ' +
-    'the values distribute — they cover the whole document, whereas the ' +
-    'excerpts above are only the passages that matched the question. Cite ' +
-    'the excerpts for specific named examples, and this view for counts. ' +
-    'Where a count below is incomplete, say so and give the number that ' +
-    'could not be read rather than presenting the readable subset as the total.',
+    // Written as an instruction to answer, not as a caveat to hedge behind.
+    // The previous wording asked for incompleteness to be flagged, and the
+    // model obliged by opening with "a complete, reliable count cannot be
+    // produced" above a view that held the number — which is the opposite
+    // of useful. State the figure, then its scope, in that order.
+    'These counts cover the whole document; the excerpts above are only the ' +
+    'passages that matched the question. ANSWER FROM THESE COUNTS and cite ' +
+    'this view, using the excerpts for named examples.',
+    '',
+    'Lead with the number. Give the figure these counts support in the first ' +
+    'sentence, then say in one clause what it rests on — "8 stations, from ' +
+    'the 427 whose first-authorisation date was extracted" — and name any ' +
+    'figure that could not be read as its own fact. Do not open by saying ' +
+    'what cannot be determined, do not describe what the data does not ' +
+    'contain, and do not withhold a number you have because a more complete ' +
+    'one exists in principle. A reader wants the best available figure and ' +
+    'its basis, not a refusal.',
+    '',
+    'Where two columns below could be read as the same thing, use the one ' +
+    'whose name says exactly what it holds, and describe it in the ' +
+    "document's own words. Never quote a column name as written here — " +
+    'these are extraction labels, not the wording of the source.',
     '',
   ]
 
-  const attributes = rankAttributes(rows, query)
+  const groups = groupAttributes(rows, query)
   const body: string[] = []
-  for (const attribute of attributes) {
-    const values = rows
-      .filter(r => r.attribute === attribute)
-      .map(r => (r.value_text ?? '').trim())
-      .filter(Boolean)
-    if (!values.length) continue
-    body.push(...describeAttribute(attribute, values))
-    const covered = new Set(rows.filter(r => r.attribute === attribute).map(r => r.subject).filter(Boolean))
+  for (const group of groups) {
+    if (!group.values.length) continue
+    body.push(...describeAttribute(group.label, group.values))
+    if (group.names.length > 1) {
+      body.push(`  this is one column that was extracted under ${group.names.length} different names, now combined`)
+    }
     if (subjects.size > 1) {
-      body.push(`  present for ${covered.size} of ${subjects.size} subject(s)` +
-        (covered.size < subjects.size
-          ? ` — the remaining ${subjects.size - covered.size} have no value extracted for this attribute`
+      body.push(`  recorded for ${group.subjects.size} of ${subjects.size} record(s)` +
+        (group.subjects.size < subjects.size
+          ? `; the other ${subjects.size - group.subjects.size} have no value for it`
           : ''))
     }
   }
   if (!body.length) return null
 
-  return '\n\n' + [...header, ...body].join('\n')
+  const block = '\n\n' + [...header, ...body].join('\n')
+  // Scraped back out of the rendered text rather than tracked as it is
+  // built, so the two can never drift: whatever the model was shown is
+  // exactly what the verifier will accept.
+  const figures = [...block.matchAll(/\b\d[\d,]*\b/g)]
+    .map(m => Number(m[0].replace(/,/g, '')))
+    .filter(n => Number.isFinite(n))
+  return { block, figures: [...new Set(figures)] }
 }

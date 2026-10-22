@@ -114,7 +114,12 @@ const WARNING_STEP_LABELS: Record<string, string> = {
 // train/route.ts) — surfaced here instead of looking identical to a fully
 // clean run.
 function isDegraded(doc: TrainingDoc, status: TrainStatus): boolean {
-  return (doc.processing_warnings?.length ?? 0) > 0 && status !== 'running'
+  // A note records something that went right and is worth saying — reading
+  // a document's image-only pages, for instance. Counting those as
+  // degradation showed a document whose recovery worked perfectly as
+  // "Trained with warnings", which teaches people to ignore the badge.
+  // Warnings without a level predate the distinction and stay degradations.
+  return status !== 'running' && (doc.processing_warnings ?? []).some(w => w.level !== 'note')
 }
 
 export default function TrainingClient({ docs, trainedCount, untrainedCount, performance, lastRun, gaps }: {
@@ -925,6 +930,9 @@ function DetailSheet({
   const chunkCount = state.status === 'done' ? state.chunks : doc.chunkCount
   const factCount  = doc.financialFactCount + doc.documentFactCount
   const canContinue = doc.chunkCount > 0 && (doc.pendingExcerpts > 0 || doc.unreadPages > 0)
+  const allWarnings = doc.processing_warnings ?? []
+  const notes = allWarnings.filter(w => w.level === 'note')
+  const problems = allWarnings.filter(w => w.level !== 'note')
 
   const [logOpen, setLogOpen] = useState(true)
   const [docPerf, setDocPerf] = useState<Performance | null>(null)
@@ -1044,20 +1052,42 @@ function DetailSheet({
           </div>
         )}
 
-        {/* Processing warnings — persisted, survives a page reload (unlike
-            the live-only Training Log below, which is empty until the next
-            run). Each entry is one degraded step from the most recent run. */}
-        {!isRunning && (doc.processing_warnings?.length ?? 0) > 0 && (
+        {/* Persisted from the last run, so this survives a reload (unlike the
+            live-only Training Log below). Split in two: what went wrong is
+            amber and actionable, what went right but is worth knowing — a
+            document's image-only pages having been read, say — is neutral,
+            because a note shown in warning colours is how a badge stops
+            meaning anything. */}
+        {!isRunning && problems.length > 0 && (
           <div className="mx-5 mt-3  border border-amber-200 bg-amber-50/60">
             <div className="flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider text-amber-700">
               <AlertTriangle className="h-3.5 w-3.5" />
               Processing Warnings
             </div>
             <div className="border-t border-amber-200/60 px-4 pb-3 pt-2 space-y-1.5">
-              {doc.processing_warnings!.map((w, i) => (
+              {problems.map((w, i) => (
                 <div key={i} className="flex items-start gap-2">
                   <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
                   <p className="text-xs text-amber-800">
+                    <span className="font-semibold">{WARNING_STEP_LABELS[w.step] ?? w.step}:</span> {w.message}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!isRunning && notes.length > 0 && (
+          <div className="mx-5 mt-3  border border-gray-200 bg-gray-50">
+            <div className="flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider text-gray-500">
+              <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+              What this run recovered
+            </div>
+            <div className="border-t border-gray-200 px-4 pb-3 pt-2 space-y-1.5">
+              {notes.map((w, i) => (
+                <div key={i} className="flex items-start gap-2">
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-gray-300" />
+                  <p className="text-xs text-gray-600">
                     <span className="font-semibold">{WARNING_STEP_LABELS[w.step] ?? w.step}:</span> {w.message}
                   </p>
                 </div>

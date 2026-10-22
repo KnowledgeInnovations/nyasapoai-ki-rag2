@@ -113,7 +113,11 @@ export async function POST(
 
       const warnings: ProcessingWarning[] = []
       const warn = (step: string, message: string, network?: boolean) =>
-        warnings.push({ step, message, at: new Date().toISOString(), ...(network ? { network: true } : {}) })
+        warnings.push({ step, message, at: new Date().toISOString(), ...(network ? { network: true } : {}), level: 'degraded' })
+      // For something that went right but is worth saying. Kept out of the
+      // degraded count, so a step that succeeded never reads as a problem.
+      const note = (step: string, message: string) =>
+        warnings.push({ step, message, at: new Date().toISOString(), level: 'note' })
 
       try {
         // ── 0. Resume instead of rebuilding, where that is all that's left ──
@@ -252,7 +256,7 @@ export async function POST(
             pageTextStore(service, id),
           )
           if (result.recovered || result.reused) {
-            warn('vision_recovery',
+            note('vision_recovery',
               `Read ${result.recovered} image-only page(s) by transcribing the page image` +
               `${result.reused ? `, and reused ${result.reused} read in an earlier run` : ''}.`)
           }
@@ -632,7 +636,7 @@ export async function POST(
                 if (visionFacts.length) {
                   await clearDocumentFactsOnce()
                   await insertFactsResilient(() => service.from('document_facts').insert(visionFacts), 'document_facts_insert', warn)
-                  warn('vision_facts_backfill', `Recovered ${visionFacts.length} fact(s) from ${emptyTablePages.length} table page(s) via vision extraction.`)
+                  note('vision_facts_backfill', `Recovered ${visionFacts.length} fact(s) from ${emptyTablePages.length} table page(s) via vision extraction.`)
                 }
               }
             } catch (err) {
@@ -705,8 +709,10 @@ export async function POST(
             // Count distinct DEGRADED STEPS, not total warning entries — a
             // single step (e.g. ai_table_facts) can push multiple warnings, one
             // per dropped batch, which must not read as "every step failed".
-            const degradedStepCount = new Set(warnings.map(w => w.step)).size
-            const hadNetworkIssue = warnings.some(w => w.network)
+            const degradedStepCount = new Set(
+              warnings.filter(w => w.level !== 'note').map(w => w.step),
+            ).size
+            const hadNetworkIssue = warnings.some(w => w.network && w.level !== 'note')
             const statusDetail = degradedStepCount
               ? `${degradedStepCount} of ${TOTAL_STEPS} step${degradedStepCount === 1 ? '' : 's'} degraded${hadNetworkIssue ? ' (network interruption — retry recommended)' : ''}`
               : null

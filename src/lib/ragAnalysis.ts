@@ -486,6 +486,20 @@ export function verifyAnswer(
   chunks: { chunk_text: string }[],
   retrievalScores: number[],
   validatedFacts: FactForVerification[] = [],
+  // Figures this system computed itself and published to the model — the
+  // counts in the whole-document aggregate view (factAggregates.ts).
+  //
+  // Without them, the most trustworthy numbers in an answer scored as the
+  // least: a count computed deterministically over every extracted fact in
+  // a document is not a substring of any retrieved chunk, so every such
+  // figure was recorded as unsupported, the answer was capped at 60, and a
+  // correct, well-sourced count came back at 43% — Low. A number we handed
+  // the model is evidence, not a hallucination risk.
+  trustedFigures: number[] = [],
+  // The user's own question. A number the user supplied is not something
+  // the model could have fabricated, so "over 20 years old" must not cost
+  // the answer a point for containing "20".
+  questionText = '',
 ): VerificationResult {
   const sourceText = chunks.map(c => c.chunk_text).join('\n')
   const sourceNorm = normNum(sourceText)
@@ -498,6 +512,32 @@ export function verifyAnswer(
   const sourceMillions = extractFigures(sourceText)
     .map(toMillions)
     .filter((v): v is number => v != null)
+
+  // Exact integer matches against our own published counts, plus sums of
+  // two or three of them: an answer that adds "4 from 1995, 1 from 1997 and
+  // 2 from 2002" into "7" is doing arithmetic over figures we vouched for.
+  const questionFigures = new Set(
+    extractFigures(questionText).map(f => f.value).filter(v => Number.isFinite(v)),
+  )
+  const trusted = new Set(trustedFigures)
+  const trustedList = trustedFigures.slice(0, 200)
+  const matchesTrusted = (value: number): boolean => {
+    if (trusted.has(value) || questionFigures.has(value)) return true
+    for (let i = 0; i < trustedList.length; i++) {
+      for (let j = i + 1; j < trustedList.length; j++) {
+        if (trustedList[i] + trustedList[j] === value) return true
+        for (let k = j + 1; k < trustedList.length; k++) {
+          if (trustedList[i] + trustedList[j] + trustedList[k] === value) return true
+        }
+      }
+    }
+    return false
+  }
+
+  // Only where there is something to check counts against. Without trusted
+  // figures or source text to match, every count would score as
+  // unsupported and this would make confidence worse, not better.
+  const countsAreCheckable = trustedFigures.length > 0 || sourceText.trim().length > 0
 
   const sentences = answerText.split(/(?<=[.!?])\s+/)
   let totalNumbers = 0
@@ -546,7 +586,7 @@ export function verifyAnswer(
           return Math.abs(a + b - fMs) <= tol || Math.abs(Math.abs(a - b) - fMs) <= tol
         }))
 
-      if (exactMatch || roundedMatch || factMatch || derivedMatch) {
+      if (exactMatch || roundedMatch || factMatch || derivedMatch || matchesTrusted(f.value)) {
         supportedNumbers++
       } else {
         unsupported.push(f.raw)
@@ -567,6 +607,37 @@ export function verifyAnswer(
         const claimedPct = percents[0].value
         const ok = Math.abs(actualPct - claimedPct) <= Math.max(1, claimedPct * 0.05)
         growthChecks.push({ claimedPct, actualPct, ok, sentence: sentence.trim() })
+      }
+    }
+
+    // Plain counts, which until now were invisible to this function.
+    //
+    // extractFigures recognises currency and percentages, because this
+    // verifier grew up checking budget figures. An answer made entirely of
+    // counts — "8 stations were first authorised in 2025, from 427 records"
+    // — therefore reported zero numeric claims, so the score fell through
+    // to average retrieval similarity plus whatever the AI verifier
+    // happened to make of it. The same question scored 33, 48 and 96 on
+    // three consecutive runs with no change to the data: the number was not
+    // measuring the answer at all. A count is a factual claim and has to be
+    // checked like one.
+    //
+    // Citation markers are stripped first — [3] is a reference, not a
+    // figure — and anything already counted above is skipped.
+    if (countsAreCheckable) {
+      const alreadySeen = new Set(figs.map(f => f.raw))
+      const withoutMarkers = sentence.replace(/\[\d+\]/g, ' ')
+      for (const match of withoutMarkers.matchAll(/(?<![\d.,%\w])(\d{1,3}(?:,\d{3})+|\d{1,7})(?![\d.,%]|\s*%)/g)) {
+        const raw = match[1]
+        if (alreadySeen.has(raw)) continue
+        const value = Number(raw.replace(/,/g, ''))
+        if (!Number.isFinite(value)) continue
+        totalNumbers++
+        if (matchesTrusted(value) || sourceNorm.includes(normNum(raw)) || sourceText.includes(raw)) {
+          supportedNumbers++
+        } else {
+          unsupported.push(raw)
+        }
       }
     }
 
@@ -599,7 +670,7 @@ export function verifyAnswer(
           return Math.abs(pct - f.value) <= Math.max(Math.abs(f.value) * 0.05, 0.5)
         }))
 
-        if (match || derivedPctMatch || derivedRatioMatch) {
+        if (match || derivedPctMatch || derivedRatioMatch || matchesTrusted(f.value)) {
           supportedNumbers++
         } else {
           unsupported.push(f.raw)
@@ -632,9 +703,18 @@ export function verifyAnswer(
       0.25 * retrievalComponent + 0.55 * verificationRatio * 100 + 0.2 * growthAccuracy * 100,
     )
   }
-  // Any unsupported number is a hallucination risk regardless of how well
-  // everything else scores — cap the score so it can't read as "High".
-  if (unsupported.length > 0) confidenceScore = Math.min(confidenceScore, 60)
+  // Unsupported figures are a hallucination risk, but one stray numeral in
+  // a dozen is not the same risk as four in five — and a flat cap treated
+  // them identically. The same question scored 33, 48 and 96 across three
+  // runs purely on whether the answer happened to show its reasoning
+  // ("over 20 years means 2006 or earlier" spends two numerals that match
+  // nothing), which made the score a coin toss rather than a measurement.
+  // Scale the ceiling to the share that failed to match.
+  if (unsupported.length > 0) {
+    const unsupportedShare = totalNumbers > 0 ? unsupported.length / totalNumbers : 1
+    const hardFail = unsupported.length >= 3 || unsupportedShare > 0.25
+    confidenceScore = Math.min(confidenceScore, hardFail ? 60 : 85)
+  }
   confidenceScore = Math.max(1, Math.min(99, confidenceScore))
 
   const confidenceLevel: VerificationResult['confidenceLevel'] =

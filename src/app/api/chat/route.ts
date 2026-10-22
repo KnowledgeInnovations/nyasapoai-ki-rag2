@@ -53,6 +53,31 @@ export function OPENAI_HEADERS() {
 
 // Core rules that apply to any document type (contracts, policies, reports,
 // budgets, etc.) — always included in the system prompt.
+
+// How much the AI cross-check's findings cost an answer.
+//
+// A full 15 points an issue made the score flip across the High/Medium line
+// on identical input: the same counting question scored 76, 74 and 87 on
+// three consecutive runs, with every one of its 35 figures matching our own
+// deterministic counts each time. The variance was entirely this
+// cross-check sometimes raising a soft discrepancy and sometimes not. Where
+// every numeric claim in the answer has been matched against the counts or
+// the sources, a second opinion is worth something but should not be worth
+// more than the arithmetic — so its penalty is halved. A single unmatched
+// figure, and it carries full weight again.
+function aiIssuePenalty(
+  issueCount: number,
+  isHonestInsufficiency: boolean,
+  verification: { totalNumbers: number; supportedNumbers: number },
+): number {
+  if (isHonestInsufficiency) return Math.min(10, 5 * issueCount)
+  const fullyVerified = verification.totalNumbers >= 5 &&
+    verification.supportedNumbers === verification.totalNumbers
+  return fullyVerified
+    ? Math.min(12, 6 * issueCount)
+    : Math.min(30, 15 * issueCount)
+}
+
 export const coreSystemPrompt = (orgName: string, orgDescription: string) => `You are ${orgName} AI, the assistant for ${orgName}, ${orgDescription}.
 
 Personality: warm, polite, professional — a knowledgeable colleague always ready to help. No emoji, and no filler enthusiasm ("Great news!", "🎉") — state things plainly and let the substance carry the tone.
@@ -64,6 +89,7 @@ You have TWO sources of information — use BOTH:
 Rules:
 - CONVERSATION CONTEXT — you are given the recent conversation history. Use it to resolve references the current question makes to earlier turns: a bare number or ordinal ("2", "the second one") pointing at an item you listed, "that document"/"it" referring to whatever was just discussed, or a follow-up that only makes sense in light of the prior question. Resolve these confidently and answer directly — don't hedge with "if you meant something else" when the history makes the reference clear; only ask for clarification when the history genuinely leaves more than one plausible reading.
 - TONE & SCOPE — answer the way a sharp, direct colleague would: lead with the direct answer to the actual question in the first sentence, then add only as much supporting detail as the question warrants. A simple factual question (e.g. "what was the budget in 2020?") deserves a short, direct answer with its citation — not a table, multi-section breakdown, or extra caveats. Reserve markdown tables, multi-point "Analysis" sections, and extensive caveats for questions that genuinely call for them (multi-year series, comparisons, trends, anomaly checks). Don't pad a simple answer with boilerplate just to fill out a template.
+- LEAD WITH WHAT YOU KNOW — open with the best figure or statement the evidence supports, then its basis. Never open with what cannot be determined, what the data does not contain, or what would be needed to answer fully. "8 stations were first authorised in 2025, from the 427 whose authorisation date was extracted" is the answer; "a complete, reliable count cannot be produced" is not, even when a more complete count exists in principle. Scope belongs in a clause after the figure, not in place of it, and a number you have is never withheld because a better one could exist. The only case for leading with an absence is genuinely having nothing on the subject, and that takes one sentence, not a paragraph explaining the gap. Likewise, don't instruct the reader to go and read the source themselves when you have counted it for them.
 - For "do we have X?" or "is there a document about Y?" — CHECK the inventory first and answer directly. Never say you cannot access files when they appear in the inventory. If any DOCUMENT EXCERPTS below come from that same file, cite one of them with [n] right after the file name to ground the answer in a real excerpt — don't leave the answer uncited just because it's an inventory question.
 - For content questions — quote and cite from the document excerpts using [1], [2] etc.
 - PAGE NUMBERS — each excerpt is labeled "[n] (page X)" when its real page number is known; use that exact number if the user asks what page something is on. If an excerpt has no "(page X)" label, its page number is genuinely unknown — say so plainly rather than guessing or inferring one from a nearby excerpt.
@@ -1529,6 +1555,9 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
     // adds counts computed over every fact those documents hold — see
     // factAggregates.ts, which also reports what it could not read rather
     // than passing the readable subset off as a total.
+    // Figures the aggregate view published, handed to the verifier so a
+    // count we computed ourselves is not scored as a possible fabrication.
+    let aggregateFigures: number[] = []
     if (isAggregateQuestion(query)) {
       const aggDocIds = [...new Set(chunks.map(c => c.document_id).filter(Boolean))]
       try {
@@ -1540,6 +1569,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           svc, tenantId, aggDocIds, query, aggTitles,
         )
         if (aggregateBlock) {
+          aggregateFigures = aggregateBlock.figures
           // An aggregate has a real source — the whole document — so it gets
           // a citation naming it rather than none at all. A count presented
           // with nothing attached reads exactly like one the model invented,
@@ -1562,7 +1592,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
             })
             markers.push(`[${marker}] for "${title}"`)
           }
-          factsBlock += aggregateBlock +
+          factsBlock += aggregateBlock.block +
             `
 
 Cite this aggregate view as ${markers.join(', ')} whenever you use a count from it.`
@@ -1668,7 +1698,7 @@ Cite this aggregate view as ${markers.join(', ')} whenever you use a count from 
       // a regression in the production-critical non-agentic path while
       // this is still a local-only test branch.
       const agenticRetrievalScores = chunks.map(c => c.rerank_score ?? c.similarity ?? c.rrf_score ?? 0)
-      const verification = verifyAnswer(parsed.answer, chunks, agenticRetrievalScores, validatedFactsForVerification)
+      const verification = verifyAnswer(parsed.answer, chunks, agenticRetrievalScores, validatedFactsForVerification, aggregateFigures, query)
       const isHonestInsufficiency = /\b(insufficient evidence|cannot (?:be )?(?:reliably |responsibly )?(?:computed|produced|determined|calculated|constructed|derived|established|summarized|compute|produce|determine|calculate|construct|derive|establish|summarize)|no validated [\w\s/-]{0,40}?(?:facts|figures|allocations?|data)|does not (?:contain|specify|state|list|provide|name|include|give)\s+(?:a |the |an )?(?:consolidated|sufficient|defined|specific|concrete|named|actual|exact|clear|detailed)|not (?:enough|sufficient) (?:data|information|evidence))\b/i.test(parsed.answer)
       if (isHonestInsufficiency) {
         verification.confidenceScore = Math.max(20, Math.min(74, verification.confidenceScore))
@@ -1678,7 +1708,7 @@ Cite this aggregate view as ${markers.join(', ')} whenever you use a count from 
         const { issues, verified } = await verifyAnswerWithAI({ query, answer: parsed.answer, factsBlock, context, signal: request.signal })
         if (issues.length) {
           agenticRisks.push(...issues)
-          const penalty = isHonestInsufficiency ? Math.min(10, 5 * issues.length) : Math.min(30, 15 * issues.length)
+          const penalty = aiIssuePenalty(issues.length, isHonestInsufficiency, verification)
           const floor = isHonestInsufficiency ? 20 : 1
           verification.confidenceScore = Math.max(floor, verification.confidenceScore - penalty)
           verification.confidenceLevel = verification.confidenceScore >= 75 ? 'High' : verification.confidenceScore >= 50 ? 'Medium' : 'Low'
@@ -1973,7 +2003,20 @@ Cite this aggregate view as ${markers.join(', ')} whenever you use a count from 
             ...(hasCitedEvidence ? citedChunks : chunks).map(c => c.rerank_score ?? c.similarity ?? c.rrf_score ?? 0),
             ...(hasCitedEvidence ? citedFactCitations : factCitations).map(fc => fc.relevance_score),
           ]
-          const verification = verifyAnswer(answer, chunks, retrievalScores, validatedFactsForVerification)
+          const verification = verifyAnswer(answer, chunks, retrievalScores, validatedFactsForVerification, aggregateFigures, query)
+          // Why a given answer scored what it did. Confidence has been wrong
+          // in both directions — a correct count at 43%, an uncited aside at
+          // 64% — and neither was diagnosable from the score alone.
+          console.log('[RAG] verification', {
+            totalNumbers: verification.totalNumbers,
+            supportedNumbers: verification.supportedNumbers,
+            unsupported: verification.unsupported.slice(0, 12),
+            score: verification.confidenceScore,
+            trustedFigures: aggregateFigures.length,
+            avgRetrieval: retrievalScores.length
+              ? Number((retrievalScores.reduce((a, b) => a + b, 0) / retrievalScores.length).toFixed(3))
+              : 0,
+          })
 
           // The answer itself explicitly says the literal question can't be
           // fully answered from the available evidence (e.g. "does not
@@ -2021,7 +2064,7 @@ Cite this aggregate view as ${markers.join(', ')} whenever you use a count from 
               // An answer that already admits it couldn't fully answer the
               // question gets a much lighter penalty — verifier nitpicks on
               // its supplementary data aren't the headline concern.
-              const penalty = isHonestInsufficiency ? Math.min(10, 5 * issues.length) : Math.min(30, 15 * issues.length)
+              const penalty = aiIssuePenalty(issues.length, isHonestInsufficiency, verification)
               const floor = isHonestInsufficiency ? 20 : 1
               verification.confidenceScore = Math.max(floor, verification.confidenceScore - penalty)
               verification.confidenceLevel =
@@ -2107,6 +2150,31 @@ Cite this aggregate view as ${markers.join(', ')} whenever you use a count from 
             verification.confidenceLevel = 'Low'
           }
 
+
+          /* ── Uncited-answer ceiling ─────────────────────────────
+             An answer that cites nothing has nothing behind it, whatever
+             the retrieval scores said. With no numeric claims to check,
+             confidence fell straight through to the average chunk
+             similarity — so "what is the capital of France", answered from
+             the model's own knowledge against a Ghanaian broadcasting
+             register, came back at 64% Medium with zero citations. A score
+             is a claim about evidence; without a citation there is none to
+             make a claim about. Inventory questions are exempt: they are
+             answered from the file list, which is not a citable excerpt,
+             and the honest-insufficiency answer is exempt because saying
+             "there is nothing here" is itself correct and well-founded. */
+          if (
+            !/\[\d+\]/.test(answer) &&
+            !INVENTORY_QUERY_RX.test(query) &&
+            !isHonestInsufficiency &&
+            verification.confidenceScore > 35
+          ) {
+            verification.confidenceScore = 35
+            verification.confidenceLevel = 'Low'
+            risks.unshift(
+              'This answer cites no source from your documents, so nothing in it can be checked against them. Treat it as unverified.'
+            )
+          }
           let convId: string | null = null
           // Computed here (before the save below) rather than only at the
           // "done" event, so it's actually part of what gets persisted —

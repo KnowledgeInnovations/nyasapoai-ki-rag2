@@ -34,6 +34,15 @@ export interface ProcessingWarning {
   // distinction matters for the user: this is "retry the document, it'll
   // probably work," not "this content has a real problem."
   network?: boolean
+  // 'note' records something worth telling the user that nonetheless went
+  // right; anything else, including an absent value, is a degradation.
+  //
+  // These were one list, so a step that SUCCEEDED and said so was counted
+  // against the document: reading both of a document's image-only pages —
+  // the recovery working exactly as intended — displayed as "Trained with
+  // warnings · 1 of 5 steps degraded". A warning that fires on success
+  // teaches people to ignore warnings.
+  level?: 'note' | 'degraded'
 }
 
 export interface Document {

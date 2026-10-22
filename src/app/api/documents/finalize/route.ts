@@ -136,7 +136,11 @@ export async function POST(request: NextRequest) {
 
       const warnings: ProcessingWarning[] = []
       const warn = (step: string, message: string, network?: boolean) =>
-        warnings.push({ step, message, at: new Date().toISOString(), ...(network ? { network: true } : {}) })
+        warnings.push({ step, message, at: new Date().toISOString(), ...(network ? { network: true } : {}), level: 'degraded' })
+      // For something that went right but is worth saying. Kept out of the
+      // degraded count, so a step that succeeded never reads as a problem.
+      const note = (step: string, message: string) =>
+        warnings.push({ step, message, at: new Date().toISOString(), level: 'note' })
 
       try {
         emit({ stage: 'downloading' })
@@ -196,7 +200,7 @@ export async function POST(request: NextRequest) {
             pageTextStore(serviceClient, document.id),
           )
           if (result.recovered || result.reused) {
-            warn('vision_recovery',
+            note('vision_recovery',
               `Read ${result.recovered} image-only page(s) by transcribing the page image` +
               `${result.reused ? `, and reused ${result.reused} read in an earlier run` : ''}.`)
           }
@@ -464,7 +468,7 @@ export async function POST(request: NextRequest) {
                 }
                 if (visionFacts.length) {
                   await insertFactsResilient(() => serviceClient.from('document_facts').insert(visionFacts), 'document_facts_insert', warn)
-                  warn('vision_facts_backfill', `Recovered ${visionFacts.length} fact(s) from ${emptyTablePages.length} table page(s) via vision extraction.`)
+                  note('vision_facts_backfill', `Recovered ${visionFacts.length} fact(s) from ${emptyTablePages.length} table page(s) via vision extraction.`)
                 }
               }
             } catch (err) {
@@ -524,8 +528,10 @@ export async function POST(request: NextRequest) {
               warn('learned_heuristic_promotion', (err as Error).message)
             }
 
-            const degradedStepCount = new Set(warnings.map(w => w.step)).size
-            const hadNetworkIssue = warnings.some(w => w.network)
+            const degradedStepCount = new Set(
+              warnings.filter(w => w.level !== 'note').map(w => w.step),
+            ).size
+            const hadNetworkIssue = warnings.some(w => w.network && w.level !== 'note')
             const statusDetail = degradedStepCount
               ? `${degradedStepCount} step(s) degraded${hadNetworkIssue ? ' (network interruption — retry recommended)' : ''}`
               : null
