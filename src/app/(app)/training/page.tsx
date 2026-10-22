@@ -39,6 +39,10 @@ export interface TrainingDoc {
   // Above zero means a previous run stopped partway and the work can be
   // continued rather than started again — see migration 035.
   pendingExcerpts: number
+  // Pages that still hold no readable text — a scanned document part-way
+  // through being transcribed. Above zero means continuing training reads
+  // more of it; see migration 038.
+  unreadPages: number
   lastTrainedAt: string | null
   financialFactCount: number
   documentFactCount: number
@@ -119,6 +123,19 @@ export default async function TrainingPage() {
     computeRecurringGaps(service, tid),
   ])
 
+  // Read separately and tolerantly: the column arrives with migration 038,
+  // and including it in the query above would make the whole Training page
+  // fail on a database that has not had it applied yet.
+  const unreadByDoc = new Map<string, number>()
+  {
+    const { data, error } = await service
+      .from('documents').select('id, unread_pages').eq('tenant_id', tid)
+    if (error) console.error('[Training] unread page counts unavailable:', error.message)
+    for (const row of (data ?? []) as { id: string; unread_pages: number | null }[]) {
+      if (row.unread_pages) unreadByDoc.set(row.id, row.unread_pages)
+    }
+  }
+
   // Build chunk count + last trained map
   const chunkMap = new Map<string, { count: number; lastAt: string; pending: number }>()
   for (const c of allChunks ?? []) {
@@ -140,6 +157,7 @@ export default async function TrainingPage() {
     created_at:   d.created_at,
     chunkCount:   chunkMap.get(d.id)?.count ?? 0,
     pendingExcerpts: chunkMap.get(d.id)?.pending ?? 0,
+    unreadPages: unreadByDoc.get(d.id) ?? 0,
     lastTrainedAt: chunkMap.get(d.id)?.lastAt ?? null,
     financialFactCount: financialFactCounts.get(d.id) ?? 0,
     documentFactCount: documentFactCounts.get(d.id) ?? 0,

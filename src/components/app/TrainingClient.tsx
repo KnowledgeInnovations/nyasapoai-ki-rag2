@@ -396,7 +396,7 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, per
             const factCount  = doc.financialFactCount + doc.documentFactCount
             // Something to pick up, so the primary action is to carry on
             // rather than to start again.
-            const canContinue = doc.chunkCount > 0 && doc.pendingExcerpts > 0
+            const canContinue = doc.chunkCount > 0 && (doc.pendingExcerpts > 0 || doc.unreadPages > 0)
 
             return (
               <div
@@ -461,7 +461,9 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, per
                     )}>
                     <Brain className="mr-1 inline-block h-3 w-3" />
                     {isRunning ? 'Training…'
-                      : canContinue ? `Continue training · ${doc.pendingExcerpts} left`
+                      : canContinue ? (doc.unreadPages > 0
+                          ? `Continue training · ${doc.unreadPages} page(s) to read`
+                          : `Continue training · ${doc.pendingExcerpts} left`)
                       : isDone ? 'Retrain' : 'Train'}
                   </button>
                   {/* Detail button — opens bottom sheet */}
@@ -922,7 +924,7 @@ function DetailSheet({
   const degraded   = isDone && isDegraded(doc, state.status)
   const chunkCount = state.status === 'done' ? state.chunks : doc.chunkCount
   const factCount  = doc.financialFactCount + doc.documentFactCount
-  const canContinue = doc.chunkCount > 0 && doc.pendingExcerpts > 0
+  const canContinue = doc.chunkCount > 0 && (doc.pendingExcerpts > 0 || doc.unreadPages > 0)
 
   const [logOpen, setLogOpen] = useState(true)
   const [docPerf, setDocPerf] = useState<Performance | null>(null)
@@ -1099,7 +1101,9 @@ function DetailSheet({
             )}>
             <Brain className="h-4 w-4" />
             {isRunning ? 'Training in progress…'
-              : canContinue ? `Continue training — ${doc.pendingExcerpts} excerpt(s) left`
+              : canContinue ? (doc.unreadPages > 0
+                  ? `Continue training — ${doc.unreadPages} page(s) still to read`
+                  : `Continue training — ${doc.pendingExcerpts} excerpt(s) left`)
               : isDone ? 'Retrain document' : 'Train document'}
           </button>
           {canContinue && !isRunning && (

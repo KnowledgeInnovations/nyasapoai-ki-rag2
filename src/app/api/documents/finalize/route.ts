@@ -11,7 +11,7 @@ import {
 } from '@/lib/factExtraction'
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
 import { extractGenericFacts } from '@/lib/genericFactExtraction'
-import { visionTranscribePage, visionExtractFactsFromPage } from '@/lib/visionExtraction'
+import { recoverEmptyPagesWithVision, pageTextStore, visionExtractFactsFromPage } from '@/lib/visionExtraction'
 import type { ProcessingWarning } from '@/types'
 
 export const maxDuration = 300 // 5 min — extraction + embedding can take a while for large documents
@@ -25,7 +25,11 @@ const DOCUMENT_FACTS_FALLBACK_THRESHOLD = 3
 // call costs meaningfully more than a text call, so both stages are scoped
 // to CONFIRMED gaps (pages already known to have failed some other way),
 // not run speculatively across a whole document. See visionExtraction.ts.
-const MAX_VISION_RECOVERY_PAGES = 8   // Stage 1: pages with zero extracted text
+// Stage 1: pages with zero extracted text. Raised from 8 now that they
+// are transcribed six at a time and the loop stops on the route's own
+// deadline — a wholly scanned document is the normal case for this
+// path, not an appendix of two or three image pages.
+const MAX_VISION_RECOVERY_PAGES = 60
 const MAX_VISION_FACT_PAGES = 10      // Stage 2: table-flagged pages that produced no facts
 
 function svc() {
@@ -54,6 +58,10 @@ function sseHeaders() {
 // steps (status update, response) after generic fact extraction stops —
 // see the deadline param on extractGenericFacts for why this exists.
 const PROCESSING_BUDGET_MS = 240_000
+
+// The share of that budget page-image transcription may spend — see the
+// same constant in the training route.
+const VISION_RECOVERY_BUDGET_MS = 100_000
 
 export async function POST(request: NextRequest) {
   const routeDeadline = Date.now() + PROCESSING_BUDGET_MS
@@ -154,10 +162,12 @@ export async function POST(request: NextRequest) {
           return fail(`Text extraction failed: ${(extractErr as Error).message}`)
         }
 
-        if (!pages.some(p => p.text.trim())) {
-          return fail('No text could be extracted. The file may be image-based, password-protected, or corrupted.', 422)
-        }
-
+        // A wholly scanned document used to be rejected here, before the
+        // vision recovery below ever ran — so the one case that recovery
+        // exists for was the one case it could never reach. A 26-page
+        // scanned census volume failed outright with "no text could be
+        // extracted" while the machinery to read it sat ten lines further
+        // down. The check now happens after the attempt.
         // A document with SOME real text passes the check above even if a
         // subset of its pages are individually empty (e.g. a scanned
         // signature page, an appendix inserted as an image, a blank
@@ -178,23 +188,36 @@ export async function POST(request: NextRequest) {
         // BEFORE chunking runs below, so nothing downstream needs to know
         // this happened.
         if (emptyPageNumbers.length && nodePath.extname(originalFilename).toLowerCase() === '.pdf') {
-          const toRecover = emptyPageNumbers.slice(0, MAX_VISION_RECOVERY_PAGES)
-          let recovered = 0
-          for (const pageNum of toRecover) {
-            const text = await visionTranscribePage(buffer, pageNum, routeDeadline)
-            if (text) {
-              const p = pages.find(p => p.page_number === pageNum)
-              if (p) { p.text = text; recovered++ }
-            }
-          }
-          if (recovered) {
-            warn('vision_recovery', `Recovered readable text from ${recovered} of ${toRecover.length} image-only page(s) via vision extraction.`)
+          emit({ stage: 'extracting', message: `Reading ${emptyPageNumbers.length} page(s) that hold no text, as images` })
+          const result = await recoverEmptyPagesWithVision(
+            buffer, pages,
+            Math.min(routeDeadline, Date.now() + VISION_RECOVERY_BUDGET_MS),
+            MAX_VISION_RECOVERY_PAGES,
+            pageTextStore(serviceClient, document.id),
+          )
+          if (result.recovered || result.reused) {
+            warn('vision_recovery',
+              `Read ${result.recovered} image-only page(s) by transcribing the page image` +
+              `${result.reused ? `, and reused ${result.reused} read in an earlier run` : ''}.`)
           }
           emptyPageNumbers = pages
             .filter(p => !p.text.trim())
             .map(p => p.page_number)
             .filter((n): n is number => n != null)
         }
+
+        if (!pages.some(p => p.text.trim())) {
+          return fail(
+            'No text could be extracted, and the pages could not be read as images either. ' +
+            'The file may be a scan too faint to read, password-protected, or corrupted.', 422)
+        }
+
+        // Recorded on the document so the Training page can offer to carry
+        // on reading the rest.
+        const { error: unreadErr } = await serviceClient.from('documents')
+          .update({ unread_pages: pages.filter(p => !p.text.trim()).length })
+          .eq('id', document.id)
+        if (unreadErr) console.error('[Finalize] could not record unread pages:', unreadErr.message)
 
         // Whatever's still empty after the vision attempt above genuinely
         // isn't recoverable by this pipeline (illegible scan, truly blank

@@ -7,7 +7,7 @@ import { canAccessTraining, type Role } from '@/lib/roles'
 import { extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks, runCrossDocumentCorroboration, supersedeForwardProjections, applyLearnedHeuristics, looksLikeBudgetDocument, type FinancialFact } from '@/lib/factExtraction'
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
 import { extractGenericFacts } from '@/lib/genericFactExtraction'
-import { visionTranscribePage, visionExtractFactsFromPage } from '@/lib/visionExtraction'
+import { recoverEmptyPagesWithVision, pageTextStore, visionExtractFactsFromPage } from '@/lib/visionExtraction'
 import type { ProcessingWarning } from '@/types'
 
 // Below this many budget-specific facts, a document is unlikely to be a
@@ -20,7 +20,11 @@ const DOCUMENT_FACTS_FALLBACK_THRESHOLD = 3
 // call costs meaningfully more than a text call, so both stages are scoped
 // to CONFIRMED gaps (pages already known to have failed some other way),
 // not run speculatively across a whole document. See visionExtraction.ts.
-const MAX_VISION_RECOVERY_PAGES = 8   // Stage 1: pages with zero extracted text
+// Stage 1: pages with zero extracted text. Raised from 8 now that they
+// are transcribed six at a time and the loop stops on the route's own
+// deadline — a wholly scanned document is the normal case for this
+// path, not an appendix of two or three image pages.
+const MAX_VISION_RECOVERY_PAGES = 60
 const MAX_VISION_FACT_PAGES = 10      // Stage 2: table-flagged pages that produced no facts
 
 // Number of independently-degradable steps below (table cleaning, table
@@ -47,6 +51,11 @@ function sseHeaders() {
 // steps (cross-doc corroboration, status update, response) after generic
 // fact extraction stops — see the deadline param on extractGenericFacts.
 const PROCESSING_BUDGET_MS = 240_000
+
+// The share of that budget page-image transcription may spend. At about
+// ten seconds a page it would otherwise consume the whole allowance and
+// leave a scanned document with text but no embeddings.
+const VISION_RECOVERY_BUDGET_MS = 100_000
 
 export async function POST(
   _request: NextRequest,
@@ -147,7 +156,20 @@ export async function POST(
         // entirely. Only an unspecified request falls back to inferring it.
         const canResume =
           (existingChunks ?? 0) > 0 && pendingFactChunks !== null && (pendingFactChunks ?? 0) > 0
-        const shouldResume = mode === 'rebuild'
+
+        // A document with pages nobody has managed to read yet is not
+        // finished being extracted, so continuing it means reading more of
+        // those pages — not skipping to facts over the part already read.
+        // The transcriptions are kept (migration 038), so the full path
+        // starts where the last run stopped instead of repeating it.
+        // Read on its own and tolerantly: before migration 038 the column
+        // does not exist, and folding it into the document query would turn
+        // a missing column into "document not found" for every training run.
+        const { data: unreadRow } = await service
+          .from('documents').select('unread_pages').eq('id', id).maybeSingle()
+        const unreadPages = unreadRow?.unread_pages ?? 0
+
+        const shouldResume = mode === 'rebuild' || unreadPages > 0
           ? false
           : canResume && (mode === 'continue' || factLayerMissing || stoppedEarly)
 
@@ -196,8 +218,12 @@ export async function POST(
 
         const pages = await extractStructuredText(buffer, doc.source)
 
-        if (!pages.some(p => p.text.trim())) throw new Error('No text could be extracted. The file may be image-based, password-protected, or has an unsupported format.')
-
+        // A wholly scanned document used to be rejected here, before the
+        // vision recovery below ever ran — so the one case that recovery
+        // exists for was the one case it could never reach. A 26-page
+        // scanned census volume failed outright with "no text could be
+        // extracted" while the machinery to read it sat ten lines further
+        // down. The check now happens after the attempt.
         // See the matching note in finalize/route.ts — a document with SOME
         // real text can still have individual pages that extracted nothing
         // (scanned pages, image-only appendices) with no visibility
@@ -211,22 +237,35 @@ export async function POST(
         // finalize/route.ts. Recovered pages are mutated in place BEFORE
         // chunking runs below.
         if (emptyPageNumbers.length && path.extname(doc.source).toLowerCase() === '.pdf') {
-          const toRecover = emptyPageNumbers.slice(0, MAX_VISION_RECOVERY_PAGES)
-          let recovered = 0
-          for (const pageNum of toRecover) {
-            const text = await visionTranscribePage(buffer, pageNum, routeDeadline)
-            if (text) {
-              const p = pages.find(p => p.page_number === pageNum)
-              if (p) { p.text = text; recovered++ }
-            }
-          }
-          if (recovered) {
-            warn('vision_recovery', `Recovered readable text from ${recovered} of ${toRecover.length} image-only page(s) via vision extraction.`)
+          send({
+            stage: 'extracting',
+            message: `Reading ${emptyPageNumbers.length} page(s) that hold no text, as images…`,
+            progress: 18,
+          })
+          const result = await recoverEmptyPagesWithVision(
+            buffer, pages,
+            // A sub-budget, not the route's whole allowance: reading pages
+            // as images at ~10s each would otherwise leave nothing for
+            // chunking, embedding and facts.
+            Math.min(routeDeadline, Date.now() + VISION_RECOVERY_BUDGET_MS),
+            MAX_VISION_RECOVERY_PAGES,
+            pageTextStore(service, id),
+          )
+          if (result.recovered || result.reused) {
+            warn('vision_recovery',
+              `Read ${result.recovered} image-only page(s) by transcribing the page image` +
+              `${result.reused ? `, and reused ${result.reused} read in an earlier run` : ''}.`)
           }
           emptyPageNumbers = pages
             .filter(p => !p.text.trim())
             .map(p => p.page_number)
             .filter((n): n is number => n != null)
+        }
+
+        if (!pages.some(p => p.text.trim())) {
+          throw new Error(
+            'No text could be extracted, and the pages could not be read as images either. ' +
+            'The file may be a scan too faint to read, password-protected, or in an unsupported format.')
         }
 
         // Whatever's still empty after the vision attempt above genuinely
@@ -236,9 +275,16 @@ export async function POST(
         if (emptyPageNumbers.length) {
           warn(
             'empty_pages',
-            `${emptyPageNumbers.length} of ${pages.length} page(s) had no extractable text (likely scanned/image content) — page(s): ${emptyPageNumbers.slice(0, 25).join(', ')}${emptyPageNumbers.length > 25 ? '…' : ''}`,
+            `${emptyPageNumbers.length} of ${pages.length} page(s) still hold no readable text — page(s): ${emptyPageNumbers.slice(0, 25).join(', ')}${emptyPageNumbers.length > 25 ? '…' : ''}. ` +
+            `Continue training to read them; the pages already read are kept, so each run starts where the last one stopped.`,
           )
         }
+        // Recorded on the document so the Training page can offer to carry
+        // on, and say how much of the document has still never been read.
+        const { error: unreadErr } = await service.from('documents')
+          .update({ unread_pages: emptyPageNumbers.length })
+          .eq('id', id)
+        if (unreadErr) console.error('[Train] could not record unread pages:', unreadErr.message)
 
         // ── 3. Chunk ──────────────────────────────────────────────
         send({ stage: 'chunking', message: 'Analysing document structure…', progress: 25 })

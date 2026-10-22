@@ -56,8 +56,9 @@
   {
     "file": "scanned-census1960.pdf",
     "minPages": 20,
-    "notes": "scanned 1960 census — image-only, no text layer expected",
-    "url": "https://www2.census.gov/prod2/decennial/documents/41962442v1p1ch01.pdf"
+    "notes": "scanned 1960 census volume — image-only, readable only by transcribing page images",
+    "url": "https://www2.census.gov/prod2/decennial/documents/41962442v1p1ch01.pdf",
+    "needsVision": true
   },
   {
     "file": "tika-word.docx",

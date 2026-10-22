@@ -29,6 +29,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { extractStructuredText, chunkPages } from '../src/lib/documentProcess'
+import { recoverEmptyPagesWithVision } from '../src/lib/visionExtraction'
 
 interface Expectation {
   file: string
@@ -36,6 +37,10 @@ interface Expectation {
   minPages?: number
   minChunks?: number
   mustContain?: string[]
+  // A scan has no text layer, so text extraction correctly yields nothing
+  // and the pages have to be read as images. Marked per file, and only
+  // attempted with --vision, because each page costs a model call.
+  needsVision?: boolean
   notes?: string
 }
 
@@ -56,6 +61,7 @@ interface Probe {
   tableChunks: number
   replacementChars: number
   failures: string[]
+  skipped?: boolean
   notes?: string
 }
 
@@ -119,6 +125,10 @@ for (const file of files) {
   const started = Date.now()
   try {
     const pages = await extractStructuredText(buffer, file)
+    if (expect?.needsVision && process.argv.includes('--vision')) {
+      const result = await recoverEmptyPagesWithVision(buffer, pages, Date.now() + 240_000, 60)
+      console.log(`      ↳ vision: read ${result.recovered} of ${result.attempted} page(s), ${result.remaining} still blank`)
+    }
     probe.pages = pages.length
     probe.pagesWithText = pages.filter(p => ((p.text ?? '') + ((p.tables ?? []).flat(2).join(''))).trim().length > 0).length
     // Table text counts: a spreadsheet's content travels as tables, not as
@@ -150,7 +160,11 @@ for (const file of files) {
     for (const needle of expect?.mustContain ?? []) {
       if (!allText.includes(needle.toLowerCase())) probe.failures.push(`missing text: "${needle}"`)
     }
-    if (probe.chars === 0) probe.failures.push('extracted nothing')
+    // A file marked as needing vision is skipped, not failed, when --vision
+    // was not passed: a scan having no text layer is the expected result,
+    // and each page costs a model call to read.
+    if (expect?.needsVision && !process.argv.includes('--vision')) probe.skipped = true
+    else if (probe.chars === 0) probe.failures.push('extracted nothing')
     if (probe.replacementChars > 3 && probe.replacementChars > probe.chars * 0.01) {
       probe.failures.push(`${probe.replacementChars} replacement characters — wrong text encoding`)
     }
@@ -161,7 +175,7 @@ for (const file of files) {
   probe.ms = Date.now() - started
   probes.push(probe)
 
-  const verdict = probe.failures.length ? 'FAIL' : 'pass'
+  const verdict = probe.skipped ? 'skip' : probe.failures.length ? 'FAIL' : 'pass'
   console.log(
     `${verdict.padEnd(5)} ${file.padEnd(38)} ${(probe.bytes / 1024).toFixed(0).padStart(6)}KB ` +
     `${String(probe.pages).padStart(4)}p(${probe.pagesWithText} w/text) ` +
@@ -172,8 +186,10 @@ for (const file of files) {
   for (const f of probe.failures) console.log(`      ↳ ${f}`)
 }
 
-const failed = probes.filter(p => p.failures.length)
-console.log(`\n${probes.length - failed.length}/${probes.length} passed`)
+const failed = probes.filter(p => p.failures.length && !p.skipped)
+const skipped = probes.filter(p => p.skipped)
+console.log(`\n${probes.length - failed.length - skipped.length}/${probes.length - skipped.length} passed` +
+  (skipped.length ? ` (${skipped.length} skipped — pass --vision to include)` : ''))
 if (failed.length) console.log('failing: ' + failed.map(p => p.file).join(', '))
 
 if (jsonOut) {

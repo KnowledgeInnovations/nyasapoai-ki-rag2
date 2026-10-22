@@ -48,6 +48,12 @@ const STANDARD_FONT_DATA_URL =
 // size without improving what the model actually sees.
 const RENDER_SCALE = 2
 
+// How many pages are transcribed at once. A vision call runs 10-25s, so
+// sequentially a scanned document reaches about eight pages in a pass
+// budget; six at a time reaches most of a normal-length document. Kept
+// modest because these calls share one account's rate limit with chat.
+const VISION_CONCURRENCY = 6
+
 // Renders a single PDF page (1-indexed, matching ExtractedPage.page_number)
 // to PNG bytes. @napi-rs/canvas is already a project dependency (used in
 // src/instrumentation.ts to polyfill DOMMatrix/ImageData/Path2D for
@@ -82,6 +88,119 @@ Preserve exact numbers, codes, and names exactly as shown — do not round, gues
 // all. Returns null (never throws) on any failure so a caller can treat it
 // exactly like "still couldn't recover this page" rather than special-
 // casing a vision-specific error.
+/**
+ * Reads every page that extracted no text, as far as the time allows.
+ *
+ * A wholly scanned document is not a rare edge case — a register, a signed
+ * contract, an older government report are routinely photographs of paper,
+ * and a RAG that cannot read them simply cannot answer about them. Pages
+ * are transcribed several at a time, because one at a time a 26-page scan
+ * needs several minutes of wall clock and a single pass budget would reach
+ * about eight pages.
+ *
+ * Pages are mutated in place, so everything downstream — chunking,
+ * embedding, fact extraction — treats a transcribed page exactly like a
+ * normally-extracted one. Whatever the budget did not reach is reported,
+ * not hidden: those pages contribute nothing until the document is trained
+ * again, and the caller surfaces that.
+ */
+export async function recoverEmptyPagesWithVision(
+  buffer: Buffer,
+  pages: { page_number: number | null; text: string }[],
+  deadline: number,
+  maxPages: number,
+  // Where transcriptions are kept between runs. Without it the same first
+  // pages are re-read on every attempt and a long scan never finishes.
+  store?: PageTextStore,
+): Promise<{ recovered: number; attempted: number; remaining: number; reused: number }> {
+  let reused = 0
+  if (store) {
+    const cached = await store.load()
+    for (const page of pages) {
+      if (page.text.trim() || page.page_number == null) continue
+      const text = cached.get(page.page_number)
+      if (text) { page.text = text; reused++ }
+    }
+  }
+
+  const empty = pages
+    .filter(p => !p.text.trim())
+    .map(p => p.page_number)
+    .filter((n): n is number => n != null)
+  if (!empty.length) return { recovered: 0, attempted: 0, remaining: 0, reused }
+
+  const queue = empty.slice(0, maxPages)
+  let cursor = 0
+  let recovered = 0
+  let attempted = 0
+
+  await Promise.all(
+    Array.from({ length: Math.min(VISION_CONCURRENCY, queue.length) }, async () => {
+      for (;;) {
+        // Checked before taking a page, so a transcription is never started
+        // on an allowance that has already collapsed.
+        if (Date.now() > deadline) return
+        const index = cursor++
+        if (index >= queue.length) return
+        const pageNumber = queue[index]
+        attempted++
+        const text = await visionTranscribePage(buffer, pageNumber, deadline)
+        if (text) {
+          const page = pages.find(p => p.page_number === pageNumber)
+          if (page) { page.text = text; recovered++ }
+          // Saved as each page finishes, not in one batch at the end: a
+          // pass that runs out of time mid-document must still keep what
+          // it read, or the next attempt repeats it.
+          await store?.save(pageNumber, text)
+        }
+      }
+    }),
+  )
+
+  const stillEmpty = pages.filter(p => !p.text.trim()).length
+  return { recovered, attempted, remaining: stillEmpty, reused }
+}
+
+export interface PageTextStore {
+  load(): Promise<Map<number, string>>
+  save(pageNumber: number, text: string): Promise<void>
+}
+
+/**
+ * The store backed by document_page_text (migration 038). Tolerates the
+ * table not existing yet: a database without the migration loses the
+ * caching, not the extraction.
+ */
+export function pageTextStore(
+  service: { from: (t: string) => any }, // eslint-disable-line @typescript-eslint/no-explicit-any
+  documentId: string,
+): PageTextStore {
+  return {
+    async load() {
+      const map = new Map<number, string>()
+      const { data, error } = await service
+        .from('document_page_text')
+        .select('page_number, text')
+        .eq('document_id', documentId)
+      if (error) {
+        console.error('[visionExtraction] could not read stored page text:', error.message)
+        return map
+      }
+      for (const row of (data ?? []) as { page_number: number; text: string }[]) {
+        if (row.text?.trim()) map.set(row.page_number, row.text)
+      }
+      return map
+    },
+    async save(pageNumber, text) {
+      const { error } = await service
+        .from('document_page_text')
+        .upsert({ document_id: documentId, page_number: pageNumber, text, method: 'vision' },
+          { onConflict: 'document_id,page_number' })
+      if (error) console.error(`[visionExtraction] could not store page ${pageNumber}:`, error.message)
+    },
+  }
+}
+
 export async function visionTranscribePage(buffer: Buffer, pageNumber: number, deadline?: number): Promise<string | null> {
   try {
     const imageBuffer = await renderPageToImage(buffer, pageNumber)
