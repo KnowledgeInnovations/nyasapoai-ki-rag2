@@ -54,3 +54,12 @@ python/extract_log.txt
 test-session-cookie.txt
 *-log.txt
 *-log[0-9].txt
+
+# Supabase CLI scratch state — machine-local, not schema.
+supabase/.temp/
+
+# A real invoice, carrying a bank name, account name and account number.
+# It is a business document that happens to sit in the app's working
+# directory; it is not part of the application, and a repository is the
+# wrong place for payment details.
+invoice.html
