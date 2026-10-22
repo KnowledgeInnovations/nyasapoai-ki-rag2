@@ -236,6 +236,25 @@ export async function POST(request: NextRequest) {
         })
 
         const chunks = cleanedChunks.map(c => ({ ...c, text: titleLabel + c.text }))
+
+        // A document that produced no excerpts indexed nothing, and must
+        // not read as ready. Two uploads were found sitting at status
+        // 'ready' with zero chunks, zero facts and no warning: invisible to
+        // every search while looking perfectly healthy in the list, so
+        // nobody could know why answers never mentioned them. An unreadable
+        // scan is a normal thing to upload; being told at upload is the
+        // difference between a two-minute fix and a silent blind spot.
+        if (!chunks.length) {
+          const detail = 'No readable text could be extracted from this file. ' +
+            'If it is a scan or a photograph, it needs to be converted to a text or searchable-PDF form before it can be searched or cited.'
+          await serviceClient.from('documents')
+            .update({ status: 'failed', status_detail: detail })
+            .eq('id', document.id)
+          emit({ stage: 'error', error: detail })
+          controller.close()
+          return
+        }
+
         const totalBatches = Math.ceil(chunks.length / EMBED_BATCH)
         emit({ stage: 'chunked', chunks: chunks.length, totalBatches })
 

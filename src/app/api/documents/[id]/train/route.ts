@@ -245,6 +245,21 @@ export async function POST(
 
         send({ stage: 'chunking', message: `Document split into ${chunks.length} knowledge chunks`, progress: 30 })
 
+        // Nothing was extracted, so there is nothing to swap in. Stopping
+        // here leaves whatever the document already held untouched and says
+        // why, rather than marking an empty document ready — see the same
+        // guard in the upload path.
+        if (!chunks.length) {
+          const detail = 'No readable text could be extracted from this file. ' +
+            'If it is a scan or a photograph, it needs to be converted to a text or searchable-PDF form before it can be searched or cited.'
+          await service.from('documents')
+            .update({ status: 'failed', status_detail: detail })
+            .eq('id', id)
+          send({ stage: 'error', message: detail, progress: -1 })
+          controller.close()
+          return
+        }
+
         // ── 4. Embed the whole replacement before touching what exists ──
         //
         // Nothing is deleted here. Training used to delete the document's

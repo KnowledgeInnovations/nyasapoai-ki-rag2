@@ -18,6 +18,7 @@ import { runAgenticAnswer } from '@/lib/agenticAnswer'
 import { AGENTIC_SYSTEM_ADDENDUM } from '@/lib/agentTools'
 import { canAccessTraining } from '@/lib/roles'
 import { getConfirmedHeuristicsText } from '@/lib/answerHeuristics'
+import { isAggregateQuestion, buildFactAggregateBlock } from '@/lib/factAggregates'
 import type { ChartData, RAGResponse } from '@/types'
 
 // The agentic path (default for all real chat traffic — see the `agentic`
@@ -1519,6 +1520,59 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
       if (analysisLines.length) factsBlock += '\n\n' + analysisLines.join('\n')
     }
 
+    // A counting, enumeration or distribution question cannot be answered
+    // from a relevance-ranked top-k: a register's rows are spread evenly
+    // across its pages, so no excerpt is more relevant than any other and
+    // the retrieved set is an arbitrary slice. Asked how many stations were
+    // first authorised in 2025, the system answered "at least 3 visible in
+    // the excerpts" against a document holding 4,170 extracted facts. This
+    // adds counts computed over every fact those documents hold — see
+    // factAggregates.ts, which also reports what it could not read rather
+    // than passing the readable subset off as a total.
+    if (isAggregateQuestion(query)) {
+      const aggDocIds = [...new Set(chunks.map(c => c.document_id).filter(Boolean))]
+      try {
+        const { data: aggDocs } = aggDocIds.length
+          ? await svc.from('documents').select('id, title').in('id', aggDocIds)
+          : { data: [] as { id: string; title: string }[] }
+        const aggTitles = new Map((aggDocs ?? []).map(d => [d.id, d.title]))
+        const aggregateBlock = await buildFactAggregateBlock(
+          svc, tenantId, aggDocIds, query, aggTitles,
+        )
+        if (aggregateBlock) {
+          // An aggregate has a real source — the whole document — so it gets
+          // a citation naming it rather than none at all. A count presented
+          // with nothing attached reads exactly like one the model invented,
+          // and the answer that first exposed this gap came back with
+          // substantive numbers and zero citations.
+          const markers: string[] = []
+          for (const docId of aggDocIds) {
+            const marker = chunks.length + factCitations.length + 1
+            const title = aggTitles.get(docId) ?? 'Document'
+            factCitations.push({
+              id: `aggregate-${docId}`,
+              document_chunk_id: null,
+              document_id: docId,
+              document_title: title,
+              chunk_text: `Counted across every extracted fact in "${title}" — not a single passage.`,
+              relevance_score: 0.9,
+              highlight: null,
+              page_number: null,
+              section_title: null,
+            })
+            markers.push(`[${marker}] for "${title}"`)
+          }
+          factsBlock += aggregateBlock +
+            `
+
+Cite this aggregate view as ${markers.join(', ')} whenever you use a count from it.`
+        }
+      } catch (e) {
+        // An aggregate view that cannot be built must not cost the answer.
+        console.error('[RAG] aggregate view failed:', (e as Error).message)
+      }
+    }
+
     /* ── 3. Prefetch citation titles via service role ────────── */
     const chunkDetailsPromise = svc
       .from('document_chunks').select('id, documents(title)')
@@ -1720,7 +1774,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
       if (factCitations.length) {
         const docTitleById = new Map((agenticFactDocs ?? []).map(d => [d.id, d.title]))
         for (const fc of factCitations) {
-          fc.document_title = docTitleById.get(fc.document_id) ?? 'Document'
+          fc.document_title = docTitleById.get(fc.document_id) ?? fc.document_title ?? 'Document'
         }
       }
       const agenticChunkCitations = agenticCitedChunks.map(c => {
@@ -2100,7 +2154,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           if (factCitations.length) {
             const docTitleById = new Map((factDocs ?? []).map(d => [d.id, d.title]))
             for (const fc of factCitations) {
-              fc.document_title = docTitleById.get(fc.document_id) ?? 'Document'
+              fc.document_title = docTitleById.get(fc.document_id) ?? fc.document_title ?? 'Document'
             }
           }
           const chunkCitations = citedChunks.map(c => {
