@@ -247,3 +247,95 @@ At the end of each pass, report:
 - Anything that cannot be fixed without a decision (schema change, cost,
   product behaviour), stated as a decision to be taken rather than quietly
   deferred.
+
+---
+
+## PASS 2 RESULT — 22 October 2026
+
+Measured against pass 1, on live data.
+
+| metric | pass 1 | pass 2 |
+| --- | --- | --- |
+| citations with null page | 43.5% → 22.6% | 22.5% |
+| chunk citations with null page | 100% → 42.6% | 42.0% (all .docx sources — section 10) |
+| unopenable citations (no chunk, no document) | 33.1% | 32.0% (114 of 117 are unrecoverable — see below) |
+| documents holding zero facts | 4 of 12 | 2 of 12, both of which extracted no text at all |
+| excerpts never checked for facts | 166 across 2 documents | 0 |
+| facts held across the tenant | 862 | 4,676 |
+| extraction corpus passing | not measured | 16 of 16 |
+
+**Fixed and verified**
+
+- Section 6 (no fact layer). The FM register's failure was never the time
+  budget. One 1,544-character excerpt of it produces 5,576 output tokens in
+  46 seconds, so the four-excerpt batches the extractor sent needed over
+  20,000 tokens and about three minutes — past both the output ceiling and
+  the per-call allowance, so every batch returned nothing and raising the
+  budget could not have helped. Batches are now sized from the document's own
+  digit share (prose 0.7-4.4% here, tables 15-19%) and run six at a time.
+  The register went 0 → 4,170 facts across all 58 excerpts in two passes; a
+  third pass correctly did nothing. The Ghana AI strategy document completed
+  108 excerpts in 50 seconds.
+- The resumable pass was marking excerpts it had never read: its completion
+  test compared the fact count before and after with `>=`, which is true
+  unconditionally, so a batch dropped by an expired allowance counted as
+  checked. A document in that state converges on "fully checked, no facts".
+- Section 1 (destructive retrain). Embedding now completes in full before
+  anything is deleted, and each fact table is cleared immediately before the
+  insert that replaces it. A run that extracts nothing leaves the previous
+  layer standing, and a run that stops early does not replace a larger layer
+  with a smaller one.
+- Section 5 (silently empty documents). Zero chunks after extraction is now a
+  failure state with an actionable message, in both the upload and retrain
+  paths. The two existing documents have been corrected.
+- Section 7 (aggregate questions). Counting, enumeration and distribution
+  questions now also receive counts computed over every fact the documents in
+  scope hold. "How many FM stations were first authorised in 2025?" went from
+  "at least 3 visible in the excerpts" at 39% confidence and 2 citations to
+  "8 stated in full with the year 2025" at 98% with a citation — and, more
+  importantly, with the 287 values that carry no four-digit year and the 321
+  stations with no date extracted reported rather than hidden.
+- Section 10 (no page attribution for Word documents). Headings are now
+  detected line by line, so every .docx chunk carries a section title where
+  none did before — a Word citation has an anchor for the first time.
+
+**New — section 11: citations were destroyed by routine maintenance.**
+`citations.document_chunk_id` was ON DELETE CASCADE, and training deletes a
+document's chunks, so every retrain erased every citation of every past
+answer that had cited that document. A five-turn conversation was found
+carrying 18 distinct `[n]` markers and zero citation rows, its two documents
+having been retrained half an hour after the answers. A second defect could
+produce the same symptom: one marker numbered past the sources supplied threw
+while building the insert rows and discarded the whole turn's citations. Both
+are fixed; which one caused that conversation cannot be determined
+retroactively. Migration 037 makes the chunk reference advisory and gives the
+citation its own copy of the text it quoted, and the viewer now says when a
+document has been retrained since, or when the source has been removed.
+
+**Decision taken, recorded rather than deferred.** 114 of the 117 unopenable
+fact citations point at a document that was deleted and re-uploaded in August.
+Only 3 could be matched to a surviving fact exactly; the rest could be
+re-attached to the re-uploaded document by matching page and section, but that
+would be inventing provenance for a citation whose actual source no longer
+exists. They are left unopenable and the viewer states why.
+
+**Still outstanding**
+
+- Section 2's last step: click-through verification in the UI against a
+  rendered PDF.
+- Section 3: fact citations still carry no page where the originating chunk is
+  unknown.
+- Section 4: the zero-citation conversations need classifying again now that
+  the cascade is gone, since the previous count was inflated by it.
+- Section 10's remaining part: .docx citations have a section but still no
+  page, because a Word file has no pagination until rendered.
+- A new finding not yet addressed: extracted attribute names are free-form, so
+  one register holds `date_of_first_authorisation`, `authorization_date`,
+  `licence_date` and `license_start_date` for the same column. Counting across
+  a document therefore depends on matching synonyms. Normalising attribute
+  names at extraction time would make aggregates exact rather than
+  best-effort.
+- Extraction corpus: `scripts/extraction_probe.mts` runs the real pipeline over
+  the corpus recorded in `scripts/extraction_corpus.json` (`--fetch` rebuilds
+  it, `--vision` includes the scanned document). Run it after any change to
+  extraction or chunking; 16 of 16 pass today.
