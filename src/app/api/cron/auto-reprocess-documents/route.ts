@@ -77,7 +77,57 @@ export async function GET(request: NextRequest) {
       last_auto_reprocess_at: new Date().toISOString(),
     }).eq('id', doc.id)
 
+    // A document whose only outstanding work is fact extraction gets the
+    // cheap resumable pass rather than a full retrain. Retraining would
+    // delete its chunks and re-pay for PDF extraction, chunking and
+    // embedding before reaching facts — which is precisely why such a
+    // document never converges: it runs out of budget in the same place
+    // every time. The facts-only pass starts where the last one stopped.
+    const { count: pendingFacts } = await service
+      .from('document_chunks')
+      .select('*', { count: 'exact', head: true })
+      .eq('document_id', doc.id)
+      .is('facts_extracted_at', null)
+
+    const { count: totalChunks } = await service
+      .from('document_chunks')
+      .select('*', { count: 'exact', head: true })
+      .eq('document_id', doc.id)
+
+    // Only when the document is already chunked, so there is something to
+    // resume over. A document with no chunks at all still needs a retrain.
+    const resumeFactsOnly = (totalChunks ?? 0) > 0 && (pendingFacts ?? 0) > 0
+
     try {
+      if (resumeFactsOnly) {
+        const r = await fetch(`${baseUrl}/api/documents/${doc.id}/extract-facts`, {
+          method: 'POST',
+          headers: { 'x-cron-secret': process.env.CRON_SECRET! },
+        })
+        const body = await r.json().catch(() => ({}))
+
+        // The attempt counter exists to stop a genuinely broken document
+        // being retried forever. A resumable pass that actually processed
+        // excerpts is not a failed retry — it is progress, and charging it
+        // against a 3-attempt budget would strand a large document
+        // permanently part-done. So give the attempt back whenever the pass
+        // moved forward. The increment above still stands if this handler
+        // dies mid-call, which is the case the counter is really protecting.
+        if (r.ok && (body.processed ?? 0) > 0) {
+          await service.from('documents')
+            .update({ auto_reprocess_count: doc.auto_reprocess_count ?? 0 })
+            .eq('id', doc.id)
+        }
+
+        results.push({
+          id: doc.id, title: doc.title,
+          outcome: r.ok
+            ? `facts-resume: ${body.message ?? 'completed'}`
+            : `facts-resume failed (${r.status})`,
+        })
+        continue
+      }
+
       const res = await fetch(`${baseUrl}/api/documents/${doc.id}/train`, {
         method: 'POST',
         headers: { 'x-cron-secret': process.env.CRON_SECRET! },

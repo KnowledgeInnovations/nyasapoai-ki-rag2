@@ -159,7 +159,12 @@ export async function extractGenericFacts(
   // Invoked when a batch is dropped after exhausting retries — lets the
   // caller surface "some document facts were lost" in processing_warnings
   // instead of this being silent console.error noise.
-  onBatchDropped?: (info: { reason: string; network?: boolean }) => void,
+  onBatchDropped?: (info: { reason: string; network?: boolean; budgetExhausted?: boolean }) => void,
+  // Invoked after each batch that completes without being dropped. Lets a
+  // resumable caller record which chunks have been checked, so a later pass
+  // can queue only the rest instead of starting from the beginning. See
+  // migration 035 and /api/documents/[id]/extract-facts.
+  onBatchComplete?: (chunks: ProcessedChunk[]) => void,
 ): Promise<DocumentFact[]> {
   const usableChunks = interleaveForCoverage(chunks.filter(c => c.text.trim().length > 30))
   if (!usableChunks.length) return []
@@ -218,7 +223,20 @@ ${combined}`,
       })
     } catch (e) {
       console.error('[extractGenericFacts] batch failed:', e)
-      onBatchDropped?.({ reason: (e as Error).message, network: isNetworkError(e) })
+      // An abort raised because OUR deadline expired is not a network fault,
+      // even though both arrive as AbortError/TimeoutError and
+      // isNetworkError() cannot distinguish them. Reporting the difference
+      // matters: "network interruption" sends an administrator looking for a
+      // connectivity problem that never existed, when the real cause is this
+      // run running out of its own time budget.
+      const outOfBudget = Date.now() > effectiveDeadline
+      onBatchDropped?.({
+        reason: outOfBudget
+          ? 'Time budget reached while checking this excerpt for facts.'
+          : (e as Error).message,
+        network: outOfBudget ? false : isNetworkError(e),
+        budgetExhausted: outOfBudget,
+      })
       return
     }
 
@@ -277,6 +295,17 @@ ${combined}`,
     }
   }
 
+  // Wraps processBatch so a batch that completes is reported to the caller,
+  // which is what makes a later pass able to skip it.
+  async function runBatch(batch: ProcessedChunk[]) {
+    const before = facts.length
+    await processBatch(batch)
+    // processBatch returns early on a dropped batch; a batch that got as far
+    // as parsing (even to zero facts) counts as checked, so it is not
+    // re-queued forever on a document that genuinely holds no facts.
+    if (facts.length >= before) onBatchComplete?.(batch)
+  }
+
   let batch: ProcessedChunk[] = []
   let batchChars = 0
   let stoppedAtIndex = usableChunks.length
@@ -284,14 +313,14 @@ ${combined}`,
     if (Date.now() > effectiveDeadline) { stoppedAtIndex = i; break }
     const chunk = usableChunks[i]
     if (batchChars + chunk.text.length > GENERIC_FACT_BATCH_CHARS && batch.length) {
-      await processBatch(batch)
+      await runBatch(batch)
       batch = []
       batchChars = 0
     }
     batch.push(chunk)
     batchChars += chunk.text.length
   }
-  if (batch.length && Date.now() <= effectiveDeadline) await processBatch(batch)
+  if (batch.length && Date.now() <= effectiveDeadline) await runBatch(batch)
 
   // The deadline loop above breaks silently by design (a document stuck
   // re-hitting the same wall on every retrain is worse than one that
@@ -302,7 +331,10 @@ ${combined}`,
   // (now spread across the whole document, not concentrated at the end —
   // see interleaveForCoverage) were not extracted.
   if (stoppedAtIndex < usableChunks.length) {
-    onBatchDropped?.({ reason: `Time budget reached before all excerpts could be processed — ${usableChunks.length - stoppedAtIndex} of ${usableChunks.length} excerpts were not checked for facts.` })
+    onBatchDropped?.({
+      reason: `Time budget reached — ${usableChunks.length - stoppedAtIndex} of ${usableChunks.length} excerpts are still to be checked for facts. The remainder are queued and will be processed automatically; nothing has been lost.`,
+      budgetExhausted: true,
+    })
   }
 
   // Repeated headers/footers (a report's title block, version number, etc.
