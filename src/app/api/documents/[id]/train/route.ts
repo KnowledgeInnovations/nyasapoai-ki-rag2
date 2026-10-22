@@ -76,7 +76,7 @@ export async function POST(
   // Fetch document record — scoped by the authenticated user's own tenant
   // for the normal path; the cron path is trusted and already chose this
   // specific document_id, so it derives tenant_id from the row instead.
-  let docQuery = service.from('documents').select('id, title, source, file_path, tenant_id, status').eq('id', id)
+  let docQuery = service.from('documents').select('id, title, source, file_path, tenant_id, status, processing_warnings').eq('id', id)
   if (membership) docQuery = docQuery.eq('tenant_id', membership.tenant_id)
   const { data: doc } = await docQuery.single()
 
@@ -115,9 +115,27 @@ export async function POST(
           .from('document_chunks').select('*', { count: 'exact', head: true })
           .eq('document_id', id).is('facts_extracted_at', null)
 
+        // Resume only where fact extraction demonstrably stopped early:
+        // either it produced nothing, or it recorded that it ran out of
+        // budget. Pending chunks alone are not evidence — no chunk created
+        // before migration 035 carries a completion marker, so every document
+        // predating it looks entirely unprocessed. Without this test a
+        // deliberate full rebuild would be silently downgraded to a
+        // facts-only pass and the text would never be re-extracted.
+        const { count: existingFacts } = await service
+          .from('document_facts').select('*', { count: 'exact', head: true }).eq('document_id', id)
+        const priorWarnings = (doc as { processing_warnings?: { message?: string }[] }).processing_warnings ?? []
+        const stoppedEarly = priorWarnings.some(w => /Time budget reached/i.test(String(w?.message ?? '')))
+        const factLayerMissing = (existingFacts ?? 0) === 0
+
         // pendingFactChunks is null when migration 035 has not run; in that
         // case fall through to the full rebuild rather than guessing.
-        if ((existingChunks ?? 0) > 0 && (pendingFactChunks ?? 0) > 0 && pendingFactChunks !== null) {
+        if (
+          (existingChunks ?? 0) > 0 &&
+          (pendingFactChunks ?? 0) > 0 &&
+          pendingFactChunks !== null &&
+          (factLayerMissing || stoppedEarly)
+        ) {
           send({
             stage: 'resuming',
             message: `Text is already indexed — continuing fact extraction for the remaining ${pendingFactChunks} of ${existingChunks} excerpts.`,

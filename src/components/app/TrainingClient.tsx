@@ -217,13 +217,25 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, per
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
           try {
-            const ev = JSON.parse(line.slice(6)) as { stage: string; message: string; progress: number; chunkCount?: number }
-            const s: TrainStatus = ev.stage === 'complete' ? 'done' : ev.stage === 'error' ? 'error' : 'running'
+            const ev = JSON.parse(line.slice(6)) as { stage: string; message: string; progress: number; chunkCount?: number; remaining?: number }
+            // 'partial' means the pass finished cleanly but the document is
+            // not fully processed yet — the remainder is queued and continues
+            // automatically. It must not read as 'running': the stream closes
+            // straight after, so the bar would sit at 100% claiming to be
+            // working indefinitely, which is exactly how it looked stuck.
+            const s: TrainStatus =
+              ev.stage === 'complete' ? 'done'
+              : ev.stage === 'partial' ? 'done'
+              : ev.stage === 'error' ? 'error'
+              : 'running'
             finalStatus = s
+            const message = ev.stage === 'partial' && (ev.remaining ?? 0) > 0
+              ? `${ev.message} ${ev.remaining} excerpt(s) still queued — this continues automatically, and you can run it again now to carry on.`
+              : ev.message
             patchState(doc.id, prev => ({
-              status: s, message: ev.message, progress: Math.max(ev.progress, 0),
+              status: s, message, progress: Math.max(ev.progress, 0),
               chunks: ev.chunkCount ?? prev.chunks,
-              log: [...prev.log, ev.message],
+              log: [...prev.log, message],
             }))
           } catch {}
         }

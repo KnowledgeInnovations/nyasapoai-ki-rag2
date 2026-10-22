@@ -72,7 +72,7 @@ documented retry paths.
 - Re-run on the largest available document and confirm fact count never dips
   below its starting value at any point during the run.
 
-## 2. CITATIONS CARRY NO PAGE  (severity: high)
+## 2. CITATIONS CARRY NO PAGE  (severity: high) — ADDRESSED IN PASS 1, VERIFY IN UI
 
 **Measured:** of 364 citations, **164 (45%) have `page_number` null**. Broken
 down: **100% of chunk-based citations have no page number** — every single one.
@@ -94,6 +94,16 @@ user is denied the one thing the citation exists to provide.
   at least five across different documents.
 - Confirm the join in the citation read query selects the chunk's page too, so
   a future null cannot silently degrade display again.
+
+**Pass 1 result (22 Oct).** All three insert sites now share one
+`chunkCitationRows` builder carrying page, document and section — they were
+three separate inline mappers, which is how the omission survived. Backfill
+added 74 page numbers, 129 document ids and 3 section titles. Null pages fell
+from 43.5% to 22.6% overall, and from 100% to 42.6% among chunk citations;
+chunk citations missing a document id fell to zero. Eight of eight spot-checks
+matched the chunk's own page exactly. **Every remaining null is a .docx source
+— see section 10.** Still outstanding: click-through verification in the UI
+against a rendered PDF.
 
 ## 3. UNANCHORED FACT CITATIONS  (severity: high)
 
@@ -188,6 +198,25 @@ interruption — retry recommended" for a budget expiry. Fixed in
   deadline signal should be recognisably ours.
 - Confirm retry/backoff behaviour still treats genuine network faults as
   retryable; the point is honest labelling, not suppressing retries.
+
+## 10. NO PAGE ATTRIBUTION FOR WORD DOCUMENTS  (severity: medium) — NEW IN PASS 1
+
+**Measured:** across 289 chunks, 30 carry no page number, and the split is
+absolute: **every PDF chunk has a page (259 of 259); every .docx chunk has none
+(30 of 30)**. After the section 2 fix, 100% of remaining null-page citations
+trace to .docx sources. A Word file has no fixed pagination until it is
+rendered, so this is a real limitation rather than a dropped field — but the
+consequence is that a citation into a Word document cannot say where to look.
+
+- Decide what a Word citation should anchor to. `section_title` is the
+  natural candidate and is already carried through, but only 3 of the
+  backfilled citations had one — establish why section titles are so sparse
+  for .docx and improve heading detection for that path.
+- Consider deriving approximate page numbers when converting .docx (render to
+  PDF, or estimate from content length), and mark them as approximate rather
+  than presenting an estimate as exact.
+- Make `SourceViewer` degrade usefully when there is no page: show the section
+  and scroll to the quoted passage, rather than simply omitting the location.
 
 ## 9. REGRESSION GUARD — run every pass
 

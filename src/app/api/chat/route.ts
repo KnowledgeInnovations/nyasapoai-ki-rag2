@@ -908,6 +908,34 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
     // fact_label instead of being derived from a joined chunk, so these
     // citations remain resolvable after the conversation is reloaded from
     // history (previously they only existed in the live SSE payload).
+    // Chunk citations must carry the page, document and section of the chunk
+    // they point at. All three were previously omitted, so every chunk-based
+    // citation stored a null page — and SourceViewer only opens the PDF at
+    // the cited page when page_number is set, which meant the citation could
+    // never do the one thing it exists for. The data was always present on
+    // the chunk; it simply was not copied. Shared between the three insert
+    // sites (agentic, streaming, non-streaming) so they cannot diverge again.
+    //
+    // page_number is legitimately null for .docx sources, which have no fixed
+    // pagination until rendered; section_title is the usable anchor there.
+    const chunkCitationRows = (
+      convId: string,
+      chunks: { id: string; similarity: number; document_id?: string | null; metadata?: Record<string, unknown> | null }[],
+      messageIndex: number,
+    ) =>
+      chunks.map(c => {
+        const meta = c.metadata ?? {}
+        return {
+          conversation_id: convId,
+          document_chunk_id: c.id,
+          document_id: c.document_id ?? null,
+          relevance_score: c.similarity,
+          message_index: messageIndex,
+          page_number: (meta.page_number as number | null) ?? null,
+          section_title: (meta.section_title as string | null) ?? null,
+        }
+      })
+
     const factCitationRows = (convId: string, facts: FactCitation[], messageIndex: number) =>
       facts.map(fc => ({
         conversation_id: convId, document_chunk_id: null, document_id: fc.document_id,
@@ -1630,10 +1658,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
       }
       if (agenticConvId && (agenticCitedChunks.length || agenticCitedFactCitations.length)) {
         const { error: citationsErr } = await svc.from('citations').insert([
-          ...agenticCitedChunks.map(c => ({
-            conversation_id: agenticConvId, document_chunk_id: c.id, relevance_score: c.similarity,
-            message_index: rawHistoryLength + 1,
-          })),
+          ...chunkCitationRows(agenticConvId, agenticCitedChunks, rawHistoryLength + 1),
           ...factCitationRows(agenticConvId, agenticCitedFactCitations, rawHistoryLength + 1),
         ])
         if (citationsErr) console.error('[RAG] agentic citations insert failed:', citationsErr)
@@ -1999,10 +2024,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
               convId = conv?.id ?? null
               if (convId && (citedChunks.length || citedFactCitations.length)) {
                 const { error: citationsErr } = await svc.from('citations').insert([
-                  ...citedChunks.map(c => ({
-                    conversation_id: convId, document_chunk_id: c.id, relevance_score: c.similarity,
-                    message_index: rawHistoryLength + 1,
-                  })),
+                  ...chunkCitationRows(convId, citedChunks, rawHistoryLength + 1),
                   ...factCitationRows(convId, citedFactCitations, rawHistoryLength + 1),
                 ])
                 if (citationsErr) console.error('[RAG] citations insert failed:', citationsErr)
@@ -2013,10 +2035,7 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
             await appendConv(existingConvId, answer, risks, recommendations, chartData, barChartData)
             if (citedChunks.length || citedFactCitations.length) {
               const { error: citationsErr } = await svc.from('citations').insert([
-                ...citedChunks.map(c => ({
-                  conversation_id: convId, document_chunk_id: c.id, relevance_score: c.similarity,
-                  message_index: rawHistoryLength + 1,
-                })),
+                ...chunkCitationRows(convId, citedChunks, rawHistoryLength + 1),
                 ...factCitationRows(convId, citedFactCitations, rawHistoryLength + 1),
               ])
               if (citationsErr) console.error('[RAG] citations insert failed:', citationsErr)
