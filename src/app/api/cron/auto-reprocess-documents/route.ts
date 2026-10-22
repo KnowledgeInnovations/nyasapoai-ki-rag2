@@ -50,9 +50,9 @@ export async function GET(request: NextRequest) {
   const service = svc()
   const cooldownCutoff = new Date(Date.now() - COOLDOWN_HOURS * 3600_000).toISOString()
 
-  const { data: candidates, error } = await service
+  const { data: rawCandidates, error } = await service
     .from('documents')
-    .select('id, title, tenant_id, auto_reprocess_count, last_auto_reprocess_at')
+    .select('id, title, tenant_id, auto_reprocess_count, last_auto_reprocess_at, processing_warnings')
     .eq('status', 'ready')
     .neq('processing_warnings', '[]')
     .lt('auto_reprocess_count', MAX_AUTO_REPROCESS_ATTEMPTS)
@@ -64,10 +64,25 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  // A non-empty warnings list is no longer evidence that anything went
+  // wrong: that list also carries notes recording what a run RECOVERED —
+  // reading a document's image-only pages, for instance. Selecting on the
+  // list alone would retry documents whose only entry is a success, once
+  // per cooldown until the attempt cap, spending model budget on documents
+  // that were already finished. Only a genuine degradation qualifies;
+  // entries from before notes existed carry no level and still count.
+  const candidates = (rawCandidates ?? []).filter(doc => {
+    const warnings = (doc.processing_warnings ?? []) as { level?: string }[]
+    return warnings.some(w => w.level !== 'note')
+  })
+  if ((rawCandidates?.length ?? 0) !== candidates.length) {
+    console.log(`[auto-reprocess-documents] ${(rawCandidates?.length ?? 0) - candidates.length} candidate(s) skipped: their only entries record what a run recovered, not a problem`)
+  }
+
   const results: { id: string; title: string; outcome: string }[] = []
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? `https://${request.headers.get('host')}`
 
-  for (const doc of candidates ?? []) {
+  for (const doc of candidates) {
     // Record the attempt BEFORE calling out — if the retrain itself hangs
     // or this handler gets killed mid-call, the document still shows as
     // having been attempted (and past its cooldown) rather than being
