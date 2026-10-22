@@ -35,6 +35,10 @@ export interface TrainingDoc {
   file_path: string
   created_at: string
   chunkCount: number
+  // Excerpts this document holds that have never been checked for facts.
+  // Above zero means a previous run stopped partway and the work can be
+  // continued rather than started again — see migration 035.
+  pendingExcerpts: number
   lastTrainedAt: string | null
   financialFactCount: number
   documentFactCount: number
@@ -59,11 +63,11 @@ export default async function TrainingPage() {
   // independent queries below, not after them.
   async function fetchAllChunks() {
     const PAGE_SIZE = 1000
-    const chunks: { document_id: string; created_at: string }[] = []
+    const chunks: { document_id: string; created_at: string; facts_extracted_at: string | null }[] = []
     for (let from = 0; ; from += PAGE_SIZE) {
       const { data: page } = await service
         .from('document_chunks')
-        .select('document_id, created_at')
+        .select('document_id, created_at, facts_extracted_at')
         .eq('tenant_id', tid)
         .order('created_at', { ascending: true })
         .range(from, from + PAGE_SIZE - 1)
@@ -116,11 +120,12 @@ export default async function TrainingPage() {
   ])
 
   // Build chunk count + last trained map
-  const chunkMap = new Map<string, { count: number; lastAt: string }>()
+  const chunkMap = new Map<string, { count: number; lastAt: string; pending: number }>()
   for (const c of allChunks ?? []) {
+    const pending = c.facts_extracted_at ? 0 : 1
     const e = chunkMap.get(c.document_id)
-    if (!e) chunkMap.set(c.document_id, { count: 1, lastAt: c.created_at })
-    else { e.count++; e.lastAt = c.created_at }
+    if (!e) chunkMap.set(c.document_id, { count: 1, lastAt: c.created_at, pending })
+    else { e.count++; e.lastAt = c.created_at; e.pending += pending }
   }
 
   const trainingDocs: TrainingDoc[] = (docs ?? []).map(d => ({
@@ -134,6 +139,7 @@ export default async function TrainingPage() {
     file_path:    d.file_path,
     created_at:   d.created_at,
     chunkCount:   chunkMap.get(d.id)?.count ?? 0,
+    pendingExcerpts: chunkMap.get(d.id)?.pending ?? 0,
     lastTrainedAt: chunkMap.get(d.id)?.lastAt ?? null,
     financialFactCount: financialFactCounts.get(d.id) ?? 0,
     documentFactCount: documentFactCounts.get(d.id) ?? 0,

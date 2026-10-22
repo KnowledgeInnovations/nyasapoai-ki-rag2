@@ -55,6 +55,17 @@ export async function POST(
   const routeDeadline = Date.now() + PROCESSING_BUDGET_MS
   const { id } = await params
 
+  // What the caller asked for, when it said. "continue" picks up the
+  // excerpts a previous run left; "rebuild" re-reads the file from scratch.
+  // Omitted, the route decides for itself (below) — which is what the cron
+  // and any older client get.
+  //
+  // This exists because the two are genuinely different jobs and only the
+  // user knows which one they want. A document that stopped partway needs
+  // its remaining excerpts, not a rebuild that re-pays for extraction,
+  // chunking and embedding and then runs out of budget in the same place.
+  const mode = new URL(_request.url).searchParams.get('mode')
+
   // Two ways in: the normal authenticated-admin flow (session cookie), or
   // the scheduled auto-heal cron job (api/cron/auto-reprocess-documents)
   // re-running a document that finished degraded last time. The cron path
@@ -130,12 +141,17 @@ export async function POST(
 
         // pendingFactChunks is null when migration 035 has not run; in that
         // case fall through to the full rebuild rather than guessing.
-        if (
-          (existingChunks ?? 0) > 0 &&
-          (pendingFactChunks ?? 0) > 0 &&
-          pendingFactChunks !== null &&
-          (factLayerMissing || stoppedEarly)
-        ) {
+        // An explicit "continue" is taken at its word whenever there is
+        // anything to continue: the caller can see the outstanding count and
+        // asked for exactly this. An explicit "rebuild" skips the branch
+        // entirely. Only an unspecified request falls back to inferring it.
+        const canResume =
+          (existingChunks ?? 0) > 0 && pendingFactChunks !== null && (pendingFactChunks ?? 0) > 0
+        const shouldResume = mode === 'rebuild'
+          ? false
+          : canResume && (mode === 'continue' || factLayerMissing || stoppedEarly)
+
+        if (shouldResume) {
           send({
             stage: 'resuming',
             message: `Text is already indexed — continuing fact extraction for the remaining ${pendingFactChunks} of ${existingChunks} excerpts.`,

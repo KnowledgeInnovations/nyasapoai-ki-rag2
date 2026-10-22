@@ -197,13 +197,26 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, per
     })
   }
 
-  async function trainDocument(doc: TrainingDoc) {
+  // 'continue' resumes the excerpts a previous run left unchecked;
+  // 'rebuild' re-reads the file from scratch. Two different jobs, and only
+  // the person looking at the outstanding count knows which they want — a
+  // document that stopped partway was being offered a rebuild that re-pays
+  // for extraction, chunking and embedding and then runs out of budget in
+  // the same place, which is why such documents never finished.
+  async function trainDocument(doc: TrainingDoc, mode?: 'continue' | 'rebuild') {
     const abort = new AbortController()
     abortRefs.current[doc.id] = abort
-    patchState(doc.id, { status: 'running', message: 'Starting…', progress: 0, chunks: 0, log: [] })
+    patchState(doc.id, {
+      status: 'running',
+      message: mode === 'continue' ? 'Continuing where the last run stopped…' : 'Starting…',
+      progress: 0, chunks: 0, log: [],
+    })
     let finalStatus: TrainStatus = 'running'
     try {
-      const res = await fetch(`/api/documents/${doc.id}/train`, { method: 'POST', signal: abort.signal })
+      const res = await fetch(
+        `/api/documents/${doc.id}/train${mode ? `?mode=${mode}` : ''}`,
+        { method: 'POST', signal: abort.signal },
+      )
       if (!res.ok) throw new Error(`Server returned ${res.status}`)
       const reader  = res.body!.getReader()
       const decoder = new TextDecoder()
@@ -230,7 +243,7 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, per
               : 'running'
             finalStatus = s
             const message = ev.stage === 'partial' && (ev.remaining ?? 0) > 0
-              ? `${ev.message} ${ev.remaining} excerpt(s) still queued — this continues automatically, and you can run it again now to carry on.`
+              ? `${ev.message} ${ev.remaining} excerpt(s) still queued — press Continue training to carry on from here, or leave it and it continues automatically.`
               : ev.message
             patchState(doc.id, prev => ({
               status: s, message, progress: Math.max(ev.progress, 0),
@@ -240,7 +253,9 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, per
           } catch {}
         }
       }
-      if (finalStatus === 'done') router.refresh()
+      // Refreshed on any terminal outcome, not only a clean finish: a
+      // partial pass changes the outstanding count the button shows.
+      if (finalStatus !== 'running') router.refresh()
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {
         patchState(doc.id, { status: 'error', message: (err as Error).message })
@@ -249,7 +264,7 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, per
   }
 
   function trainAll() {
-    docs.filter(d => getState(d.id).status === 'idle' && d.chunkCount === 0).forEach(trainDocument)
+    docs.filter(d => getState(d.id).status === 'idle' && d.chunkCount === 0).forEach(d => trainDocument(d))
   }
 
   async function runRegressionSuite() {
@@ -379,6 +394,9 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, per
             const degraded  = isDone && isDegraded(doc, s.status)
             const chunkCount = s.status === 'done' ? s.chunks : doc.chunkCount
             const factCount  = doc.financialFactCount + doc.documentFactCount
+            // Something to pick up, so the primary action is to carry on
+            // rather than to start again.
+            const canContinue = doc.chunkCount > 0 && doc.pendingExcerpts > 0
 
             return (
               <div
@@ -433,16 +451,18 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, per
                 {/* Actions */}
                 <div className="mt-3 flex items-center gap-2">
                   <button
-                    onClick={() => trainDocument(doc)}
+                    onClick={() => trainDocument(doc, canContinue ? 'continue' : isDone ? 'rebuild' : undefined)}
                     disabled={isRunning}
                     className={cn(
                       'flex-1  py-2 text-xs font-semibold transition disabled:opacity-50',
-                      isDone
+                      isDone && !canContinue
                         ? 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
                         : 'bg-brand text-white shadow-sm hover:bg-brand-dark',
                     )}>
                     <Brain className="mr-1 inline-block h-3 w-3" />
-                    {isRunning ? 'Training…' : isDone ? 'Retrain' : 'Train'}
+                    {isRunning ? 'Training…'
+                      : canContinue ? `Continue training · ${doc.pendingExcerpts} left`
+                      : isDone ? 'Retrain' : 'Train'}
                   </button>
                   {/* Detail button — opens bottom sheet */}
                   <button
@@ -464,7 +484,7 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, per
           doc={sheetDoc}
           state={getState(sheetDoc.id)}
           reviewVersion={reviewVersion}
-          onTrain={() => trainDocument(sheetDoc)}
+          onTrain={mode => trainDocument(sheetDoc, mode)}
           onOpenSearch={() => { setSearchTarget({ documentId: sheetDoc.id, title: sheetDoc.title }); setSearchState(EMPTY_SEARCH_STATE); setSearchOpen(true) }}
           onClose={() => setSheetDoc(null)}
         />
@@ -892,7 +912,7 @@ function DetailSheet({
   doc: TrainingDoc
   state: TrainState
   reviewVersion: number
-  onTrain: () => void
+  onTrain: (mode?: 'continue' | 'rebuild') => void
   onOpenSearch: () => void
   onClose: () => void
 }) {
@@ -902,6 +922,7 @@ function DetailSheet({
   const degraded   = isDone && isDegraded(doc, state.status)
   const chunkCount = state.status === 'done' ? state.chunks : doc.chunkCount
   const factCount  = doc.financialFactCount + doc.documentFactCount
+  const canContinue = doc.chunkCount > 0 && doc.pendingExcerpts > 0
 
   const [logOpen, setLogOpen] = useState(true)
   const [docPerf, setDocPerf] = useState<Performance | null>(null)
@@ -1068,17 +1089,29 @@ function DetailSheet({
         {/* Action buttons */}
         <div className="flex gap-2 p-5">
           <button
-            onClick={() => { onTrain(); }}
+            onClick={() => { onTrain(canContinue ? 'continue' : isDone ? 'rebuild' : undefined); }}
             disabled={isRunning}
             className={cn(
               'flex flex-1 items-center justify-center gap-2  py-3 text-sm font-semibold transition disabled:opacity-50',
-              isDone
+              isDone && !canContinue
                 ? 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
                 : 'bg-brand text-white shadow-lg shadow-brand/20 hover:bg-brand-dark',
             )}>
             <Brain className="h-4 w-4" />
-            {isRunning ? 'Training in progress…' : isDone ? 'Retrain document' : 'Train document'}
+            {isRunning ? 'Training in progress…'
+              : canContinue ? `Continue training — ${doc.pendingExcerpts} excerpt(s) left`
+              : isDone ? 'Retrain document' : 'Train document'}
           </button>
+          {canContinue && !isRunning && (
+            // Starting over stays available, just not as the obvious choice:
+            // it is the right action when the file itself was the problem.
+            <button
+              onClick={() => { onTrain('rebuild') }}
+              className="flex items-center justify-center gap-2 border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
+              title="Re-read the file from the beginning instead of continuing">
+              Start over
+            </button>
+          )}
           {isDone && (
             <button
               onClick={onOpenSearch}
