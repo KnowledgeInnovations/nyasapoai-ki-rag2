@@ -158,6 +158,21 @@ export interface RegressionResult {
 // wrote instead. Broadened to cover that shape too.
 const HONEST_INSUFFICIENCY_RX = /\b(insufficient evidence|cannot (?:be )?(?:reliably |responsibly )?(?:computed|produced|determined|calculated|constructed|derived|established|summarized|compute|produce|determine|calculate|construct|derive|establish|summarize)|no validated [\w\s/-]{0,40}?(?:facts|figures|allocations?|data)|does not (?:contain|specify|state|list|provide|name|include|give)\s+(?:a |the |an )?(?:consolidated|sufficient|defined|specific|concrete|named|actual|exact|clear|detailed)|not (?:enough|sufficient) (?:data|information|evidence))\b/i
 
+/**
+ * A smoke test, not an accuracy measurement.
+ *
+ * This function sees the answer, its confidence and its citation count —
+ * never a correct answer to compare against, because none is stored. It
+ * therefore cannot tell a right answer from a wrong one: a confidently
+ * wrong figure with a citation attached passes. Its questions are also
+ * generated from the facts we extracted, so a misread value becomes a test
+ * built on the misreading, which the system then passes by repeating it.
+ *
+ * Read a pass as "the pipeline answered and attached a source". Correctness
+ * and confidence calibration are measured by the golden set — questions
+ * with a verified expected answer and the page it was checked on, graded by
+ * src/lib/goldenSet.ts and run by scripts/golden_run.mts.
+ */
 export function scoreRegressionAnswer(
   question: RegressionQuestion,
   answer: string,
@@ -169,10 +184,12 @@ export function scoreRegressionAnswer(
     if (HONEST_INSUFFICIENCY_RX.test(answer)) {
       return { passed: true, reason: 'Answer honestly disclosed insufficient evidence, as expected.' }
     }
-    if (confidenceLevel !== 'High') {
-      return { passed: true, reason: 'Answer hedged with non-High confidence rather than overclaiming.' }
-    }
-    return { passed: false, reason: 'Expected an honest insufficiency disclosure, but got a confident, unhedged answer.' }
+    // A low score used to pass this on its own, which rewarded hedging:
+    // an answer could invent a figure and still pass by sounding unsure.
+    // Disclosure is the behaviour being tested, so disclosure is what has
+    // to be present. Scored for real against a verified expected answer by
+    // the golden set (goldenSet.ts) — this suite remains a smoke test.
+    return { passed: false, reason: 'Expected the answer to say the documents do not cover this; it did not.' }
   }
 
   const minConfidence = question.minConfidence ?? 0

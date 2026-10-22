@@ -275,3 +275,94 @@ At the end of each pass, report:
   taken rather than quietly deferred.
 - Where a number improved, say how it was verified. "The suite passed" is not
   verification until section 1 is done.
+
+---
+
+## PASS 1 RESULT — 22 October 2026
+
+### Section 1 — correctness is now measured
+
+Built the graded golden set the section asked for: migration 040
+(`golden_questions`), the grader in `src/lib/goldenSet.ts`, the runner
+`scripts/golden_run.mts`, and a seed set in `scripts/golden_seed.json` whose
+twelve expected answers were each checked against a named page of the source.
+Nine come from the register's own summary table on page 2 (793 authorised,
+571 in operation, 222 not, 162 community, 24 campus, 572 commercial, Ashanti
+117 as the largest region, Upper West 27, 16 regions — a set that sums
+correctly, so the page is internally consistent); two from the AI strategy
+(eight pillars, p6; the Responsible AI Authority, p34); and one deliberately
+unanswerable, where the correct answer is to say so.
+
+**First measurement: 12 of 12 correct. Over two rounds, 22 of 24.**
+
+| confidence band | answers | correct |
+| --- | --- | --- |
+| 90–100 | 14 | 100% |
+| 75–89 | 4 | 100% |
+| 50–74 | 4 | 100% |
+| 0–49 | 2 | 0% |
+
+Calibration holds in both directions: nothing scored High and was wrong, and
+both wrong answers scored Low. The two failures were the same two questions
+in one round only, and they were caused by this session editing the retrieval
+code while the run was in flight — re-asked three times each afterwards, both
+answered correctly. A clean two-round run is the number to quote; re-run it
+before trusting this table.
+
+**The grader was wrong three times before it was right, and each time it
+failed a correct answer.** It read `2025` out of a question the answer
+echoed; it read the year out of the document's own filename
+(`Authorised-FM-Station-Q2-2026`); and it read the document's stated period
+("as at Q2 2026") as an invented figure. All three were fixed by narrowing
+what counts as a figure the answer is claiming. A grader that marks right
+answers wrong is the same class of error as one that marks wrong answers
+right, so the runner is accompanied by checks that prove it still fails a
+fabricated figure, a wrong figure, and a refusal to answer something the
+document does state.
+
+Also done: the old suite's insufficiency rule no longer passes an answer for
+merely sounding unsure — disclosure is what it tests, so disclosure is what
+it now requires — and `scoreRegressionAnswer()` carries a comment saying
+plainly what it can and cannot measure.
+
+### Section 2 — short-form dates are now read
+
+**Measured on the register's DATE OF FIRST AUTHORISATION column (437
+values):** 287 carried no four-digit year. Grouping by printed shape and
+taking the evidence from the document itself, **269 are now read and 18
+correctly refused**. The column goes from 150 of 437 readable (34%) to 419
+(96%).
+
+Neither the order nor the century is a convention here. Of 251 values printed
+`NN-NN-NN`, 171 begin with a component above 12 and none has one in second
+position, so that shape is day-first on the document's own evidence; shapes
+with no such value, or with evidence both ways, are left unread. The century
+is pivoted on the latest four-digit year the same column states (2026), so
+`95` is 1995 and `20` is 2020. The slash shape `NN/NN/NNNN` has 22 values
+pinning day-first and 7 pinning month-first — genuinely inconsistent, and
+left alone because those already carry their year.
+
+Stated and inferred years are reported separately to the model, so the answer
+now reads: "9 stations show a first-authorisation date in 2025 … 8 with the
+year printed in full and 1 read from the short-form date", with the 18
+unreadable and 321 undated records named. Confidence 92%.
+
+**Verified against the source, not against our own facts:** of the 9 claimed
+2025 first authorisations, 8 were confirmed by finding a line in the source
+PDF carrying that company and that exact date. The ninth (OGM Media Network)
+has its name and date on different wrapped lines, so the line matcher cannot
+see it, though an earlier answer quoted it from a retrieved excerpt. The count
+of 9 is therefore 8 confirmed and 1 probable — **not proven exactly**.
+
+One open question this surfaced: PROJOY COMPANY LIMITED appears four times
+with the same date (two serial numbers on p26, two frequencies on p27) and
+POTTER'S DEW twice with different dates. These are plausibly four and two
+distinct authorisations to the same companies, but it cannot be settled from
+the extracted facts alone. Until it is, a count of stations is strictly a
+count of authorisation rows. Add it to the golden set once resolved.
+
+### Carried forward unchanged
+
+Sections 3 through 9 are untouched by this pass. Section 3 (replacing the
+register's fact layer) and section 7 (local-language retrieval) still need a
+decision from the user before work can start.

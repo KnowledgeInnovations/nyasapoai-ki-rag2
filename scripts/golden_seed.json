@@ -1,0 +1,113 @@
+{
+  "_note": "Expected answers checked against the named page of the named document on 22 October 2026. A row without verified_by is a guess wearing the authority of a test — see ACCURACY_LOOP_PROMPT.md ground rule 2. Extend this per tenant; the admin who knows the documents should confirm and add to it.",
+  "questions": [
+    {
+      "document": "Authorised-FM-Station-Q2-2026",
+      "source_page": 2,
+      "question": "How many FM broadcasting stations are authorised in Ghana?",
+      "expected_answer": "793 authorised FM broadcasting stations as at Q2 2026.",
+      "expected_kind": "figure",
+      "expected_value": { "value": 793, "tolerance": 0 },
+      "notes": "Summary table, TOTAL row, 'TOTAL NO. AUTHORISED' column."
+    },
+    {
+      "document": "Authorised-FM-Station-Q2-2026",
+      "source_page": 2,
+      "question": "How many authorised FM stations are in operation?",
+      "expected_answer": "571 in operation.",
+      "expected_kind": "figure",
+      "expected_value": { "value": 571, "tolerance": 0 },
+      "notes": "Summary table, TOTAL row, 'TOTAL NO. IN OPERATION'."
+    },
+    {
+      "document": "Authorised-FM-Station-Q2-2026",
+      "source_page": 2,
+      "question": "How many authorised FM stations are not in operation?",
+      "expected_answer": "222 not in operation.",
+      "expected_kind": "figure",
+      "expected_value": { "value": 222, "tolerance": 0 },
+      "notes": "Summary table, TOTAL row, 'TOTAL NO. NOT IN OPERATION'."
+    },
+    {
+      "document": "Authorised-FM-Station-Q2-2026",
+      "source_page": 2,
+      "question": "How many community FM stations are authorised in Ghana?",
+      "expected_answer": "162 community stations.",
+      "expected_kind": "figure",
+      "expected_value": { "value": 162, "tolerance": 0 },
+      "notes": "Summary table, TOTAL row, COMMUNITY column."
+    },
+    {
+      "document": "Authorised-FM-Station-Q2-2026",
+      "source_page": 2,
+      "question": "How many campus FM stations are authorised in Ghana?",
+      "expected_answer": "24 campus stations.",
+      "expected_kind": "figure",
+      "expected_value": { "value": 24, "tolerance": 0 },
+      "notes": "Summary table, TOTAL row, CAMPUS column. A small figure, so a wrong answer here is unlikely to be a coincidence."
+    },
+    {
+      "document": "Authorised-FM-Station-Q2-2026",
+      "source_page": 2,
+      "question": "How many commercial FM stations are authorised in Ghana?",
+      "expected_answer": "572 commercial stations.",
+      "expected_kind": "figure",
+      "expected_value": { "value": 572, "tolerance": 0 },
+      "notes": "Summary table, TOTAL row, COMMERCIAL column. Deliberately close to the 571 in operation — an answer that confuses the two is wrong in a way a looser check would miss."
+    },
+    {
+      "document": "Authorised-FM-Station-Q2-2026",
+      "source_page": 2,
+      "question": "Which region has the most authorised FM stations, and how many does it have?",
+      "expected_answer": "Ashanti, with 117.",
+      "expected_kind": "set",
+      "expected_value": { "members": ["Ashanti", "117"] },
+      "notes": "Summary table: Ashanti 117 is the largest of the 16 regional totals."
+    },
+    {
+      "document": "Authorised-FM-Station-Q2-2026",
+      "source_page": 2,
+      "question": "How many authorised FM stations are in the Upper West Region?",
+      "expected_answer": "27 in Upper West.",
+      "expected_kind": "figure",
+      "expected_value": { "value": 27, "tolerance": 0 },
+      "notes": "Summary table, UPPER WEST row. Tests a single regional row rather than the total."
+    },
+    {
+      "document": "Authorised-FM-Station-Q2-2026",
+      "source_page": 2,
+      "question": "How many regions are covered by the FM broadcasting station summary?",
+      "expected_answer": "16 regions.",
+      "expected_kind": "figure",
+      "expected_value": { "value": 16, "tolerance": 0 },
+      "notes": "Summary table rows are numbered 1-16."
+    },
+    {
+      "document": "ghana ai strategy",
+      "source_page": 6,
+      "question": "How many pillars is Ghana's National AI Strategy built on?",
+      "expected_answer": "Eight essential pillars.",
+      "expected_kind": "figure",
+      "expected_value": { "value": 8, "tolerance": 0 },
+      "notes": "\"this strategy is built upon eight essential pillars\" (p6, repeated p12 and p80)."
+    },
+    {
+      "document": "ghana ai strategy",
+      "source_page": 34,
+      "question": "Which body does the strategy recommend establishing to drive implementation?",
+      "expected_answer": "A Responsible AI Authority (RAI Authority).",
+      "expected_kind": "claim",
+      "expected_value": { "must_include": ["Responsible AI Authority"] },
+      "notes": "\"This report recommends establishing a Responsible AI Authority (RAI Authority)\" (p34)."
+    },
+    {
+      "document": null,
+      "source_page": null,
+      "question": "What was the total value of broadcasting licence fees collected in 2025?",
+      "expected_answer": "Not in these documents — the register lists authorisations and their status, not fees or revenue.",
+      "expected_kind": "absent",
+      "expected_value": {},
+      "notes": "Deliberately plausible and adjacent to the register's subject, but no fee or revenue figure exists in either document. A figure here is an invention."
+    }
+  ]
+}

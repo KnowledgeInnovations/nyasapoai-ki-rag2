@@ -30,6 +30,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { readDateColumn, yearHistogram } from './dateInference'
 
 // Questions this view is for. Deliberately narrow: a question that is not
 // about counts gains nothing from a distribution and would only spend
@@ -266,26 +267,33 @@ function describeAttribute(attribute: string, values: string[]): string[] {
   lines.push(`- ${humanise(attribute)}: ${values.length} value(s) across ${distinct.size} distinct value(s)`)
 
   if (DATE_ATTRIBUTE_RX.test(attribute)) {
-    // Only a four-digit year is read as a year. A two-digit field cannot be
-    // placed in a century without deciding how the source prints dates, and
-    // deciding that silently is how a count becomes a guess.
-    const byYear = new Map<string, number>()
-    const unreadable: string[] = []
-    for (const v of values) {
-      const m = v.match(/\b(19|20)\d{2}\b/)
-      if (m) byYear.set(m[0], (byYear.get(m[0]) ?? 0) + 1)
-      else unreadable.push(v)
-    }
-    if (byYear.size) {
-      const hist = [...byYear.entries()].sort(([a], [b]) => a.localeCompare(b))
-        .map(([y, n]) => `${y}: ${n}`).join(', ')
-      lines.push(`  years stated in full: ${hist}`)
-    }
-    if (unreadable.length) {
-      const examples = [...new Set(unreadable)].slice(0, 4).map(v => `"${v}"`).join(', ')
+    // Short-form dates are read from the column's own evidence rather than
+    // discarded — see dateInference.ts. Stated and inferred years are
+    // reported separately so an answer can say which it used, and whatever
+    // still cannot be read is reported as a number rather than dropped.
+    const column = readDateColumn(values)
+    const { stated, inferred } = yearHistogram(column)
+
+    const render = (counts: Map<number, number>) =>
+      [...counts.entries()].sort(([a], [b]) => a - b).map(([y, n]) => `${y}: ${n}`).join(', ')
+
+    if (stated.size) lines.push(`  years printed in full (${column.stated} value(s)): ${render(stated)}`)
+    if (inferred.size) {
       lines.push(
-        `  ${unreadable.length} further value(s) are printed in a short form that carries no ` +
-        `four-digit year (e.g. ${examples}), so they sit outside the counts above. ` +
+        `  years read from the short form (${column.inferred} value(s)): ${render(inferred)} — ` +
+        `the day/month order was established from the ${column.stated} values in this column that ` +
+        `state it unambiguously, and the century from the latest year the column itself gives ` +
+        `(${column.pivotYear}). Treat these as read, not stated, and say so if asked how.`,
+      )
+      const total = new Map(stated)
+      for (const [year, n] of inferred) total.set(year, (total.get(year) ?? 0) + n)
+      lines.push(`  combined by year (${column.stated + column.inferred} of ${values.length} value(s)): ${render(total)}`)
+    }
+    if (column.unreadable) {
+      const examples = column.unreadableSamples.map(v => `"${v}"`).join(', ')
+      lines.push(
+        `  ${column.unreadable} value(s) remain unread because this document prints them in a ` +
+        `form whose day/month order it never states unambiguously (e.g. ${examples}). ` +
         `Report that number alongside the figure; do not treat it as a reason to withhold one.`,
       )
     }
