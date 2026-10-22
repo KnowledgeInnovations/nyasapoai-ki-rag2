@@ -99,7 +99,31 @@ const DEADLINE_SAFETY_MARGIN_MS = 5000
 // opposed to the server responding with an error status — is a transient
 // network condition worth waiting out, not a genuine API/content problem
 // retrying won't fix.
+/**
+ * Raised when OUR deadline-derived allowance expires, as distinct from the
+ * connection failing. Both arrive as AbortError/TimeoutError and are
+ * indistinguishable once thrown, which is how a self-inflicted budget expiry
+ * came to be reported to users for weeks as "network interruption — retry
+ * recommended", sending people to look for a connectivity problem that never
+ * existed. Measured live: five consecutive aborts one second apart — the
+ * allowance collapsed to its 1s floor — every one labelled a network fault.
+ */
+export class DeadlineExceededError extends Error {
+  readonly isDeadline = true
+  constructor(waitedMs: number) {
+    super(`Time allowance of ${Math.round(waitedMs / 1000)}s for this call expired before the model responded.`)
+    this.name = 'DeadlineExceededError'
+  }
+}
+
+export function isDeadlineError(e: unknown): boolean {
+  return (e as { isDeadline?: boolean })?.isDeadline === true
+}
+
 export function isNetworkError(e: unknown): boolean {
+  // Our own expired allowance is never a network fault, whatever shape the
+  // underlying abort took.
+  if (isDeadlineError(e)) return false
   const err = e as { name?: string; code?: string; message?: string; cause?: { code?: string } }
   if (err?.name === 'AbortError' || err?.name === 'TimeoutError') return true
   const code = err?.code ?? err?.cause?.code
@@ -170,9 +194,20 @@ export async function claudeComplete({ system, messages, maxTokens = 1024, tempe
     return Math.max(1000, Math.min(scaled, remaining, MAX_CLAUDE_TIMEOUT_MS))
   }
 
+  // An abort with no caller signal involved is ours: AbortSignal.timeout()
+  // raises TimeoutError, and some runtimes surface it as AbortError.
+  function isOwnTimeoutAbort(e: unknown): boolean {
+    const name = (e as { name?: string })?.name
+    return name === 'TimeoutError' || name === 'AbortError'
+  }
+
   let res: Response | undefined
+  let ourTimeoutMs: number | null = null
   for (let attempt = 1; ; attempt++) {
     try {
+      // Held so the catch below can tell our own expiry apart from a
+      // connection failure — once thrown they look identical.
+      ourTimeoutMs = signal ? null : timeoutMs()
       res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: getAnthropicHeaders(),
@@ -183,13 +218,26 @@ export async function claudeComplete({ system, messages, maxTokens = 1024, tempe
           ...(system ? { system } : {}),
           messages,
         }),
-        signal: signal ?? AbortSignal.timeout(timeoutMs()),
+        signal: signal ?? AbortSignal.timeout(ourTimeoutMs!),
       })
     } catch (e) {
+      // Our own allowance ran out: relabel before anything downstream can
+      // mistake it for a connectivity problem. A caller-provided signal is
+      // excluded — that abort belongs to the caller, not to us.
+      if (!signal && ourTimeoutMs != null && isOwnTimeoutAbort(e)) {
+        e = new DeadlineExceededError(ourTimeoutMs)
+      }
       // A caller-provided signal aborting is the caller's own cancellation —
-      // respect it immediately rather than retrying. Anything else (our own
-      // timeout firing, or a genuine network failure) is retried below.
+      // respect it immediately rather than retrying.
       if (signal?.aborted) throw e
+
+      // Our allowance having expired is not worth retrying: the allowance is
+      // derived from what remains of the caller's deadline, so a retry gets
+      // the same or less and fails the same way. Measured live: five
+      // consecutive retries one second apart, each doomed, each spending
+      // budget that the remaining excerpts needed. Fail fast and let the
+      // caller's per-batch handling degrade properly.
+      if (isDeadlineError(e)) throw e
 
       if (deadline != null && isNetworkError(e)) {
         const wait = NETWORK_RETRY_BACKOFF_MS[Math.min(attempt - 1, NETWORK_RETRY_BACKOFF_MS.length - 1)]
