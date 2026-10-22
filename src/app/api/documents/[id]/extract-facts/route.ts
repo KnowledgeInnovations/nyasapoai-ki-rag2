@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { getMembership } from '@/lib/supabase/server'
 import { canAccessTraining } from '@/lib/roles'
 import { extractGenericFacts } from '@/lib/genericFactExtraction'
 import { insertFactsResilient } from '@/lib/documentProcess'
+import { alertIncompleteTraining } from '@/lib/trainingAlerts'
 import type { ProcessingWarning } from '@/types'
 
 /**
@@ -198,6 +199,24 @@ export async function POST(
         : `Fact extraction in progress — ${remaining} of ${rows.length} excerpts still queued.`,
     })
     .eq('id', id)
+
+  // Tell the workspace's Senior users, once per incident, that this document
+  // is not fully indexed yet — it otherwise reads as healthy and the shortfall
+  // only shows up later as thinner answers. Sent after the response so a slow
+  // or failing mail relay cannot delay or fail the pass itself.
+  if (!done) {
+    const budgetNote = warnings.find(w => /Time budget reached/i.test(String(w.message ?? '')))
+    after(async () => {
+      await alertIncompleteTraining(service, {
+        tenantId: tenantId!,
+        documentId: id,
+        documentTitle: doc.title ?? 'Untitled document',
+        remaining,
+        total: rows.length,
+        reason: String(budgetNote?.message ?? 'The processing pass reached its time limit before every excerpt was checked.'),
+      })
+    })
+  }
 
   return NextResponse.json({
     done,

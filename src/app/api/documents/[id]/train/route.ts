@@ -96,6 +96,56 @@ export async function POST(
         warnings.push({ step, message, at: new Date().toISOString(), ...(network ? { network: true } : {}) })
 
       try {
+        // ── 0. Resume instead of rebuilding, where that is all that's left ──
+        //
+        // A document whose text is already indexed and whose only deficiency
+        // is an incomplete fact layer must NOT be rebuilt from the file.
+        // Rebuilding deletes the chunks and re-pays for download, extraction,
+        // chunking and embedding out of the same budget before fact
+        // extraction even starts — which is exactly why such a document never
+        // converges: every attempt runs out of time in the same place.
+        // Measured: a 58-chunk register sat at 0 facts with 45 excerpts
+        // unchecked through repeated retrains.
+        //
+        // Resuming spends the entire budget on the work that is actually
+        // outstanding, and destroys nothing if it is interrupted.
+        const { count: existingChunks } = await service
+          .from('document_chunks').select('*', { count: 'exact', head: true }).eq('document_id', id)
+        const { count: pendingFactChunks } = await service
+          .from('document_chunks').select('*', { count: 'exact', head: true })
+          .eq('document_id', id).is('facts_extracted_at', null)
+
+        // pendingFactChunks is null when migration 035 has not run; in that
+        // case fall through to the full rebuild rather than guessing.
+        if ((existingChunks ?? 0) > 0 && (pendingFactChunks ?? 0) > 0 && pendingFactChunks !== null) {
+          send({
+            stage: 'resuming',
+            message: `Text is already indexed — continuing fact extraction for the remaining ${pendingFactChunks} of ${existingChunks} excerpts.`,
+            progress: 10,
+          })
+
+          const origin = _request.nextUrl.origin
+          const res = await fetch(`${origin}/api/documents/${id}/extract-facts`, {
+            method: 'POST',
+            headers: process.env.CRON_SECRET ? { 'x-cron-secret': process.env.CRON_SECRET } : {},
+          })
+          const body = await res.json().catch(() => ({} as Record<string, unknown>))
+
+          if (res.ok) {
+            const done = body.done === true
+            send({
+              stage: done ? 'complete' : 'partial',
+              message: String(body.message ?? 'Fact extraction continued.'),
+              progress: 100,
+              remaining: body.remaining ?? 0,
+            })
+          } else {
+            send({ stage: 'error', message: String(body.error ?? 'Could not continue fact extraction.'), progress: 100 })
+          }
+          controller.close()
+          return
+        }
+
         // ── 1. Download file from storage ────────────────────────
         send({ stage: 'downloading', message: 'Downloading file from storage…', progress: 5 })
 

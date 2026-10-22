@@ -171,6 +171,7 @@ export async function extractGenericFacts(
 
   // See MIN_GENERIC_FACTS_BUDGET_MS above — guarantee a floor regardless of
   // how much of the caller's deadline earlier pipeline stages already spent.
+  const startedAt = Date.now()
   const effectiveDeadline = Math.max(deadline, Date.now() + MIN_GENERIC_FACTS_BUDGET_MS)
 
   const facts: DocumentFact[] = []
@@ -331,8 +332,34 @@ ${combined}`,
   // (now spread across the whole document, not concentrated at the end —
   // see interleaveForCoverage) were not extracted.
   if (stoppedAtIndex < usableChunks.length) {
+    // Explain where the time went. "Time budget reached" on its own tells an
+    // administrator nothing actionable: the useful facts are how much of the
+    // budget this stage was actually handed (earlier pipeline stages spend
+    // the same allowance first), how long it got through, and what that
+    // implies about the per-excerpt cost of this particular document.
+    const spentMs = Date.now() - startedAt
+    const grantedMs = effectiveDeadline - startedAt
+    const checked = stoppedAtIndex
+    const perChunkMs = checked > 0 ? Math.round(spentMs / checked) : null
+    const remaining = usableChunks.length - stoppedAtIndex
+    const projectedMs = perChunkMs != null ? perChunkMs * remaining : null
+
+    const diagnosis =
+      grantedMs < MIN_GENERIC_FACTS_BUDGET_MS * 0.9
+        ? `Only ${Math.round(grantedMs / 1000)}s of the run's budget was left for fact extraction — earlier stages (text extraction, chunking, embedding) consumed the rest.`
+        : `Fact extraction had ${Math.round(grantedMs / 1000)}s and used ${Math.round(spentMs / 1000)}s.`
+
+    const rate = perChunkMs != null
+      ? ` This document costs about ${(perChunkMs / 1000).toFixed(1)}s per excerpt${projectedMs != null ? `, so the remaining ${remaining} need roughly ${Math.round(projectedMs / 1000)}s more` : ''}.`
+      : ''
+
+    console.warn('[extractGenericFacts] budget exhausted', {
+      documentId, checked, remaining, total: usableChunks.length,
+      grantedMs, spentMs, perChunkMs, projectedMs,
+    })
+
     onBatchDropped?.({
-      reason: `Time budget reached — ${usableChunks.length - stoppedAtIndex} of ${usableChunks.length} excerpts are still to be checked for facts. The remainder are queued and will be processed automatically; nothing has been lost.`,
+      reason: `Time budget reached — ${remaining} of ${usableChunks.length} excerpts are still to be checked for facts. ${diagnosis}${rate} The remainder are queued and will be processed automatically; nothing has been lost.`,
       budgetExhausted: true,
     })
   }
