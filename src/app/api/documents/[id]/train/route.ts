@@ -245,27 +245,25 @@ export async function POST(
 
         send({ stage: 'chunking', message: `Document split into ${chunks.length} knowledge chunks`, progress: 30 })
 
-        // ── 4. Delete old chunks + facts ──────────────────────────
-        send({ stage: 'clearing', message: 'Removing previous training data…', progress: 35 })
-        await service.from('document_chunks').delete().eq('document_id', id)
-        await service.from('financial_facts').delete().eq('document_id', id)
-        // document_facts was missing from this clear — confirmed live: a
-        // document retrained twice showed 189 total facts in the Training
-        // UI (accumulated across runs) while the retrain's own log said it
-        // only extracted 89 this time. Every retrain appended a fresh
-        // batch on top of the previous run's instead of replacing it,
-        // silently duplicating (and, for long-running docs, endlessly
-        // growing) the facts shown to the chat model as ground truth.
-        await service.from('document_facts').delete().eq('document_id', id)
-
-        // ── 5. Embed in batches ───────────────────────────────────
+        // ── 4. Embed the whole replacement before touching what exists ──
+        //
+        // Nothing is deleted here. Training used to delete the document's
+        // chunks and both fact tables at this point and rebuild afterwards,
+        // with no transaction and no rollback — so a rebuild that failed,
+        // timed out or was interrupted left the document holding less than
+        // it started with, sometimes nothing. A 108-chunk document was
+        // observed going from 266 facts to 0 that way. "Try to improve this
+        // document" must not be able to mean "destroy it", so the old data
+        // now stands until a complete replacement exists, and the swap
+        // happens in one short step at the end.
         const totalBatches = Math.ceil(chunks.length / EMBED_BATCH)
         const allFacts: FinancialFact[] = []
+        const embeddedBatches: number[][][] = []
 
         for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
           const batch    = chunks.slice(i, i + EMBED_BATCH)
           const batchNum = Math.floor(i / EMBED_BATCH) + 1
-          const progress = 35 + Math.round((batchNum / totalBatches) * 55)
+          const progress = 35 + Math.round((batchNum / totalBatches) * 45)
 
           send({
             stage:    'embedding',
@@ -273,7 +271,28 @@ export async function POST(
             progress,
           })
 
-          const embeddings = await embedBatch(batch.map(c => c.text), routeDeadline)
+          embeddedBatches.push(await embedBatch(batch.map(c => c.text), routeDeadline))
+        }
+
+        // ── 5. Swap: drop the old chunks and write the new ones ───
+        // Anything that could fail slowly — download, extraction, table
+        // cleaning, embedding — has already succeeded by the time this
+        // runs, which reduces the window in which the document holds
+        // neither generation from minutes to the length of these inserts.
+        send({ stage: 'clearing', message: 'Replacing previous training data…', progress: 80 })
+        await service.from('document_chunks').delete().eq('document_id', id)
+
+        const insertedChunks: { id: string; chunk_text: string }[] = []
+
+        for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
+          const batch    = chunks.slice(i, i + EMBED_BATCH)
+          const batchNum = Math.floor(i / EMBED_BATCH) + 1
+          const embeddings = embeddedBatches[batchNum - 1]
+          send({
+            stage:    'embedding',
+            message:  `Storing batch ${batchNum}/${totalBatches} — ${Math.min(i + EMBED_BATCH, chunks.length)}/${chunks.length} chunks written`,
+            progress: 80 + Math.round((batchNum / totalBatches) * 10),
+          })
 
           // insertWithRetry throws (rather than silently returning
           // null/[]) after exhausting retries — the outer try/catch below
@@ -306,9 +325,11 @@ export async function POST(
           )
 
           for (const row of inserted) {
-            allFacts.push(...extractFactsFromChunk(row as {
+            const r = row as {
               id: string; document_id: string; tenant_id: string; chunk_text: string; metadata: Record<string, unknown>
-            }))
+            }
+            insertedChunks.push({ id: r.id, chunk_text: r.chunk_text })
+            allFacts.push(...extractFactsFromChunk(r))
           }
         }
 
@@ -332,12 +353,42 @@ export async function POST(
         // call, so there's no cost to leaving it as a safety net.
         const budgetSignal = looksLikeBudgetDocument(chunks.map(c => c.text).join('\n'))
 
+        // Each fact table is cleared once, immediately before the first
+        // insert of this run's replacement — never up front.
+        //
+        // Both properties have to hold at once. Clearing up front destroyed
+        // the fact layer whenever a later stage failed; not clearing at all
+        // duplicated it (one document showed 189 facts from 89 extracted,
+        // because every retrain appended on top of the last). Clearing at
+        // the moment of insert gives replacement semantics without a window
+        // in which the document holds neither generation.
+        //
+        // And if this run extracted nothing, the clear never happens: the
+        // previous layer stands. Facts keep their own page and section, and
+        // their chunk reference is ON DELETE SET NULL, so a kept fact stays
+        // citable after the chunk swap above.
+        // Excerpt texts whose fact extraction completed in this run.
+        const completedFactChunks = new Set<string>()
+        let financialCleared = false
+        const clearFinancialFactsOnce = async () => {
+          if (financialCleared) return
+          financialCleared = true
+          await service.from('financial_facts').delete().eq('document_id', id)
+        }
+        let documentFactsCleared = false
+        const clearDocumentFactsOnce = async () => {
+          if (documentFactsCleared) return
+          documentFactsCleared = true
+          await service.from('document_facts').delete().eq('document_id', id)
+        }
+
         // ── 7. Sanity-check + store the cheap, regex-extracted facts ──
         // (Table extraction, AI-enhanced table facts, the generic-fact
         // fallback, and cross-document reconciliation all move to the
         // background below — see the note at the split point.)
         runSanityChecks(allFacts)
         if (allFacts.length) {
+          await clearFinancialFactsOnce()
           await insertFactsResilient(() => service.from('financial_facts').insert(allFacts), 'financial_facts_insert', warn)
         }
         send({ stage: 'facts', message: `Extracted ${allFacts.length} financial facts`, progress: 95 })
@@ -407,6 +458,7 @@ export async function POST(
             }
 
             if (enrichmentFacts.length) {
+              await clearFinancialFactsOnce()
               await insertFactsResilient(() => service.from('financial_facts').insert(enrichmentFacts), 'financial_facts_insert', warn)
             }
 
@@ -422,9 +474,34 @@ export async function POST(
                 genericFacts = await extractGenericFacts(
                   cleanedChunks, membership.tenant_id, id, routeDeadline,
                   ({ reason, network }) => warn('generic_facts_fallback', reason, network),
+                  batch => { for (const c of batch) completedFactChunks.add(c.text) },
                 )
                 if (genericFacts.length) {
+                  await clearDocumentFactsOnce()
                   await insertFactsResilient(() => service.from('document_facts').insert(genericFacts), 'document_facts_insert', warn)
+                }
+                // Record which excerpts this run actually checked, so the
+                // resumable facts-only pass queues only what is left rather
+                // than re-reading the whole document.
+                if (completedFactChunks.size) {
+                  const byText = new Map<string, string[]>()
+                  for (const c of insertedChunks) {
+                    byText.set(c.chunk_text, [...(byText.get(c.chunk_text) ?? []), c.id])
+                  }
+                  // Stored chunk text carries the document-title prefix that
+                  // was added before embedding; the extractor sees the text
+                  // without it.
+                  const stampIds = [...new Set(
+                    [...completedFactChunks].flatMap(t => byText.get(titleLabel + t) ?? []),
+                  )]
+                  const stampedAt = new Date().toISOString()
+                  for (let i = 0; i < stampIds.length; i += 200) {
+                    const { error: stampErr } = await service
+                      .from('document_chunks')
+                      .update({ facts_extracted_at: stampedAt })
+                      .in('id', stampIds.slice(i, i + 200))
+                    if (stampErr) console.error('[Train] stamping chunks failed:', stampErr.message)
+                  }
                 }
               } catch (err) {
                 console.error('[Train] generic fact extraction failed', err)
@@ -458,6 +535,7 @@ export async function POST(
                   visionFacts.push(...facts)
                 }
                 if (visionFacts.length) {
+                  await clearDocumentFactsOnce()
                   await insertFactsResilient(() => service.from('document_facts').insert(visionFacts), 'document_facts_insert', warn)
                   warn('vision_facts_backfill', `Recovered ${visionFacts.length} fact(s) from ${emptyTablePages.length} table page(s) via vision extraction.`)
                 }

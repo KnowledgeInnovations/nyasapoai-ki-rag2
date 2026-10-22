@@ -295,7 +295,7 @@ export async function GET(request: NextRequest) {
       .from('citations')
       .select(`
         id, document_chunk_id, relevance_score, message_index,
-        document_id, fact_label, page_number, section_title,
+        document_id, fact_label, cited_text, page_number, section_title,
         document_chunks(chunk_text, document_id, metadata, documents(title)),
         documents(title)
       `)
@@ -310,18 +310,33 @@ export async function GET(request: NextRequest) {
       if (!chunk) {
         const rawDocs = row.documents as { title: string } | { title: string }[] | null | undefined
         const docTitle = Array.isArray(rawDocs) ? rawDocs[0]?.title : rawDocs?.title
+        // Three different situations arrive here, and conflating them was
+        // how a destroyed citation passed for a healthy one:
+        //
+        //  - a fact citation, which never had a chunk (migration 017) and
+        //    carries its own synthetic label;
+        //  - a chunk citation whose chunk was replaced by a retrain
+        //    (migration 037 made that reference non-destructive) — it still
+        //    has the text it quoted, and its document and page still open;
+        //  - a citation whose document was deleted outright, which has
+        //    nothing left to open and must say so rather than presenting
+        //    itself as a working source.
+        const reindexed = !!row.cited_text
         return {
           id: row.id,
           conversation_id: convId,
           document_chunk_id: null,
           document_id: row.document_id ?? '',
           document_title: docTitle ?? 'Document',
-          chunk_text: row.fact_label ?? '',
+          chunk_text: (reindexed ? row.cited_text : row.fact_label) ?? '',
           relevance_score: row.relevance_score,
           highlight: null,
           page_number: row.page_number,
           section_title: row.section_title,
           message_index: row.message_index as number | null,
+          source_state: !row.document_id ? 'unavailable' as const
+            : reindexed ? 'reindexed' as const
+            : 'live' as const,
         }
       }
       const rawDocs = chunk.documents as { title: string } | { title: string }[] | null | undefined
@@ -341,6 +356,7 @@ export async function GET(request: NextRequest) {
         // Which AI message (index into conversations.messages) this
         // citation belongs to — null for rows inserted before migration 012.
         message_index: row.message_index as number | null,
+        source_state: 'live' as const,
       }
     })
 
@@ -918,9 +934,17 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
     //
     // page_number is legitimately null for .docx sources, which have no fixed
     // pagination until rendered; section_title is the usable anchor there.
+    //
+    // cited_text is the citation's own copy of what it quoted. The chunk
+    // reference used to be ON DELETE CASCADE, so retraining a document
+    // deleted every citation of every past answer that had cited it — a
+    // five-turn conversation was found holding 18 [n] markers and zero
+    // citations because its documents were retrained half an hour later.
+    // Migration 037 made that reference non-destructive; this snapshot is
+    // what keeps the citation readable afterwards.
     const chunkCitationRows = (
       convId: string,
-      chunks: { id: string; similarity: number; document_id?: string | null; metadata?: Record<string, unknown> | null }[],
+      chunks: { id: string; similarity: number; chunk_text?: string | null; document_id?: string | null; metadata?: Record<string, unknown> | null }[],
       messageIndex: number,
     ) =>
       chunks.map(c => {
@@ -933,8 +957,30 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           message_index: messageIndex,
           page_number: (meta.page_number as number | null) ?? null,
           section_title: (meta.section_title as string | null) ?? null,
+          cited_text: c.chunk_text ?? null,
         }
       })
+
+    // One insert for a whole answer's citations, so a single bad row cannot
+    // take the rest with it, and a database that has not had migration 037
+    // applied yet degrades to citations without the snapshot rather than to
+    // no citations at all.
+    const insertCitations = async (rows: Record<string, unknown>[]) => {
+      if (!rows.length) return
+      const { error } = await svc.from('citations').insert(rows)
+      if (!error) return
+      if (/cited_text/i.test(error.message ?? '')) {
+        const withoutSnapshot = rows.map(r => {
+          const { cited_text: _ignored, ...rest } = r
+          return rest
+        })
+        const { error: retryError } = await svc.from('citations').insert(withoutSnapshot)
+        if (retryError) console.error('[RAG] citations insert failed (no snapshot column):', retryError)
+        else console.warn('[RAG] citations stored without cited_text — migration 037 not applied')
+        return
+      }
+      console.error('[RAG] citations insert failed:', error)
+    }
 
     const factCitationRows = (convId: string, facts: FactCitation[], messageIndex: number) =>
       facts.map(fc => ({
@@ -1635,8 +1681,15 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
       const finalAnswer = agenticRenumber(parsed.answer)
       const finalRisks = agenticRisks.map(agenticRenumber)
       const finalRecommendations = parsed.recommendations.map(agenticRenumber)
-      const agenticCitedChunks = agenticSortedUsed.filter(n => n <= chunks.length).map(n => chunks[n - 1])
-      const agenticCitedFactCitations = agenticSortedUsed.filter(n => n > chunks.length).map(n => factCitations[n - chunks.length - 1])
+      // A marker numbered beyond the sources actually supplied used to map
+      // to undefined, which threw while building the insert rows and so
+      // discarded every citation for the turn — one hallucinated [n] cost
+      // the answer all of its sources.
+      const agenticCitedChunks = agenticSortedUsed.filter(n => n >= 1 && n <= chunks.length).map(n => chunks[n - 1])
+      const agenticCitedFactCitations = agenticSortedUsed
+        .filter(n => n > chunks.length)
+        .map(n => factCitations[n - chunks.length - 1])
+        .filter((f): f is (typeof factCitations)[number] => !!f)
 
       // A bar chart when the answer's own comparison table cleanly supports
       // one (see answerChartExtractor.ts) — never both chart kinds at once,
@@ -1657,11 +1710,10 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
         await appendConv(existingConvId, finalAnswer, finalRisks, finalRecommendations, chartData, barChartData)
       }
       if (agenticConvId && (agenticCitedChunks.length || agenticCitedFactCitations.length)) {
-        const { error: citationsErr } = await svc.from('citations').insert([
+        await insertCitations([
           ...chunkCitationRows(agenticConvId, agenticCitedChunks, rawHistoryLength + 1),
           ...factCitationRows(agenticConvId, agenticCitedFactCitations, rawHistoryLength + 1),
         ])
-        if (citationsErr) console.error('[RAG] agentic citations insert failed:', citationsErr)
       }
 
       const [{ data: agenticChunkDetails }, { data: agenticFactDocs }] = await Promise.all([chunkDetailsPromise, factDocsPromise])
@@ -1825,8 +1877,11 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
           // "stated as 11.00%, should be 11%" pattern.
           const risks = parsed.risks.filter(r => !isDegenerateIssue(r)).map(renumber)
           const recommendations = parsed.recommendations.map(renumber)
-          const citedChunks = sortedUsed.filter(n => n <= chunks.length).map(n => chunks[n - 1])
-          const citedFactCitations = sortedUsed.filter(n => n > chunks.length).map(n => factCitations[n - chunks.length - 1])
+          const citedChunks = sortedUsed.filter(n => n >= 1 && n <= chunks.length).map(n => chunks[n - 1])
+          const citedFactCitations = sortedUsed
+            .filter(n => n > chunks.length)
+            .map(n => factCitations[n - chunks.length - 1])
+            .filter((f): f is (typeof factCitations)[number] => !!f)
 
           /* ── Answer verification + confidence scoring ──────────
              Deterministic second pass: every non-percentage figure in the
@@ -2023,22 +2078,20 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
               if (convErr) console.error('Conv save error:', convErr.message)
               convId = conv?.id ?? null
               if (convId && (citedChunks.length || citedFactCitations.length)) {
-                const { error: citationsErr } = await svc.from('citations').insert([
+                await insertCitations([
                   ...chunkCitationRows(convId, citedChunks, rawHistoryLength + 1),
                   ...factCitationRows(convId, citedFactCitations, rawHistoryLength + 1),
                 ])
-                if (citationsErr) console.error('[RAG] citations insert failed:', citationsErr)
               }
             } catch (e) { console.error('Save failed:', e) }
           } else if (existingConvId) {
             convId = existingConvId
             await appendConv(existingConvId, answer, risks, recommendations, chartData, barChartData)
             if (citedChunks.length || citedFactCitations.length) {
-              const { error: citationsErr } = await svc.from('citations').insert([
+              await insertCitations([
                 ...chunkCitationRows(convId, citedChunks, rawHistoryLength + 1),
                 ...factCitationRows(convId, citedFactCitations, rawHistoryLength + 1),
               ])
-              if (citationsErr) console.error('[RAG] citations insert failed:', citationsErr)
             }
           }
 

@@ -94,6 +94,16 @@ export interface Citation {
   // Index into conversations.messages of the AI message that cited this
   // chunk — used to restore citations to the right message on reload.
   message_index?: number | null
+  // Whether the excerpt behind this citation is still the one the index
+  // holds. A citation records what an answer was based on when it was
+  // given, so it outlives the chunk it quoted: retraining a document
+  // replaces every chunk, and deleting a document removes it entirely.
+  //   'live'        — the cited chunk is still indexed.
+  //   'reindexed'   — the document was retrained; the text shown is the
+  //                   snapshot taken when the answer was given.
+  //   'unavailable' — the source document is no longer in the workspace,
+  //                   so there is nothing left to open.
+  source_state?: 'live' | 'reindexed' | 'unavailable'
 }
 
 export interface AuditLog {

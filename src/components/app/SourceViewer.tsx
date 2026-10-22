@@ -94,7 +94,13 @@ export default function SourceViewer({ citation, onClose }: Props) {
   // would saturate at 99% for any validated fact (confidence >= 0.70),
   // showing the same fake "99% match" regardless of whether the underlying
   // fact's confidence was 70% or 95%. Show the real number, correctly labeled.
-  const isFactCitation = citation.document_chunk_id == null
+  // A chunk citation whose document has since been retrained also arrives
+  // with a null chunk id (migration 037), but it is still a verbatim
+  // excerpt and its relevance_score is still a similarity — labelling it
+  // "confidence" would misreport both the number and what it is.
+  const wasReindexed = citation.source_state === 'reindexed'
+  const sourceUnavailable = citation.source_state === 'unavailable'
+  const isFactCitation = citation.document_chunk_id == null && !wasReindexed
   const score = isFactCitation
     ? Math.round((citation.relevance_score ?? 0) * 100)
     : matchConfidence(citation.relevance_score)
@@ -128,6 +134,16 @@ export default function SourceViewer({ citation, onClose }: Props) {
                   {citation.section_title ? citation.section_title : 'Source document'}
                   {citation.page_number != null ? ` · p. ${citation.page_number}` : ''}
                 </span>
+                {sourceUnavailable && (
+                  <span className="inline-flex items-center bg-gray-100 border border-gray-200 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
+                    Source removed
+                  </span>
+                )}
+                {wasReindexed && (
+                  <span className="inline-flex items-center bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                    Document retrained since
+                  </span>
+                )}
                 {score > 0 && (
                   <span className="inline-flex items-center bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                     {score}% {isFactCitation ? 'confidence' : 'match'}
@@ -162,7 +178,7 @@ export default function SourceViewer({ citation, onClose }: Props) {
             <>
               <div className="mb-3 flex items-center justify-between">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                  {isFactCitation ? 'Extracted data point' : 'Relevant excerpt'}
+                  {isFactCitation ? 'Extracted data point' : wasReindexed ? 'Excerpt as cited' : 'Relevant excerpt'}
                 </p>
                 {citation.highlight && (
                   <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-400">
@@ -183,11 +199,15 @@ export default function SourceViewer({ citation, onClose }: Props) {
         {/* Footer */}
         <div className="shrink-0 border-t border-gray-200 px-5 py-3 flex items-center justify-between">
           <p className="text-xs text-gray-400">
-            {downloadUrl && citation.page_number != null
-              ? `Original document, page ${citation.page_number}.`
-              : isFactCitation
-                ? 'A verified data point extracted from this document, not a verbatim quote.'
-                : 'This is the exact passage the AI used to answer your question.'}
+            {sourceUnavailable
+              ? 'The source document is no longer in this workspace, so this citation cannot be opened. The text above is what the answer was based on at the time.'
+              : downloadUrl && citation.page_number != null
+                ? `Original document, page ${citation.page_number}.`
+                : wasReindexed
+                  ? 'This document has been retrained since the answer was given. The text above is the passage that was cited at the time.'
+                  : isFactCitation
+                    ? 'A verified data point extracted from this document, not a verbatim quote.'
+                    : 'This is the exact passage the AI used to answer your question.'}
           </p>
           <button
             onClick={onClose}

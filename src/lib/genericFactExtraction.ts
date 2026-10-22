@@ -51,6 +51,45 @@ interface AiGenericFact {
 // maxDuration and leave the document stuck in "processing" forever.
 const GENERIC_FACT_BATCH_CHARS = 6000
 
+// How small a batch may get before combining stops helping. Reached by
+// halving (see batchCharCap below) on a document whose excerpts turn out to
+// produce far more output than the batch size assumed.
+const MIN_GENERIC_FACT_BATCH_CHARS = 1200
+
+// The ceiling for dense, machine-formatted content — a station register, a
+// price list, a timetable. What decides whether a call succeeds is the size
+// of its reply, not the size of its prompt, and such content yields an
+// order of magnitude more facts per character than prose: one 1,544-char
+// excerpt of an FM station register was measured producing 5,576 output
+// tokens in 46s. Batched four at a time under the prose ceiling, the same
+// material needs over 20,000 tokens and roughly three minutes, so it
+// exceeds both the output ceiling and the per-call allowance and comes back
+// as nothing at all — 55 excerpts, two full pass budgets, zero facts. One
+// excerpt per call completes.
+const DENSE_FACT_BATCH_CHARS = 1800
+
+// Digit share above which an excerpt counts as dense. Measured across this
+// deployment's documents: prose and brochures run 0.7-4.4%, while the two
+// documents whose fact extraction kept failing — an FM station register and
+// a floor-by-floor price table — run 15.7% and 18.6%. Nothing sits near the
+// boundary, and the cost of being wrong is asymmetric: treating prose as
+// dense merely issues a few more cheap calls, while treating a table as
+// prose returns nothing.
+const DENSE_DIGIT_RATIO = 0.08
+
+// How many batches are in flight at once.
+//
+// This was strictly sequential, which is affordable for prose and hopeless
+// for a dense table. Measured on a 58-excerpt FM station register: one
+// 1,544-character excerpt takes 46s and yields 83 facts, so the whole
+// document needs roughly 45 minutes of model time. Against a 240s pass
+// budget that checked four excerpts and left 54 for a later pass that would
+// make the same four-excerpt dent. Six at a time brings the same document
+// within two or three passes. Kept modest because every call here shares
+// one account's rate limit with chat; claudeComplete already backs off on
+// 429.
+const GENERIC_FACT_CONCURRENCY = 6
+
 // This runs LAST in the training pipeline, after PDF extraction, chunking
 // (including its own "AI-clean table blocks" Claude call) and embedding —
 // all of which are counted against the same shared routeDeadline. Confirmed
@@ -118,6 +157,16 @@ function parseNumberValue(value: string): number | null {
 // means a deadline cutoff now loses a scattered handful of runs throughout
 // the document rather than guaranteeing zero coverage of everything after
 // wherever time ran out.
+// Picks the batch ceiling from a sample of the document's own text. Cheap
+// on purpose: no model call, and it reads the same excerpts that are about
+// to be processed.
+function batchCharsFor(chunks: ProcessedChunk[]): number {
+  const sample = chunks.slice(0, 12).map(c => c.text).join('')
+  if (!sample.length) return GENERIC_FACT_BATCH_CHARS
+  const digitShare = (sample.match(/\d/g) ?? []).length / sample.length
+  return digitShare > DENSE_DIGIT_RATIO ? DENSE_FACT_BATCH_CHARS : GENERIC_FACT_BATCH_CHARS
+}
+
 function interleaveForCoverage<T>(items: T[], runSize = 4, buckets = 6): T[] {
   if (items.length <= runSize * 2) return items
   const runs: T[][] = []
@@ -187,7 +236,17 @@ export async function extractGenericFacts(
   // though several chunks share one call.
   const MAX_TEXT_SPLIT_DEPTH = 2
 
-  async function processBatch(batch: ProcessedChunk[], depth = 0) {
+  // Starts from what this document's own text implies, and shrinks further
+  // if a reply still comes back truncated — see the parse failure path.
+  let batchCharCap = batchCharsFor(usableChunks)
+
+  // Returns whether the batch was genuinely examined. A batch dropped
+  // because the allowance expired returns false, and that distinction is
+  // load-bearing: the resumable pass stamps the excerpts a completed batch
+  // covered, so reporting a dropped batch as checked marks a document
+  // complete while it holds nothing. Measured: a 58-excerpt register had
+  // three excerpts stamped having extracted zero facts.
+  async function processBatch(batch: ProcessedChunk[], depth = 0): Promise<boolean> {
     const combined = batch.map((c, i) => `[Excerpt ${i + 1}${c.page_number ? ` (page ${c.page_number})` : ''}]\n${c.text}`).join('\n\n')
     let raw: string
     try {
@@ -195,7 +254,12 @@ export async function extractGenericFacts(
       // aiEnhanceTableFacts — avoids silent truncation/JSON-parse-failure on
       // a fact-dense batch.
       raw = await claudeComplete({
-        maxTokens: 8192,
+        // A single dense table excerpt was measured producing 5,576 output
+        // tokens from 1,544 input characters. At 8192 a two-excerpt batch of
+        // such content truncates mid-JSON, which costs a full 46s call and
+        // returns nothing — so the ceiling has to leave room for the batch
+        // the sizing logic below is willing to send.
+        maxTokens: 16384,
         deadline: effectiveDeadline,
         messages: [{
           role: 'user',
@@ -238,7 +302,7 @@ ${combined}`,
         network: outOfBudget ? false : isNetworkError(e),
         budgetExhausted: outOfBudget,
       })
-      return
+      return false
     }
 
     let parsed: AiGenericFact[]
@@ -248,25 +312,32 @@ ${combined}`,
       // Same truncation-recovery strategy as aiEnhanceTableFacts: split the
       // batch and retry each half before giving up on a fact-dense excerpt.
       if (batch.length > 1) {
+        // The reply did not parse, and the overwhelmingly common cause is the
+        // model running out of output tokens mid-array. Splitting recovers
+        // this batch, but without also lowering the ceiling every later batch
+        // of the same document repeats the doomed call at full price — which
+        // is how one 240s budget went on four excerpts.
+        batchCharCap = Math.max(MIN_GENERIC_FACT_BATCH_CHARS, Math.floor(batchCharCap / 2))
         const mid = Math.ceil(batch.length / 2)
-        await processBatch(batch.slice(0, mid), depth)
-        await processBatch(batch.slice(mid), depth)
-        return
+        const firstHalf = await processBatch(batch.slice(0, mid), depth)
+        const secondHalf = await processBatch(batch.slice(mid), depth)
+        return firstHalf && secondHalf
       }
       const lines = batch[0].text.split('\n')
       if (depth < MAX_TEXT_SPLIT_DEPTH && lines.length >= 6) {
         const mid = Math.ceil(lines.length / 2)
         const halves = [lines.slice(0, mid).join('\n'), lines.slice(mid).join('\n')]
+        let bothHalves = true
         for (const halfText of halves) {
-          if (halfText.trim()) await processBatch([{ ...batch[0], text: halfText }], depth + 1)
+          if (halfText.trim()) bothHalves = await processBatch([{ ...batch[0], text: halfText }], depth + 1) && bothHalves
         }
-      } else {
-        console.error('[extractGenericFacts] batch failed:', e)
+        return bothHalves
       }
-      return
+      console.error('[extractGenericFacts] batch failed:', e)
+      return false
     }
 
-    if (!Array.isArray(parsed)) return
+    if (!Array.isArray(parsed)) return true
     for (const f of parsed) {
       if (!f.subject || !f.attribute || f.value == null) continue
       const valueText = String(f.value).trim()
@@ -294,34 +365,52 @@ ${combined}`,
         extraction_method: 'ai',
       })
     }
+    return true
   }
 
-  // Wraps processBatch so a batch that completes is reported to the caller,
-  // which is what makes a later pass able to skip it.
+  // Reports a batch to the caller only if it was really examined — a batch
+  // that parsed, even to zero facts, so a document that genuinely holds no
+  // facts stops being re-queued. The previous test compared the fact count
+  // before and after with `>=`, which is true unconditionally, so every
+  // dropped batch was reported as checked.
+  let checkedChunks = 0
   async function runBatch(batch: ProcessedChunk[]) {
-    const before = facts.length
-    await processBatch(batch)
-    // processBatch returns early on a dropped batch; a batch that got as far
-    // as parsing (even to zero facts) counts as checked, so it is not
-    // re-queued forever on a document that genuinely holds no facts.
-    if (facts.length >= before) onBatchComplete?.(batch)
+    if (await processBatch(batch)) {
+      checkedChunks += batch.length
+      onBatchComplete?.(batch)
+    }
   }
 
-  let batch: ProcessedChunk[] = []
-  let batchChars = 0
-  let stoppedAtIndex = usableChunks.length
-  for (let i = 0; i < usableChunks.length; i++) {
-    if (Date.now() > effectiveDeadline) { stoppedAtIndex = i; break }
-    const chunk = usableChunks[i]
-    if (batchChars + chunk.text.length > GENERIC_FACT_BATCH_CHARS && batch.length) {
-      await runBatch(batch)
-      batch = []
-      batchChars = 0
+  // Batches are cut as workers ask for them, not all up front, so a ceiling
+  // lowered by a truncated reply applies to everything still to come.
+  let cursor = 0
+  function nextBatch(): ProcessedChunk[] | null {
+    if (cursor >= usableChunks.length) return null
+    const batch: ProcessedChunk[] = []
+    let chars = 0
+    while (cursor < usableChunks.length) {
+      const chunk = usableChunks[cursor]
+      if (batch.length && chars + chunk.text.length > batchCharCap) break
+      batch.push(chunk)
+      chars += chunk.text.length
+      cursor++
     }
-    batch.push(chunk)
-    batchChars += chunk.text.length
+    return batch
   }
-  if (batch.length && Date.now() <= effectiveDeadline) await runBatch(batch)
+
+  await Promise.all(
+    Array.from({ length: Math.min(GENERIC_FACT_CONCURRENCY, usableChunks.length) }, async () => {
+      for (;;) {
+        // Checked before taking work, not after: a worker that starts a
+        // batch past the deadline burns an allowance that has already
+        // shrunk to its floor and fails anyway.
+        if (Date.now() > effectiveDeadline) return
+        const batch = nextBatch()
+        if (!batch) return
+        await runBatch(batch)
+      }
+    }),
+  )
 
   // The deadline loop above breaks silently by design (a document stuck
   // re-hitting the same wall on every retrain is worse than one that
@@ -331,7 +420,7 @@ ${combined}`,
   // explicitly so admins/auto-reprocess have a real signal that some facts
   // (now spread across the whole document, not concentrated at the end —
   // see interleaveForCoverage) were not extracted.
-  if (stoppedAtIndex < usableChunks.length) {
+  if (checkedChunks < usableChunks.length) {
     // Explain where the time went. "Time budget reached" on its own tells an
     // administrator nothing actionable: the useful facts are how much of the
     // budget this stage was actually handed (earlier pipeline stages spend
@@ -339,9 +428,12 @@ ${combined}`,
     // implies about the per-excerpt cost of this particular document.
     const spentMs = Date.now() - startedAt
     const grantedMs = effectiveDeadline - startedAt
-    const checked = stoppedAtIndex
+    const checked = checkedChunks
+    // Per-excerpt cost is wall clock divided by excerpts actually completed,
+    // over however many ran at once — so it stays the right number to
+    // project the remainder against this same pass budget.
     const perChunkMs = checked > 0 ? Math.round(spentMs / checked) : null
-    const remaining = usableChunks.length - stoppedAtIndex
+    const remaining = usableChunks.length - checkedChunks
     const projectedMs = perChunkMs != null ? perChunkMs * remaining : null
 
     const diagnosis =
