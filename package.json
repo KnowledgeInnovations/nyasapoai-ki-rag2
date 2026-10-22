@@ -30,6 +30,7 @@
     "standardwebhooks": "^1.0.0",
     "tailwind-merge": "^3.6.0",
     "three": "^0.184.0",
+    "word-extractor": "^1.0.4",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4.4.3"
   },

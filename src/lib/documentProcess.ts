@@ -19,10 +19,33 @@ const { parseOffice } = require('officeparser') as {
 
 export const EMBED_BATCH = 100
 
+// Handled by officeparser's flat text extraction. Everything that has a
+// better reader is routed before this set is consulted — see
+// extractStructuredText.
 const OFFICE_EXTS = new Set([
-  '.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt',
-  '.odt', '.ods', '.odp',
+  '.pptx', '.odt', '.odp', '.rtf',
 ])
+
+// Spreadsheets go through SheetJS rather than officeparser, which flattens
+// a workbook into one text blob. Measured on a 25MB UN demographic
+// workbook: officeparser produced 39.4 million characters, most of it empty
+// cell padding, and 44,000 chunks with no sheet, no row structure and no
+// locator of any kind. SheetJS reads the same file as 44,930 real rows
+// across three named sheets, which chunk as tables under the sheet's name.
+const SPREADSHEET_EXTS = new Set(['.xlsx', '.xlsm', '.xls', '.ods', '.csv', '.tsv'])
+
+// Legacy binary Word. officeparser rejects the whole CFB container family
+// outright ("Create a ticket in Issues on github to add support for cfb
+// files"), so a .doc upload — accepted by the allowed-extension list —
+// extracted nothing and failed. Confirmed against a legacy test document:
+// 0 characters before, 594 after.
+const LEGACY_WORD_EXTS = new Set(['.doc'])
+
+// How much of a spreadsheet goes into one table chunk, and how many header
+// rows are repeated at the top of each. Without the repeat, every chunk
+// after the first is a block of bare values whose columns are unlabelled,
+// which no amount of retrieval can recover.
+const SPREADSHEET_CHUNK_CHARS = 1400
 
 export interface ExtractedPage {
   page_number: number | null  // null when the source format has no page concept
@@ -104,6 +127,19 @@ export async function extractStructuredText(buffer: Buffer, filename: string): P
     return [{ page_number: null, text: (result?.text as string) ?? '', tables: [] }]
   }
 
+  if (SPREADSHEET_EXTS.has(ext)) return extractSpreadsheet(buffer, filename)
+
+  if (ext === '.docx') return await extractDocx(buffer, filename)
+
+  if (LEGACY_WORD_EXTS.has(ext)) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const WordExtractor = require('word-extractor')
+    const doc = await new WordExtractor().extract(buffer)
+    const parts = [doc.getBody(), doc.getFootnotes(), doc.getEndnotes()]
+      .map(t => (t ?? '').trim()).filter(Boolean)
+    return [{ page_number: null, text: parts.join('\n\n') }]
+  }
+
   if (OFFICE_EXTS.has(ext)) {
     const ast = await parseOffice(buffer)
     return [{ page_number: null, text: ast.toText() ?? '' }]
@@ -126,6 +162,146 @@ export async function extractStructuredText(buffer: Buffer, filename: string): P
     return [{ page_number: null, text: buffer.toString('latin1') }]
   }
   return [{ page_number: null, text: utf8Text }]
+}
+
+
+// ── Spreadsheets ───────────────────────────────────────────────────
+//
+// One ExtractedPage per sheet, numbered so a citation can name the sheet it
+// came from, with the sheet's rows carried as tables so chunkPages keeps
+// their row and column structure verbatim instead of reflowing them as
+// prose. The sheet name is emitted as a heading line, which makes it the
+// section title of every chunk from that sheet.
+function extractSpreadsheet(buffer: Buffer, filename: string): ExtractedPage[] {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const XLSX = require('xlsx')
+  const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true, raw: false })
+  const pages: ExtractedPage[] = []
+
+  wb.SheetNames.forEach((name: string, index: number) => {
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[name], {
+      header: 1, blankrows: false, defval: '',
+    }) as unknown[][]
+
+    const rows = aoa
+      .map(r => r.map(c => String(c ?? '').trim()))
+      // Trailing empty cells are padding from the sheet's used range, not data.
+      .map(r => { while (r.length && r[r.length - 1] === '') r.pop(); return r })
+      .filter(r => r.some(c => c !== ''))
+    if (!rows.length) return
+
+    // The first non-empty row is treated as the header and repeated at the
+    // top of every chunk, so no chunk is a block of unlabelled values.
+    const header = rows[0]
+    const body = rows.slice(1)
+    const tables: string[][][] = []
+    let batch: string[][] = []
+    let chars = 0
+    const flushBatch = () => {
+      if (!batch.length) return
+      tables.push(body.length ? [header, ...batch] : batch)
+      batch = []
+      chars = 0
+    }
+    for (const row of body) {
+      const rowChars = row.join(' | ').length + 1
+      if (batch.length && chars + rowChars > SPREADSHEET_CHUNK_CHARS) flushBatch()
+      batch.push(row)
+      chars += rowChars
+    }
+    flushBatch()
+    if (!tables.length) tables.push([header])
+
+    pages.push({
+      page_number: index + 1,
+      // Deliberately a heading line and nothing else: the rows themselves
+      // travel as tables, and anything added here would be prose glued to a
+      // table in the same chunk.
+      text: sheetHeadingLine(name, filename, index, wb.SheetNames.length),
+      tables,
+    })
+  })
+
+  if (!pages.length) return [{ page_number: null, text: '', tables: [] }]
+  return pages
+}
+
+function sheetHeadingLine(name: string, filename: string, index: number, total: number): string {
+  // A single-sheet CSV has no meaningful sheet name of its own (SheetJS
+  // calls it "Sheet1"), so naming it would invent a section that does not
+  // exist in the source.
+  const generic = /^sheet\d*$/i.test(name.trim())
+  if (total === 1 && generic) return ''
+  return `## ${generic ? `Sheet ${index + 1}` : name}`
+}
+
+// ── Word (.docx) ───────────────────────────────────────────────────
+//
+// Converted through mammoth rather than officeparser, which returns one
+// flat string. A Word file has no page numbers at all, so its headings are
+// the only thing a citation into it can point at — and before this every
+// .docx chunk carried neither a page nor a section, leaving a citation with
+// nowhere to send the reader. mammoth reports real heading levels and table
+// structure, which become markdown headings and pipe-joined rows here.
+async function extractDocx(buffer: Buffer, filename: string): Promise<ExtractedPage[]> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const mammoth = require('mammoth')
+  try {
+    const { value: html } = await mammoth.convertToHtml({ buffer })
+    const text = htmlToBlocks(html)
+    if (text.trim()) return [{ page_number: null, text, tables: [] }]
+    console.error(`[extract] ${filename}: mammoth produced no text, falling back to officeparser`)
+  } catch (e) {
+    console.error(`[extract] ${filename}: mammoth failed, falling back to officeparser:`, (e as Error).message)
+  }
+  const ast = await parseOffice(buffer)
+  return [{ page_number: null, text: ast.toText() ?? '' }]
+}
+
+// Turns mammoth's HTML into the blank-line-separated blocks chunkPages
+// expects, keeping headings (as markdown, which the heading detector
+// already recognises) and table rows (pipe-joined, which the table
+// detector already recognises).
+function htmlToBlocks(html: string): string {
+  const blocks: string[] = []
+  // Tables first, so their rows are not flattened by the generic pass.
+  const parts = html.split(/(<table[\s\S]*?<\/table>)/i)
+  for (const part of parts) {
+    if (/^<table/i.test(part)) {
+      const rows: string[] = []
+      for (const row of part.match(/<tr[\s\S]*?<\/tr>/gi) ?? []) {
+        const cells = (row.match(/<t[dh][\s\S]*?<\/t[dh]>/gi) ?? [])
+          .map(c => decodeEntities(c.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim())
+        while (cells.length && cells[cells.length - 1] === '') cells.pop()
+        if (cells.some(c => c !== '')) rows.push(cells.join(' | '))
+      }
+      if (rows.length) blocks.push(rows.join('\n'))
+      continue
+    }
+    for (const m of part.matchAll(/<(h[1-6]|p|li)[^>]*>([\s\S]*?)<\/\1>/gi)) {
+      const tag = m[1].toLowerCase()
+      const inner = decodeEntities(m[2].replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()
+      if (!inner) continue
+      if (/^h[1-6]$/.test(tag)) {
+        const level = Math.min(3, Number(tag[1]))
+        blocks.push('#'.repeat(level) + ' ' + inner)
+      } else {
+        blocks.push(inner)
+      }
+    }
+  }
+  return blocks.join('\n\n')
+}
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
 }
 
 // Backwards-compatible plain-text extraction (used where structure isn't needed)
@@ -194,8 +370,141 @@ function isHeading(block: string): boolean {
   return false
 }
 
+// Whether a SINGLE LINE reads as a heading.
+//
+// isHeading above only ever sees a whole block, and a PDF rarely puts a
+// blank line between a heading and the paragraph under it — so the heading
+// arrived glued to its first paragraph, was rejected for containing a
+// newline, and no document ever got a section title. Measured across a
+// 16-document corpus: every PDF and Office file produced zero section
+// titles, which is also why a citation into a Word file (which has no page
+// numbers either) had nothing at all to point at.
+function looksLikeHeadingLine(line: string): boolean {
+  const t = line.trim()
+  if (!t || t.length > 100) return false
+  const letters = t.replace(/[^A-Za-z]/g, '')
+  if (letters.length < 3) return false
+
+  // A heading does not end a sentence. A trailing colon is fine.
+  if (/[.,;!?]$/.test(t)) return false
+
+  // A table-of-contents entry is a pointer to a heading, not one: its dot
+  // leaders and trailing page number would become the section label for
+  // every chunk that followed it.
+  if (/\.{4,}/.test(t)) return false
+  // A bullet is a list item even when it is capitalised throughout.
+  if (/^[\u2022\u00b7\u25aa\u25e6\u2023*\-\u2013\u2014]\s/.test(t)) return false
+
+  // Tabular data is not a heading, however capitalised. A register's rows
+  // ("1 ASHANTI 117 2 1 27 5 82 95 22") are entirely upper case, and
+  // treating them as headings would shred the table into fragments.
+  const digits = (t.match(/\d/g) ?? []).length
+  if (digits > t.length * 0.25) return false
+  if ((t.match(/\s+\d/g) ?? []).length >= 3) return false
+  if (t.includes('|') || /\s{3,}\s*\S/.test(t)) return false
+
+  const words = t.split(/\s+/)
+  if (words.length > 14) return false
+
+  // "5.1.1.2 Memorized Secret Verifiers"
+  if (/^\d+(\.\d+)*\.?\s+\S/.test(t)) return true
+  // "Appendix A — Strength of Memorized Secrets", "Table 4", "Annex II"
+  if (/^(appendix|chapter|section|part|annex|schedule|exhibit|table|figure)\s+[\divxlcIVXLC]/i.test(t)) return true
+  // A wrapped table cell is not a heading, however it is capitalised.
+  if (/^[(\[]/.test(t)) return false
+
+  const substantial = words.filter(w => /[A-Za-z]{4,}/.test(w))
+  if (substantial.length < 2) return false
+
+  // Shouted headings. No digits at all: a row of a register is upper case
+  // too, and the only thing separating the two reliably is that a heading
+  // does not carry data.
+  if (letters === letters.toUpperCase() && t.length <= 80 && digits === 0) return true
+  // Title Case — every word long enough to carry meaning is capitalised.
+  if (substantial.every(w => /^[^A-Za-z]*[A-Z]/.test(w)) && t.length <= 70) return true
+
+  return false
+}
+
+// Splits a block wherever a heading line appears inside it, so the heading
+// becomes the section label for what follows instead of being swallowed
+// into the first paragraph's text.
+function splitAtHeadings(block: string): { text: string; heading: boolean }[] {
+  const out: { text: string; heading: boolean }[] = []
+  let buffer: string[] = []
+  const flushBuffer = () => {
+    if (buffer.length) {
+      const text = buffer.join('\n')
+      if (text.trim()) out.push({ text, heading: false })
+      buffer = []
+    }
+  }
+  for (const line of block.split('\n')) {
+    if (looksLikeHeadingLine(line)) {
+      flushBuffer()
+      out.push({ text: line.trim(), heading: true })
+    } else {
+      buffer.push(line)
+    }
+  }
+  flushBuffer()
+  return out
+}
+
+// Removes the running header and footer a paginated document repeats on
+// every page.
+//
+// A 78-page specification printed its title, its publication DOI (wrapped
+// over four lines) and its page number at the top of every page, so that
+// boilerplate was embedded into every chunk of the document and extracted
+// as a fact over and over — the generic extractor already carries a dedupe
+// step specifically to cope with it. Removing it at source makes every
+// chunk's embedding about the page's actual content.
+//
+// Only the top and bottom few lines of each page are eligible, so a
+// sentence that legitimately recurs in the body is never dropped, and only
+// lines that recur across most pages qualify. Digits are normalised before
+// comparison so "15" and "16" of a page number count as the same line.
+function stripRunningHeaders(pages: ExtractedPage[]): ExtractedPage[] {
+  const MIN_PAGES = 4
+  const ZONE = 5
+  const SHARE = 0.6
+  if (pages.length < MIN_PAGES) return pages
+
+  const key = (line: string) => line.trim().toLowerCase().replace(/\s+/g, ' ').replace(/\d+/g, '#')
+  const seen = new Map<string, number>()
+  const pageLines = pages.map(p => p.text.split(/\r?\n/))
+
+  for (const lines of pageLines) {
+    const zone = new Set<string>()
+    for (const line of [...lines.slice(0, ZONE), ...lines.slice(-ZONE)]) {
+      const k = key(line)
+      if (k.replace(/[^a-z#]/g, '').length >= 2) zone.add(k)
+    }
+    for (const k of zone) seen.set(k, (seen.get(k) ?? 0) + 1)
+  }
+
+  const boilerplate = new Set(
+    [...seen.entries()].filter(([, n]) => n >= pages.length * SHARE).map(([k]) => k),
+  )
+  if (!boilerplate.size) return pages
+
+  return pages.map((page, i) => {
+    const lines = pageLines[i]
+    const keep = lines.map((line, j) => {
+      const inZone = j < ZONE || j >= lines.length - ZONE
+      return inZone && boilerplate.has(key(line)) ? null : line
+    }).filter((l): l is string => l !== null)
+    return { ...page, text: keep.join('\n') }
+  })
+}
+
 function cleanHeading(block: string): string {
-  return block.trim().replace(/^#{1,3}\s+/, '')
+  return block.trim()
+    .replace(/^#{1,3}\s+/, '')
+    // Dot leaders and a trailing page number, where one slipped through.
+    .replace(/\s*\.{3,}\s*\d*$/, '')
+    .replace(/\s+/g, ' ')
 }
 
 // ── Structure-aware chunking ────────────────────────────────────────
@@ -209,6 +518,7 @@ export function chunkPages(
 ): ProcessedChunk[] {
   const docFiscalYear = extractFiscalYear(docTitle)
   const chunks: ProcessedChunk[] = []
+  pages = stripRunningHeaders(pages)
 
   let currentSection: string | null = null
   let current = ''
@@ -235,12 +545,43 @@ export function chunkPages(
 
   for (const page of pages) {
     const normalised = page.text.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+
+    // A data-dense page is a table whatever its line breaks say, so its
+    // lines are not searched for headings. Measured on a 40-page station
+    // register: its rows and wrapped cells ("KUMASI COMMERCIAL") read as
+    // shouted headings, which split 58 whole-table chunks into 90 partial
+    // ones — and on a document costing 46 seconds an excerpt to extract
+    // facts from, that is a 55% increase in the work for a worse result.
+    // The same digit-share signal decides batch sizing in
+    // genericFactExtraction; prose and brochures here run 0.7-4.4%, tables
+    // 15-19%.
+    const pageDigits = (normalised.match(/\d/g) ?? []).length
+    const dataDense = normalised.length > 200 && pageDigits > normalised.length * 0.08
     const blocks = normalised ? normalised.split(/\n\n+/).map(b => b.trim()).filter(b => b.length > 0) : []
 
-    for (const block of blocks) {
-      if (isHeading(block)) {
-        flush()
+    for (const rawBlock of blocks) {
+      // Tabular blocks are never searched for headings. A register's rows
+      // are upper case throughout ("72 JOYKEN PLATINUM COMPANY LIMITED
+      // 19-08-20 95.5MHz ON AIR JUASO COMMERCIAL"), and treating them as
+      // headings shredded a 40-page table into 93 fragments labelled with
+      // pieces of its own rows, where whole-table chunks had been 58.
+      const parts = dataDense || isTableBlock(rawBlock)
+        ? [{ text: rawBlock, heading: false }]
+        : splitAtHeadings(rawBlock)
+      for (const part of parts) {
+      const block = part.text
+      if (part.heading || isHeading(block)) {
+        // A heading starts a new chunk only once the current one is worth
+        // keeping. Flushing on every heading halved the average chunk —
+        // 1,400 characters down to 490 on a 229-page gazette, doubling the
+        // chunk count and the embedding cost while giving each chunk less
+        // context to be retrieved on. The heading's own text stays in the
+        // chunk either way: it is usually the most descriptive line on the
+        // page, and dropping it was losing that from the embedding.
+        if (current.length >= maxChars * 0.7) flush()
         currentSection = cleanHeading(block)
+        if (current.length === 0) currentPage = page.page_number
+        current += (current ? '\n\n' : '') + block.trim()
         continue
       }
 
@@ -280,6 +621,7 @@ export function chunkPages(
         currentPage = page.page_number
       } else {
         current += (current ? '\n\n' : '') + block
+      }
       }
     }
 

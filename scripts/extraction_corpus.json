@@ -1,0 +1,147 @@
+[
+  {
+    "file": "nist-sp800-63b.pdf",
+    "minChars": 100000,
+    "minPages": 50,
+    "mustContain": [
+      "memorized secret",
+      "Authenticator Assurance Level"
+    ],
+    "notes": "text PDF, 78pp, headings + tables",
+    "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-63b.pdf"
+  },
+  {
+    "file": "nist-fips-197-aes.pdf",
+    "minChars": 60000,
+    "minPages": 40,
+    "mustContain": [
+      "Rijndael",
+      "S-box"
+    ],
+    "notes": "text PDF, maths, figures, hex tables",
+    "url": "https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197-upd1.pdf"
+  },
+  {
+    "file": "irs-f1040.pdf",
+    "minChars": 3000,
+    "minPages": 2,
+    "mustContain": [
+      "Filing Status",
+      "Standard Deduction"
+    ],
+    "notes": "AcroForm, dense line-numbered boxes",
+    "url": "https://www.irs.gov/pub/irs-pdf/f1040.pdf"
+  },
+  {
+    "file": "irs-i1040gi.pdf",
+    "minChars": 300000,
+    "minPages": 100,
+    "mustContain": [
+      "Earned Income Credit",
+      "Tax Table"
+    ],
+    "notes": "large instruction booklet, multi-column + wide tax tables",
+    "url": "https://www.irs.gov/pub/irs-pdf/i1040gi.pdf"
+  },
+  {
+    "file": "govt-gazette.pdf",
+    "minChars": 400000,
+    "minPages": 150,
+    "mustContain": [
+      "Federal Register"
+    ],
+    "notes": "very large multi-column gazette",
+    "url": "https://www.govinfo.gov/content/pkg/FR-2024-01-02/pdf/FR-2024-01-02.pdf"
+  },
+  {
+    "file": "scanned-census1960.pdf",
+    "minPages": 20,
+    "notes": "scanned 1960 census — image-only, no text layer expected",
+    "url": "https://www2.census.gov/prod2/decennial/documents/41962442v1p1ch01.pdf"
+  },
+  {
+    "file": "tika-word.docx",
+    "minChars": 100,
+    "mustContain": [
+      "Sample Word Document"
+    ],
+    "notes": "docx with headings",
+    "url": "https://raw.githubusercontent.com/apache/tika/main/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/test/resources/test-documents/testWORD.docx"
+  },
+  {
+    "file": "tika-word-legacy.doc",
+    "minChars": 100,
+    "mustContain": [
+      "Sample Word Document"
+    ],
+    "notes": "legacy binary .doc",
+    "url": "https://raw.githubusercontent.com/apache/tika/main/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/test/resources/test-documents/testWORD.doc"
+  },
+  {
+    "file": "tika-excel.xlsx",
+    "minChars": 50,
+    "mustContain": [
+      "Sample Excel Worksheet"
+    ],
+    "notes": "xlsx, multiple sheets",
+    "url": "https://raw.githubusercontent.com/apache/tika/main/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/test/resources/test-documents/testEXCEL.xlsx"
+  },
+  {
+    "file": "tika-excel-legacy.xls",
+    "minChars": 50,
+    "mustContain": [
+      "Sample Excel Worksheet"
+    ],
+    "notes": "legacy binary .xls",
+    "url": "https://raw.githubusercontent.com/apache/tika/main/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/test/resources/test-documents/testEXCEL.xls"
+  },
+  {
+    "file": "tika-powerpoint.pptx",
+    "minChars": 100,
+    "mustContain": [
+      "Attachment Test",
+      "Watershed"
+    ],
+    "notes": "pptx — officeparser reads shape text; no per-slide boundaries",
+    "url": "https://raw.githubusercontent.com/apache/tika/main/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/test/resources/test-documents/testPPT.pptx"
+  },
+  {
+    "file": "tika-odt.odt",
+    "minChars": 100,
+    "notes": "OpenDocument text",
+    "url": "https://raw.githubusercontent.com/apache/tika/main/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-miscoffice-module/src/test/resources/test-documents/testODFwithOOo3.odt"
+  },
+  {
+    "file": "un-wpp-tables.xlsx",
+    "minChars": 1000000,
+    "mustContain": [
+      "Ghana"
+    ],
+    "notes": "25MB workbook, many sheets, very wide tables",
+    "url": "https://population.un.org/wpp/assets/Excel%20Files/1_Indicator%20(Standard)/EXCEL_FILES/1_General/WPP2024_GEN_F01_DEMOGRAPHIC_INDICATORS_COMPACT.xlsx"
+  },
+  {
+    "file": "worldbank-gdp.csv",
+    "minChars": 400000,
+    "mustContain": [
+      "Ghana"
+    ],
+    "notes": "550KB CSV, long",
+    "url": "https://raw.githubusercontent.com/datasets/gdp/main/data/gdp.csv"
+  },
+  {
+    "file": "ghana-sample.csv",
+    "minChars": 400000,
+    "mustContain": [
+      "Ghana"
+    ],
+    "notes": "550KB CSV, long",
+    "url": "https://raw.githubusercontent.com/datasets/population/main/data/population.csv"
+  },
+  {
+    "file": "markdown-readme.md",
+    "minChars": 100000,
+    "notes": "large plain text",
+    "url": "https://raw.githubusercontent.com/apache/tika/main/CHANGES.txt"
+  }
+]

@@ -507,14 +507,32 @@ export async function POST(
                   ({ reason, network }) => warn('generic_facts_fallback', reason, network),
                   batch => { for (const c of batch) completedFactChunks.add(c.text) },
                 )
-                if (genericFacts.length) {
+                // Replacing a complete layer with a partial one is still
+                // leaving the document worse than it started. A dense
+                // register costs ~46s an excerpt, so a rebuild of it
+                // reliably stops early — and clearing 4,170 facts to insert
+                // 1,500 would be a loss dressed up as a refresh. In that
+                // case the existing layer stands and the new chunks stay
+                // queued, so the resumable pass fills the gap and dedupes
+                // against what is already there.
+                const { count: priorDocFacts } = await service
+                  .from('document_facts').select('*', { count: 'exact', head: true }).eq('document_id', id)
+                const stoppedEarly = warnings.some(w => /Time budget reached/i.test(String(w.message ?? '')))
+                const wouldLose = stoppedEarly && (priorDocFacts ?? 0) > genericFacts.length
+
+                if (genericFacts.length && !wouldLose) {
                   await clearDocumentFactsOnce()
                   await insertFactsResilient(() => service.from('document_facts').insert(genericFacts), 'document_facts_insert', warn)
+                } else if (wouldLose) {
+                  warn('generic_facts_fallback',
+                    `Kept the ${priorDocFacts} fact(s) this document already held: this run stopped early with only ${genericFacts.length}, ` +
+                    `so replacing them would have left the document with less than it started with. The remaining excerpts are queued — ` +
+                    `use Continue training to add to the existing facts rather than replacing them.`)
                 }
                 // Record which excerpts this run actually checked, so the
                 // resumable facts-only pass queues only what is left rather
                 // than re-reading the whole document.
-                if (completedFactChunks.size) {
+                if (completedFactChunks.size && !wouldLose) {
                   const byText = new Map<string, string[]>()
                   for (const c of insertedChunks) {
                     byText.set(c.chunk_text, [...(byText.get(c.chunk_text) ?? []), c.id])
