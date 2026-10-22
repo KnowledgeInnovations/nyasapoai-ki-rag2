@@ -429,7 +429,10 @@ function looksLikeHeadingLine(line: string): boolean {
 // Splits a block wherever a heading line appears inside it, so the heading
 // becomes the section label for what follows instead of being swallowed
 // into the first paragraph's text.
-function splitAtHeadings(block: string): { text: string; heading: boolean }[] {
+function splitAtHeadings(
+  block: string,
+  isHeadingLine: (line: string) => boolean,
+): { text: string; heading: boolean }[] {
   const out: { text: string; heading: boolean }[] = []
   let buffer: string[] = []
   const flushBuffer = () => {
@@ -510,22 +513,58 @@ function cleanHeading(block: string): string {
 // ── Structure-aware chunking ────────────────────────────────────────
 // Splits page text into paragraphs/tables/headings, never splitting a
 // table block, and tags each chunk with page number + current section.
+export interface ChunkingHints {
+  /**
+   * A heading test derived from this document's own headings
+   * (documentProfile.ts), used in place of the built-in shapes. The
+   * built-in rules are a list of layouts we have seen; a document laid out
+   * differently got no sections at all until the list was widened, and
+   * widening a list of assumptions is not the same as not assuming.
+   */
+  isHeadingLine?: ((line: string) => boolean) | null
+  /**
+   * The column headings of a document made of repeating records. Prefixed
+   * to each tabular chunk so a block of rows is readable on its own: a
+   * chunk of a register is otherwise bare values whose columns are named
+   * only on some earlier page, which no amount of retrieval recovers.
+   */
+  recordColumns?: string[]
+}
+
 export function chunkPages(
   pages: ExtractedPage[],
   docTitle: string,
   maxChars = 1500,
   overlapChars = 300,
+  hints: ChunkingHints = {},
 ): ProcessedChunk[] {
   const docFiscalYear = extractFiscalYear(docTitle)
   const chunks: ProcessedChunk[] = []
   pages = stripRunningHeaders(pages)
 
+  const isHeadingLine = hints.isHeadingLine ?? looksLikeHeadingLine
+  // One line, not a table row, so it travels with the rows it describes
+  // without being mistaken for data.
+  const columnLegend = hints.recordColumns?.length
+    ? `[Columns: ${hints.recordColumns.join(' | ')}]`
+    : null
+
   let currentSection: string | null = null
   let current = ''
   let currentPage: number | null = null
 
+  // Set while walking a page whose rows need their column names. Applied
+  // in flush() rather than when a chunk starts, because a page of a
+  // register exceeds maxChars and goes down the sentence-splitting path,
+  // which reassigns `current` and discarded a legend added up front — 0 of
+  // 56 chunks carried it on the first attempt.
+  let legendThisPage = false
+
   const flush = () => {
-    const text = current.trim()
+    const body = current.trim()
+    const text = legendThisPage && body && !body.startsWith('[Columns:')
+      ? `${columnLegend}\n${body}`
+      : body
     // Low floor — high enough to skip stray page-number/whitespace
     // artifacts, low enough not to drop a short but meaningful trailing
     // line (e.g. an isolated total-figure sentence).
@@ -557,6 +596,11 @@ export function chunkPages(
     // 15-19%.
     const pageDigits = (normalised.match(/\d/g) ?? []).length
     const dataDense = normalised.length > 200 && pageDigits > normalised.length * 0.08
+    // A register's pages are data-dense but are not detected as table
+    // blocks by the whitespace heuristic, so their rows arrive as ordinary
+    // text and would otherwise be stored as bare values whose columns are
+    // named only on some earlier page.
+    legendThisPage = columnLegend != null && dataDense
     const blocks = normalised ? normalised.split(/\n\n+/).map(b => b.trim()).filter(b => b.length > 0) : []
 
     for (const rawBlock of blocks) {
@@ -567,7 +611,8 @@ export function chunkPages(
       // pieces of its own rows, where whole-table chunks had been 58.
       const parts = dataDense || isTableBlock(rawBlock)
         ? [{ text: rawBlock, heading: false }]
-        : splitAtHeadings(rawBlock)
+        : splitAtHeadings(rawBlock, isHeadingLine)
+
       for (const part of parts) {
       const block = part.text
       if (part.heading || isHeading(block)) {
@@ -588,7 +633,7 @@ export function chunkPages(
       if (isTableBlock(block)) {
         flush()
         chunks.push({
-          text: block,
+          text: columnLegend ? `${columnLegend}\n${block}` : block,
           page_number: page.page_number,
           section_title: currentSection,
           fiscal_year: docFiscalYear,
@@ -636,7 +681,7 @@ export function chunkPages(
       if (tableText.trim().length < 10) continue
       flush()
       chunks.push({
-        text: tableText,
+        text: columnLegend ? `${columnLegend}\n${tableText}` : tableText,
         page_number: page.page_number,
         section_title: currentSection,
         fiscal_year: docFiscalYear,

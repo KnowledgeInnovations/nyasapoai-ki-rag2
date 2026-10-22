@@ -214,6 +214,15 @@ export async function extractGenericFacts(
   // can queue only the rest instead of starting from the beginning. See
   // migration 035 and /api/documents/[id]/extract-facts.
   onBatchComplete?: (chunks: ProcessedChunk[]) => void,
+  // The document's own column or field headings, from documentProfile.ts.
+  //
+  // Without them each call names attributes on its own, so one column
+  // arrives under several names: a station register produced station_type,
+  // type_of_fm_radio_station, type_of_fm_station and type_of_station for a
+  // single column, which left counting across the document a matter of
+  // guessing which names meant the same thing. Given the headings, every
+  // call uses the same ones and a count is exact.
+  vocabulary?: string[],
 ): Promise<DocumentFact[]> {
   const usableChunks = interleaveForCoverage(chunks.filter(c => c.text.trim().length > 30))
   if (!usableChunks.length) return []
@@ -224,6 +233,19 @@ export async function extractGenericFacts(
   const effectiveDeadline = Math.max(deadline, Date.now() + MIN_GENERIC_FACTS_BUDGET_MS)
 
   const facts: DocumentFact[] = []
+
+  // Put first, before the task: it governs how every field is named, so it
+  // reads as the rule rather than as an afterthought.
+  const vocabularyBlock = vocabulary?.length
+    ? `This document's own column and field headings are, verbatim:\n` +
+      vocabulary.map(v => `- ${v}`).join('\n') +
+      `\n\nUse one of those headings, copied EXACTLY as written above, as the "attribute" ` +
+      `whenever the value you are extracting belongs to that column or field. Do not rephrase, ` +
+      `abbreviate, re-case or tidy them, and do not invent a synonym for one that is listed — ` +
+      `the same value must carry the same attribute name everywhere in the document, or it ` +
+      `cannot be counted. Invent an attribute name only for something none of the headings ` +
+      `covers.\n\n`
+    : ''
 
   // Batched (multiple chunks per call, same char-budget pattern as
   // aiEnhanceTableFacts) rather than one call per chunk — a document with
@@ -263,7 +285,7 @@ export async function extractGenericFacts(
         deadline: effectiveDeadline,
         messages: [{
           role: 'user',
-          content: `Extract clearly-stated factual data points from these document excerpts — dates, amounts, names, statuses, deadlines, quantities, obligations, specifications, anything concrete and specific. Return a JSON array (empty array if nothing found):
+          content: `${vocabularyBlock}Extract clearly-stated factual data points from these document excerpts — dates, amounts, names, statuses, deadlines, quantities, obligations, specifications, anything concrete and specific. Return a JSON array (empty array if nothing found):
 
 [
   {

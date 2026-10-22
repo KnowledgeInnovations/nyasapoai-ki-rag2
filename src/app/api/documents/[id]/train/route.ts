@@ -7,6 +7,7 @@ import { canAccessTraining, type Role } from '@/lib/roles'
 import { extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks, runCrossDocumentCorroboration, supersedeForwardProjections, applyLearnedHeuristics, looksLikeBudgetDocument, type FinancialFact } from '@/lib/factExtraction'
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
 import { extractGenericFacts } from '@/lib/genericFactExtraction'
+import { profileDocument, headingMatcherFor, type DocumentProfile } from '@/lib/documentProfile'
 import { recoverEmptyPagesWithVision, pageTextStore, visionExtractFactsFromPage } from '@/lib/visionExtraction'
 import type { ProcessingWarning } from '@/types'
 
@@ -290,11 +291,31 @@ export async function POST(
           .eq('id', id)
         if (unreadErr) console.error('[Train] could not record unread pages:', unreadErr.message)
 
-        // ── 3. Chunk ──────────────────────────────────────────────
+        // ── 3. Work out what shape this document has, then chunk it ──
+        //
+        // Asked once, before anything downstream assumes a layout. Every
+        // structural decision below it was a fixed rule about how a
+        // document is laid out, so a document that does not follow those
+        // rules degraded silently — it still produced chunks and facts, and
+        // the answers were simply worse. See documentProfile.ts.
+        send({ stage: 'chunking', message: 'Working out how this document is laid out…', progress: 22 })
+        const profile = await profileDocument(pages, doc.title, routeDeadline)
+        if (profile) {
+          const { error: profileErr } = await service.from('documents')
+            .update({ extraction_profile: profile }).eq('id', id)
+          if (profileErr) console.error('[Train] could not store the document profile:', profileErr.message)
+          note('document_profile',
+            `Read as ${profile.kind}${profile.entityNoun ? ` about each ${profile.entityNoun}` : ''}` +
+            `${profile.columns.length ? `, with ${profile.columns.length} named column(s)/field(s) used as the vocabulary for extracted facts` : ''}.`)
+        }
+
         send({ stage: 'chunking', message: 'Analysing document structure…', progress: 25 })
 
         const titleLabel = `[Document: ${doc.title}]\n`
-        const rawChunks  = chunkPages(pages, doc.title)
+        const rawChunks  = chunkPages(pages, doc.title, undefined, undefined, {
+          isHeadingLine: headingMatcherFor(profile),
+          recordColumns: profile?.kind === 'records' ? profile.columns : undefined,
+        })
 
         // AI table cleanup — fixes OCR artifacts, misaligned columns,
         // and broken number formatting in table blocks before embedding.
@@ -556,6 +577,7 @@ export async function POST(
                   cleanedChunks, membership.tenant_id, id, routeDeadline,
                   ({ reason, network }) => warn('generic_facts_fallback', reason, network),
                   batch => { for (const c of batch) completedFactChunks.add(c.text) },
+                  profile?.columns,
                 )
                 // Replacing a complete layer with a partial one is still
                 // leaving the document worse than it started. A dense

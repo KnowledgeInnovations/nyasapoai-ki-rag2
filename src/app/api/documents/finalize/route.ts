@@ -11,6 +11,7 @@ import {
 } from '@/lib/factExtraction'
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
 import { extractGenericFacts } from '@/lib/genericFactExtraction'
+import { profileDocument, headingMatcherFor } from '@/lib/documentProfile'
 import { recoverEmptyPagesWithVision, pageTextStore, visionExtractFactsFromPage } from '@/lib/visionExtraction'
 import type { ProcessingWarning } from '@/types'
 
@@ -247,7 +248,23 @@ export async function POST(request: NextRequest) {
         // Prepend document title to every chunk so filename searches work via vector search
         emit({ stage: 'chunking' })
         const titleLabel = `[Document: ${docTitle}]\n`
-        const rawChunks  = chunkPages(pages, docTitle)
+        // Asked once, before anything downstream assumes a layout — see the
+        // matching block in the training route and documentProfile.ts.
+        emit({ stage: 'chunking', message: 'Working out how this document is laid out' })
+        const profile = await profileDocument(pages, docTitle, routeDeadline)
+        if (profile) {
+          const { error: profileErr } = await serviceClient.from('documents')
+            .update({ extraction_profile: profile }).eq('id', document.id)
+          if (profileErr) console.error('[Finalize] could not store the document profile:', profileErr.message)
+          note('document_profile',
+            `Read as ${profile.kind}${profile.entityNoun ? ` about each ${profile.entityNoun}` : ''}` +
+            `${profile.columns.length ? `, with ${profile.columns.length} named column(s)/field(s) used as the vocabulary for extracted facts` : ''}.`)
+        }
+
+        const rawChunks  = chunkPages(pages, docTitle, undefined, undefined, {
+          isHeadingLine: headingMatcherFor(profile),
+          recordColumns: profile?.kind === 'records' ? profile.columns : undefined,
+        })
 
         // AI table cleanup — fixes OCR artifacts, misaligned columns, and
         // broken number formatting in table blocks before embedding. Runs
@@ -432,6 +449,8 @@ export async function POST(request: NextRequest) {
                 genericFacts = await extractGenericFacts(
                   cleanedChunks, membership.tenant_id, document.id, routeDeadline,
                   ({ reason, network }) => warn('generic_facts_fallback', reason, network),
+                  undefined,
+                  profile?.columns,
                 )
                 if (genericFacts.length) {
                   await insertFactsResilient(() => serviceClient.from('document_facts').insert(genericFacts), 'document_facts_insert', warn)
