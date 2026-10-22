@@ -366,3 +366,25 @@ count of authorisation rows. Add it to the golden set once resolved.
 Sections 3 through 9 are untouched by this pass. Section 3 (replacing the
 register's fact layer) and section 7 (local-language retrieval) still need a
 decision from the user before work can start.
+
+### Clean two-round re-run
+
+The table above was recorded while this session was editing retrieval code
+mid-run. Re-run against stable code, with no other change:
+
+**24 of 24 correct over two rounds. 0 unstable.**
+
+| confidence band | answers | correct |
+| --- | --- | --- |
+| 90-100 | 16 | 100% |
+| 75-89 | 4 | 100% |
+| 50-74 | 4 | 100% |
+| 0-49 | 0 | n/a |
+
+Nothing scored High and was wrong, nothing right was scored Low, and no
+question changed verdict between rounds. This is the number to compare the
+next pass against. Note what it does and does not say: twelve questions
+across two documents, each with an answer checked against a named page. It
+is a floor under the claim "the answers are correct", not proof that they
+are correct in general — widen the set per tenant before reading more into
+it than that.
