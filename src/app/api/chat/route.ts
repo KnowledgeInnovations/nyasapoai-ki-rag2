@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { rowsOrEmpty } from '@/lib/dbResult'
 import { createClient, getUser, getMembership, getTenant } from '@/lib/supabase/server'
 import { DEFAULT_TENANT_DESCRIPTION } from '@/lib/tenant'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
@@ -617,12 +618,13 @@ export async function POST(request: NextRequest) {
     // the function body), fall back to a direct FTS query on document_chunks.
     // This keeps retrieval working until the RPC is restored via rollback SQL.
     if (!candidateChunks.length) {
-      const { data: ftsChunks } = await svc
+      const ftsResult = await svc
         .from('document_chunks')
         .select('id, document_id, chunk_text, metadata')
         .eq('tenant_id', tenantId)
         .textSearch('fts', query, { type: 'websearch', config: 'english' })
         .limit(30)
+      const ftsChunks = rowsOrEmpty(ftsResult, 'the full-text search fallback')
       if (ftsChunks?.length) {
         console.log(`[RAG] FTS fallback: ${ftsChunks.length} chunks`)
         for (const c of ftsChunks) candidateChunks.push({ ...c, similarity: 0.5, rrf_score: 0.016 })
@@ -668,12 +670,13 @@ export async function POST(request: NextRequest) {
     // supplement above.
     const acronymTokens = [...new Set(query.match(/\b[A-Z]{2,8}\b/g) ?? [])]
     if (acronymTokens.length) {
-      const { data: acronymChunks } = await svc
+      const acronymResult = await svc
         .from('document_chunks')
         .select('id, document_id, chunk_text, metadata')
         .eq('tenant_id', tenantId)
         .or(acronymTokens.map(t => `chunk_text.ilike.%${t}%`).join(','))
         .limit(15)
+      const acronymChunks = rowsOrEmpty(acronymResult, 'the acronym scan')
       if (acronymChunks?.length) {
         const seen = new Set(candidateChunks.map(c => c.id))
         for (const c of acronymChunks) {
@@ -736,13 +739,14 @@ export async function POST(request: NextRequest) {
       // so we get the document's opening sections (most likely to name the
       // fiscal year and entity totals) rather than an arbitrary subset.
       if (!perDocChunks?.length) {
-        const { data: scanChunks } = await svc
+        const scanResult = await svc
           .from('document_chunks')
           .select('id, document_id, chunk_text, metadata')
           .eq('tenant_id', tenantId)
           .order('document_id')
           .order('chunk_index')
           .limit(200)
+        const scanChunks = rowsOrEmpty(scanResult, 'the per-document scan')
         if (scanChunks?.length) {
           const docCount = new Map<string, number>()
           const sampled: RetrievedChunk[] = []

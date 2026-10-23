@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { mustCount } from '@/lib/dbResult'
 import { getMembership, getUser, invalidateMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { canManageUsers, normalizeRole, type Role } from '@/lib/roles'
@@ -72,12 +73,31 @@ export async function DELETE(
   // If this user has no memberships left in any tenant, remove their auth
   // account too — otherwise Supabase Auth keeps treating the email as
   // registered and re-inviting it fails with "already registered".
-  const { count } = await service
-    .from('memberships')
-    .select('user_id', { count: 'exact', head: true })
-    .eq('user_id', id)
+  //
+  // The count has to be a number somebody actually computed. A failed
+  // query returns null, `!null` is true, and the account was then deleted
+  // on the assumption that the person belonged to nothing — locking them
+  // out of every other workspace they are a member of, irreversibly,
+  // because of a dropped connection. Leaving a stale auth account behind
+  // is a nuisance; deleting a live one is not recoverable.
+  let remainingMemberships: number
+  try {
+    remainingMemberships = mustCount(
+      await service
+        .from('memberships')
+        .select('user_id', { count: 'exact', head: true })
+        .eq('user_id', id),
+      "this user's remaining memberships",
+    )
+  } catch (e) {
+    console.error('[users] keeping the auth account:', (e as Error).message)
+    return NextResponse.json({
+      success: true,
+      note: 'Removed from this workspace. Their sign-in account was kept because we could not confirm whether they belong to another workspace.',
+    })
+  }
 
-  if (!count) {
+  if (remainingMemberships === 0) {
     const { error: authError } = await service.auth.admin.deleteUser(id)
     if (authError) console.error('Auth user delete error:', authError)
   }

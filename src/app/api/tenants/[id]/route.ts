@@ -55,10 +55,27 @@ export async function DELETE(
     return NextResponse.json({ error: 'Failed to delete tenant' }, { status: 500 })
   }
 
+  // Deleting a workspace deletes its files. A failure here leaves every
+  // one of that workspace's documents in the bucket after the records
+  // pointing at them are gone — the whole workspace's content, orphaned
+  // and unreachable through the product. Reported, not discarded.
   const filePaths = (docs ?? []).map(d => d.file_path).filter((p): p is string => !!p)
+  let orphanedFiles = 0
   if (filePaths.length > 0) {
-    await service.storage.from('documents').remove(filePaths).catch(() => {})
+    const { error: storageError } = await service.storage.from('documents').remove(filePaths)
+    if (storageError) {
+      orphanedFiles = filePaths.length
+      console.error(
+        `[tenants] ORPHANED FILES: workspace ${id} was deleted but its ${filePaths.length} ` +
+        `stored file(s) could not be removed: ${storageError.message}`,
+      )
+    }
   }
 
-  return NextResponse.json({ success: true })
+  return NextResponse.json({
+    success: true,
+    ...(orphanedFiles
+      ? { warning: `The workspace was deleted, but ${orphanedFiles} stored file(s) could not be removed. This has been logged for an administrator to clear.` }
+      : {}),
+  })
 }

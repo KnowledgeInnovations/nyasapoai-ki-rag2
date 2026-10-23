@@ -52,10 +52,31 @@ export async function DELETE(
     return NextResponse.json({ error: 'Failed to delete document record' }, { status: 500 })
   }
 
-  // 3. Delete the file from storage (best-effort — don't fail if already gone)
+  // 3. Remove the stored file.
+  //
+  // The outcome is reported rather than discarded. The row is already
+  // gone, so a silently failed removal leaves the customer's file sitting
+  // in the bucket with nothing left pointing at it — undeletable through
+  // the product, invisible in it, and contrary to what they were told
+  // happens when they delete a document. "Already gone" and "could not be
+  // removed" are not the same answer, and only one of them needs acting
+  // on.
+  let fileRemoved: boolean | null = null
   if (doc.file_path) {
-    await service.storage.from('documents').remove([doc.file_path]).catch(() => {})
+    const { error: storageError } = await service.storage.from('documents').remove([doc.file_path])
+    fileRemoved = !storageError
+    if (storageError) {
+      console.error(
+        `[documents] ORPHANED FILE: the record for ${id} was deleted but ${doc.file_path} ` +
+        `could not be removed from storage: ${storageError.message}`,
+      )
+    }
   }
 
-  return NextResponse.json({ success: true })
+  return NextResponse.json({
+    success: true,
+    ...(fileRemoved === false
+      ? { warning: 'The document was removed from your workspace, but its stored file could not be deleted. This has been logged for an administrator to clear.' }
+      : {}),
+  })
 }

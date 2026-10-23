@@ -8,6 +8,7 @@ import { extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanit
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
 import { extractGenericFacts } from '@/lib/genericFactExtraction'
 import { profileDocument, headingMatcherFor, type DocumentProfile } from '@/lib/documentProfile'
+import { knownCount } from '@/lib/dbResult'
 import { recoverEmptyPagesWithVision, pageTextStore, visionExtractFactsFromPage } from '@/lib/visionExtraction'
 import type { ProcessingWarning } from '@/types'
 
@@ -134,11 +135,22 @@ export async function POST(
         //
         // Resuming spends the entire budget on the work that is actually
         // outstanding, and destroys nothing if it is interrupted.
-        const { count: existingChunks } = await service
-          .from('document_chunks').select('*', { count: 'exact', head: true }).eq('document_id', id)
-        const { count: pendingFactChunks } = await service
-          .from('document_chunks').select('*', { count: 'exact', head: true })
-          .eq('document_id', id).is('facts_extracted_at', null)
+        // Each of these decides whether this run re-reads the file or only
+        // finishes the fact layer, so an undetermined count must not read
+        // as zero: null means "not known" throughout, and the choice below
+        // falls back to the full rebuild, which no longer destroys
+        // anything.
+        const existingChunks = knownCount(
+          await service
+            .from('document_chunks').select('*', { count: 'exact', head: true }).eq('document_id', id),
+          `indexed excerpts for document ${id}`,
+        )
+        const pendingFactChunks = knownCount(
+          await service
+            .from('document_chunks').select('*', { count: 'exact', head: true })
+            .eq('document_id', id).is('facts_extracted_at', null),
+          `excerpts awaiting facts for document ${id}`,
+        )
 
         // Resume only where fact extraction demonstrably stopped early:
         // either it produced nothing, or it recorded that it ran out of
@@ -147,11 +159,17 @@ export async function POST(
         // predating it looks entirely unprocessed. Without this test a
         // deliberate full rebuild would be silently downgraded to a
         // facts-only pass and the text would never be re-extracted.
-        const { count: existingFacts } = await service
-          .from('document_facts').select('*', { count: 'exact', head: true }).eq('document_id', id)
+        const existingFacts = knownCount(
+          await service
+            .from('document_facts').select('*', { count: 'exact', head: true }).eq('document_id', id),
+          `facts held by document ${id}`,
+        )
         const priorWarnings = (doc as { processing_warnings?: { message?: string }[] }).processing_warnings ?? []
         const stoppedEarly = priorWarnings.some(w => /Time budget reached/i.test(String(w?.message ?? '')))
-        const factLayerMissing = (existingFacts ?? 0) === 0
+        // Not knowing is not the same as empty: an unknown count must not
+        // claim the fact layer is missing and divert a deliberate rebuild
+        // into a facts-only pass.
+        const factLayerMissing = existingFacts === 0
 
         // pendingFactChunks is null when migration 035 has not run; in that
         // case fall through to the full rebuild rather than guessing.
@@ -160,7 +178,8 @@ export async function POST(
         // asked for exactly this. An explicit "rebuild" skips the branch
         // entirely. Only an unspecified request falls back to inferring it.
         const canResume =
-          (existingChunks ?? 0) > 0 && pendingFactChunks !== null && (pendingFactChunks ?? 0) > 0
+          existingChunks != null && existingChunks > 0 &&
+          pendingFactChunks != null && pendingFactChunks > 0
 
         // A document with pages nobody has managed to read yet is not
         // finished being extracted, so continuing it means reading more of
@@ -597,17 +616,32 @@ export async function POST(
                 // case the existing layer stands and the new chunks stay
                 // queued, so the resumable pass fills the gap and dedupes
                 // against what is already there.
-                const { count: priorDocFacts } = await service
-                  .from('document_facts').select('*', { count: 'exact', head: true }).eq('document_id', id)
+                // How many facts this document already holds has to be a
+                // number somebody computed. A failed query returns null,
+                // `null ?? 0` is 0, nothing is ever greater than 0, so the
+                // guard below evaluated false and the existing layer was
+                // deleted anyway — the precise outcome it exists to
+                // prevent, triggered by a dropped connection rather than by
+                // anything about the document.
+                const priorDocFacts = knownCount(
+                  await service
+                    .from('document_facts').select('*', { count: 'exact', head: true }).eq('document_id', id),
+                  `existing facts for document ${id}`,
+                )
                 const stoppedEarly = warnings.some(w => /Time budget reached/i.test(String(w.message ?? '')))
-                const wouldLose = stoppedEarly && (priorDocFacts ?? 0) > genericFacts.length
+                // Not knowing counts as "might lose something", so the
+                // existing layer stands and the new facts are added by the
+                // resumable pass instead.
+                const wouldLose = priorDocFacts == null
+                  ? true
+                  : stoppedEarly && priorDocFacts > genericFacts.length
 
                 if (genericFacts.length && !wouldLose) {
                   await clearDocumentFactsOnce()
                   await insertFactsResilient(() => service.from('document_facts').insert(genericFacts), 'document_facts_insert', warn)
                 } else if (wouldLose) {
                   warn('generic_facts_fallback',
-                    `Kept the ${priorDocFacts} fact(s) this document already held: this run stopped early with only ${genericFacts.length}, ` +
+                    `Kept the ${priorDocFacts ?? 'existing'} fact(s) this document already held: this run stopped early with only ${genericFacts.length}, ` +
                     `so replacing them would have left the document with less than it started with. The remaining excerpts are queued — ` +
                     `use Continue training to add to the existing facts rather than replacing them.`)
                 }

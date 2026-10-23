@@ -18,6 +18,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { knownCount } from '@/lib/dbResult'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 
 export const maxDuration = 300 // mirrors /train — this drains each retrain's SSE stream to completion in turn
@@ -98,20 +99,37 @@ export async function GET(request: NextRequest) {
     // embedding before reaching facts — which is precisely why such a
     // document never converges: it runs out of budget in the same place
     // every time. The facts-only pass starts where the last one stopped.
-    const { count: pendingFacts } = await service
-      .from('document_chunks')
-      .select('*', { count: 'exact', head: true })
-      .eq('document_id', doc.id)
-      .is('facts_extracted_at', null)
+    const pendingFacts = knownCount(
+      await service
+        .from('document_chunks')
+        .select('*', { count: 'exact', head: true })
+        .eq('document_id', doc.id)
+        .is('facts_extracted_at', null),
+      `excerpts awaiting facts for document ${doc.id}`,
+    )
 
-    const { count: totalChunks } = await service
-      .from('document_chunks')
-      .select('*', { count: 'exact', head: true })
-      .eq('document_id', doc.id)
+    const totalChunks = knownCount(
+      await service
+        .from('document_chunks')
+        .select('*', { count: 'exact', head: true })
+        .eq('document_id', doc.id),
+      `indexed excerpts for document ${doc.id}`,
+    )
 
     // Only when the document is already chunked, so there is something to
     // resume over. A document with no chunks at all still needs a retrain.
-    const resumeFactsOnly = (totalChunks ?? 0) > 0 && (pendingFacts ?? 0) > 0
+    //
+    // An undetermined count is not zero. Reading it as zero sent a
+    // document that only needed its facts finishing into a full retrain
+    // instead — which re-pays for extraction, chunking and embedding and
+    // runs out of budget in the same place, the exact loop the resumable
+    // pass exists to break. Unknown means skip this document this tick and
+    // look again on the next one, which costs a day and nothing else.
+    if (pendingFacts == null || totalChunks == null) {
+      results.push({ id: doc.id, title: doc.title, outcome: 'skipped — could not determine what it still needs' })
+      continue
+    }
+    const resumeFactsOnly = totalChunks > 0 && pendingFacts > 0
 
     try {
       if (resumeFactsOnly) {
