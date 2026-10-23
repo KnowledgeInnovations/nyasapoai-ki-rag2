@@ -83,6 +83,23 @@ export async function GET(request: NextRequest) {
   const results: { id: string; title: string; outcome: string }[] = []
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? `https://${request.headers.get('host')}`
 
+  // Clear abandoned uploads and files left behind by failed deletions
+  // first: it is a listing and a comparison, so it costs little, and
+  // leaving it to a cron slot of its own would make it depend on the
+  // hosting tier's cron allowance. Its own failures are its own business —
+  // it reports them and deletes nothing when unsure — so this never
+  // interferes with the retraining below.
+  let reaped: unknown = null
+  try {
+    const r = await fetch(`${baseUrl}/api/cron/reap-orphaned-files`, {
+      headers: { 'x-cron-secret': process.env.CRON_SECRET! },
+    })
+    reaped = await r.json().catch(() => ({ error: `status ${r.status}` }))
+  } catch (e) {
+    reaped = { error: (e as Error).message }
+  }
+  console.log('[auto-reprocess] orphaned-file sweep:', JSON.stringify(reaped))
+
   for (const doc of candidates) {
     // Record the attempt BEFORE calling out — if the retrain itself hangs
     // or this handler gets killed mid-call, the document still shows as
@@ -184,5 +201,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ checked: candidates?.length ?? 0, results })
+  return NextResponse.json({ checked: candidates?.length ?? 0, results, orphanedFiles: reaped })
 }

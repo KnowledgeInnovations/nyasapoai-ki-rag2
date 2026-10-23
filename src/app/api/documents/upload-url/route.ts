@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { normalizeRole, canUploadDocuments } from '@/lib/roles'
-import { limitsFor, canAddDocument, canStore } from '@/lib/plans'
+import { limitsFor, canAddDocument, canStore, canUploadFile } from '@/lib/plans'
 import { knownCount, rowsOrEmpty } from '@/lib/dbResult'
 
 const MAX_SIZE = 500 * 1024 * 1024 // 500 MB
@@ -77,6 +77,11 @@ export async function POST(request: NextRequest) {
     if (!check.allowed) return NextResponse.json({ error: check.reason }, { status: 402 })
   } else {
     console.error('[upload] document allowance not verified for tenant', membership.tenant_id)
+  }
+
+  if (limits && typeof fileSize === 'number') {
+    const check = canUploadFile(limits, fileSize)
+    if (!check.allowed) return NextResponse.json({ error: check.reason }, { status: 402 })
   }
 
   if (limits && typeof fileSize === 'number' && limits.maxStorageBytes != null) {

@@ -2,13 +2,14 @@ import { NextRequest, after } from 'next/server'
 import path from 'node:path'
 import { getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH, insertChunkBatch, insertFactsResilient, sniffImageType, isImageFile } from '@/lib/documentProcess'
+import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH, insertChunkBatch, insertFactsResilient, sniffImageType, isImageFile, tableChunkFloor } from '@/lib/documentProcess'
 import { canAccessTraining, type Role } from '@/lib/roles'
 import { extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks, runCrossDocumentCorroboration, supersedeForwardProjections, applyLearnedHeuristics, looksLikeBudgetDocument, type FinancialFact } from '@/lib/factExtraction'
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
 import { extractGenericFacts } from '@/lib/genericFactExtraction'
 import { profileDocument, headingMatcherFor, type DocumentProfile } from '@/lib/documentProfile'
 import { knownCount } from '@/lib/dbResult'
+import { MAX_CHUNKS_PER_DOCUMENT, describeChunkCeiling } from '@/lib/plans'
 import { recoverEmptyPagesWithVision, pageTextStore, visionExtractFactsFromPage } from '@/lib/visionExtraction'
 import type { ProcessingWarning } from '@/types'
 
@@ -327,6 +328,21 @@ export async function POST(
         // document is laid out, so a document that does not follow those
         // rules degraded silently — it still produced chunks and facts, and
         // the answers were simply worse. See documentProfile.ts.
+        // Declined before the profile call and the table-cleaning pass:
+        // the tables alone already exceed what can be indexed, and that
+        // count is exact rather than estimated, so nothing is spent on a
+        // document that is about to be refused.
+        const tableFloor = tableChunkFloor(pages)
+        if (tableFloor > MAX_CHUNKS_PER_DOCUMENT) {
+          const detail = describeChunkCeiling(tableFloor)
+          await service.from('documents')
+            .update({ status: 'failed', status_detail: detail })
+            .eq('id', id)
+          send({ stage: 'error', message: detail, progress: -1 })
+          controller.close()
+          return
+        }
+
         send({ stage: 'chunking', message: 'Working out how this document is laid out…', progress: 22 })
         const profile = await profileDocument(pages, doc.title, routeDeadline)
         if (profile) {
@@ -345,6 +361,29 @@ export async function POST(
           isHeadingLine: headingMatcherFor(profile),
           recordColumns: profile?.kind === 'records' ? profile.columns : undefined,
         })
+
+        // Checked here, on the raw count, before anything is spent on this
+        // document's content.
+        //
+        // Declined rather than partially indexed: a document indexed to a
+        // third of itself reads as ready while most of it is missing, which
+        // is the silent failure this pipeline keeps being bitten by.
+        //
+        // And checked BEFORE the table-cleaning pass below, which sends
+        // every table chunk to the model in batches of eight. Measured on
+        // a 25MB workbook: 22,439 table chunks, so the run spent four
+        // minutes and thousands of model calls before reaching a check
+        // that then declined the document anyway. Declining after paying
+        // is not declining.
+        if (rawChunks.length > MAX_CHUNKS_PER_DOCUMENT) {
+          const detail = describeChunkCeiling(rawChunks.length)
+          await service.from('documents')
+            .update({ status: 'failed', status_detail: detail })
+            .eq('id', id)
+          send({ stage: 'error', message: detail, progress: -1 })
+          controller.close()
+          return
+        }
 
         // AI table cleanup — fixes OCR artifacts, misaligned columns,
         // and broken number formatting in table blocks before embedding.

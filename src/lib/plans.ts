@@ -32,6 +32,17 @@ export interface PlanLimits {
   maxDocuments: number | null
   /** Total stored bytes across all documents. null = unlimited. */
   maxStorageBytes: number | null
+  /**
+   * The largest single file. null = only the platform-wide ceiling applies.
+   *
+   * Separate from the storage allowance because the cost of one document
+   * is not its bytes: a 25MB spreadsheet extracted to 22,441 excerpts,
+   * each of which has to be embedded and checked for facts, while a 25MB
+   * image-heavy brochure extracted to 29. Size is the only signal
+   * available before the file is transferred, so it is the one used to
+   * decline early.
+   */
+  maxFileBytes: number | null
   /** AI questions included per billing period. null = unlimited. */
   includedQueriesPerMonth: number | null
   /** Whether Senior permissions can be granted individually (Professional+). */
@@ -40,7 +51,8 @@ export interface PlanLimits {
   advancedRbac: boolean
 }
 
-const GB = 1024 * 1024 * 1024
+const MB = 1024 * 1024
+const GB = 1024 * MB
 
 export const PLANS: Record<Plan, PlanLimits> = {
   starter: {
@@ -50,6 +62,7 @@ export const PLANS: Record<Plan, PlanLimits> = {
     maxSeniorUsers: 1,
     maxDocuments: 100,
     maxStorageBytes: 10 * GB,
+    maxFileBytes: 50 * MB,
     includedQueriesPerMonth: 1_000,
     granularSeniorPermissions: false,
     advancedRbac: false,
@@ -61,6 +74,7 @@ export const PLANS: Record<Plan, PlanLimits> = {
     maxSeniorUsers: 3,
     maxDocuments: 1_000,
     maxStorageBytes: 100 * GB,
+    maxFileBytes: 200 * MB,
     includedQueriesPerMonth: 10_000,
     granularSeniorPermissions: true,
     advancedRbac: false,
@@ -74,6 +88,7 @@ export const PLANS: Record<Plan, PlanLimits> = {
     maxSeniorUsers: null,
     maxDocuments: null,
     maxStorageBytes: null,
+    maxFileBytes: null,
     includedQueriesPerMonth: null,
     granularSeniorPermissions: true,
     advancedRbac: true,
@@ -156,6 +171,42 @@ export function canStore(limits: PlanLimits, currentBytes: number, incomingBytes
     current: currentBytes,
     reason: `This upload would exceed the ${formatBytes(limits.maxStorageBytes)} of storage included in the ${limits.label} plan. Upgrade the plan or remove documents you no longer need.`,
   }
+}
+
+/** Would this single file exceed the plan's per-file allowance? */
+export function canUploadFile(limits: PlanLimits, fileBytes: number): LimitCheck {
+  if (limits.maxFileBytes === null || fileBytes <= limits.maxFileBytes) return ok
+  return {
+    allowed: false,
+    limit: limits.maxFileBytes,
+    current: fileBytes,
+    reason: `This file is ${formatBytes(fileBytes)}. The ${limits.label} plan accepts files up to ${formatBytes(limits.maxFileBytes)} each. Upgrade the plan, or split the file and upload the parts you need.`,
+  }
+}
+
+/**
+ * The most excerpts one document may be indexed into.
+ *
+ * A capability limit rather than a commercial one: every excerpt is
+ * embedded and then checked for facts, and fact extraction is a model call
+ * per batch. Measured on a 25MB UN demographic workbook, faithfully
+ * extracted to 44,930 rows across three sheets: 22,441 excerpts, which at
+ * this pipeline's measured rate would take days of model time to process
+ * and would never finish inside any one pass. The largest genuine document
+ * in the test corpus — a 229-page Federal Register issue — is 1,217.
+ *
+ * Set well above every real document so it only ever catches the
+ * pathological case, and enforced after chunking with an explanation,
+ * because silently indexing a third of a workbook is worse than declining
+ * it: the document would read as ready while most of it was missing.
+ */
+export const MAX_CHUNKS_PER_DOCUMENT = 8_000
+
+export function describeChunkCeiling(chunkCount: number): string {
+  return `This document extracted to ${chunkCount.toLocaleString()} excerpts, beyond the ${MAX_CHUNKS_PER_DOCUMENT.toLocaleString()} one document can be indexed into. ` +
+    `Spreadsheets reach this most often, because every row becomes its own excerpt. ` +
+    `Split it — by sheet, by year, or by section — and upload the parts, and all of it will be searchable. ` +
+    `Nothing has been indexed from it, so there is no partial copy to clean up.`
 }
 
 export function formatBytes(bytes: number): string {

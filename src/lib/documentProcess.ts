@@ -563,6 +563,19 @@ function decodeEntities(s: string): string {
     .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
 }
 
+/**
+ * The number of chunks the tables alone will produce — exact, since
+ * chunkPages emits one chunk per table entry.
+ *
+ * Lets a document be declined on the chunk ceiling straight after
+ * extraction, before the profile call and before the table-cleaning pass
+ * spend anything on content that is about to be refused. A lower bound on
+ * the final count, so it never declines a document that would have fitted.
+ */
+export function tableChunkFloor(pages: ExtractedPage[]): number {
+  return pages.reduce((total, page) => total + (page.tables?.length ?? 0), 0)
+}
+
 // Backwards-compatible plain-text extraction (used where structure isn't needed)
 export async function extractText(buffer: Buffer, filename: string): Promise<string> {
   const pages = await extractStructuredText(buffer, filename)

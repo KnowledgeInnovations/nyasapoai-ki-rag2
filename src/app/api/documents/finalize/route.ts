@@ -2,7 +2,7 @@ import { NextRequest, NextResponse, after } from 'next/server'
 import nodePath from 'node:path'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH, insertChunkBatch, insertFactsResilient, sniffImageType, isImageFile } from '@/lib/documentProcess'
+import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH, insertChunkBatch, insertFactsResilient, sniffImageType, isImageFile, tableChunkFloor } from '@/lib/documentProcess'
 import { normalizeRole, canUploadDocuments } from '@/lib/roles'
 import {
   extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks,
@@ -12,6 +12,7 @@ import {
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
 import { extractGenericFacts } from '@/lib/genericFactExtraction'
 import { profileDocument, headingMatcherFor } from '@/lib/documentProfile'
+import { MAX_CHUNKS_PER_DOCUMENT, describeChunkCeiling } from '@/lib/plans'
 import { recoverEmptyPagesWithVision, pageTextStore, visionExtractFactsFromPage } from '@/lib/visionExtraction'
 import type { ProcessingWarning } from '@/types'
 
@@ -260,6 +261,16 @@ export async function POST(request: NextRequest) {
         const titleLabel = `[Document: ${docTitle}]\n`
         // Asked once, before anything downstream assumes a layout — see the
         // matching block in the training route and documentProfile.ts.
+        // See the matching guard in the training route.
+        const tableFloor = tableChunkFloor(pages)
+        if (tableFloor > MAX_CHUNKS_PER_DOCUMENT) {
+          const detail = describeChunkCeiling(tableFloor)
+          await serviceClient.from('documents')
+            .update({ status: 'failed', status_detail: detail })
+            .eq('id', document.id)
+          return fail(detail, 413)
+        }
+
         emit({ stage: 'chunking', message: 'Working out how this document is laid out' })
         const profile = await profileDocument(pages, docTitle, routeDeadline)
         if (profile) {
@@ -275,6 +286,17 @@ export async function POST(request: NextRequest) {
           isHeadingLine: headingMatcherFor(profile),
           recordColumns: profile?.kind === 'records' ? profile.columns : undefined,
         })
+
+        // See the matching guard in the training route: declined whole
+        // rather than indexed in part, and before the table-cleaning pass
+        // below spends anything on a document that is about to be refused.
+        if (rawChunks.length > MAX_CHUNKS_PER_DOCUMENT) {
+          const detail = describeChunkCeiling(rawChunks.length)
+          await serviceClient.from('documents')
+            .update({ status: 'failed', status_detail: detail })
+            .eq('id', document.id)
+          return fail(detail, 413)
+        }
 
         // AI table cleanup — fixes OCR artifacts, misaligned columns, and
         // broken number formatting in table blocks before embedding. Runs
