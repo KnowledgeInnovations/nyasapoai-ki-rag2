@@ -134,6 +134,14 @@ function parseDateValue(value: string): string | null {
   return null
 }
 
+// Words a model uses to mean "there is no unit". Stored as absence.
+const UNIT_PLACEHOLDERS = new Set(['null', 'none', 'n/a', 'na', 'undefined', 'nil', '-', ''])
+
+function emptyUnit(unit: string | null | undefined): string | null {
+  const trimmed = String(unit ?? '').trim()
+  return UNIT_PLACEHOLDERS.has(trimmed.toLowerCase()) ? null : trimmed
+}
+
 function parseNumberValue(value: string): number | null {
   const cleaned = value.replace(/[,$]/g, '').trim()
   const n = parseFloat(cleaned)
@@ -377,7 +385,12 @@ ${combined}`,
         value_text: valueText,
         value_number: parseNumberValue(valueText),
         value_date: parseDateValue(valueText),
-        unit: f.unit ?? null,
+        // A model asked for "unit if any, e.g. days|USD|%|null" sometimes
+        // answers with the word rather than the absence, and 251 facts here
+        // carry the literal string "null" as their unit — which then reads
+        // back as a unit and renders as "8 null". An absent unit has to be
+        // absent.
+        unit: emptyUnit(f.unit),
         page_number: sourceChunk?.page_number ?? null,
         section_title: sourceChunk?.section_title ?? null,
         // Same base as aiEnhanceTableFacts — reaches the >=70 validated

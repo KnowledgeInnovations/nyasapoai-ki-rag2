@@ -243,6 +243,54 @@ at 35% by the uncited-answer rule, but the underlying blindness remains.
   bad page costs only its own tables — confirmed working on two corpus
   documents. Leave it; just do not let the retry disappear.
 
+## 11. FACTS CITE THE WRONG PAGE  (severity: high) — NEW, FOUND BY THE GOLDEN SET
+
+**Measured** on `Arlo Cantonments - Brochure`, by taking 120 extracted facts
+that carry a page number and checking whether the value actually appears on
+the page cited, against the source PDF:
+
+| | |
+| --- | --- |
+| value is on the cited page | 100 (83%) |
+| value is on a different page | 15 (13%) |
+| value not found on any page | 5 (4%) |
+
+When wrong, it is wrong by one or two pages (−1 page × 12, −2 pages × 3).
+A worked case: the $5,000 reservation amount is real and appears on pages
+91 and 92, while the facts drawn from it cite page 89 and, in another row,
+page 24.
+
+**Why it happens.** `chunkPages` sets `currentPage` when a chunk *starts*
+and a chunk accumulates across page boundaries, so every fact extracted
+from a chunk that spans pages 89–91 is attributed to 89. The off-by-one-or-
+two signature is exactly that.
+
+**Why it is worse than having no page.** A citation with no page leaves the
+reader to search; a citation with a wrong page sends them to a page where
+the figure is not, and what they conclude is that the system is making
+things up. Section 5 of this file treats an unopenable citation as a
+correctness bug; a misopenable one is worse.
+
+- Record the page range a chunk spans, not just where it began, and present
+  a range ("pages 89–91") wherever a single page cannot be established.
+  Truthful beats precise-and-wrong.
+- Consider whether a chunk should span pages at all. Flushing at every page
+  boundary makes attribution exact at the cost of fragmenting prose that
+  runs across a page break, and the overlap mechanism already covers
+  continuity — measure the effect on retrieval before choosing.
+- Then re-run this measurement on every tenant's documents and report the
+  three figures. The 4% whose value appears on no page at all needs its own
+  look: some will be reformatted values (`38.56 sqm` stored against a page
+  printing `38.56`), and some may be facts that were never in the document.
+- Add the worked case to the golden set once the page is right, so a
+  regression is caught by the suite rather than by hand.
+
+**How it was found.** Not by reading code. The self-serve golden set drafted
+twelve questions from this brochure, and checking four of them against their
+cited pages found one confirmable, two unverifiable from the linearised text,
+and one — the $5,000 reservation amount — citing a page it is not on. The
+drafting flow earns its place by being wrong in ways a person can catch.
+
 ## 10. REGRESSION GUARD — run every pass
 
 - `npx tsx scripts/extraction_probe.mts <corpus-dir>` over both the public

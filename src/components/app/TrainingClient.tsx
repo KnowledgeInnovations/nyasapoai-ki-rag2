@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
+import GoldenSetCard from './GoldenSetCard'
 import type { TrainingDoc, Performance, SelfAssessmentRun, RegressionResultRow } from '@/app/(app)/training/page'
 import type { RecurringGap } from '@/lib/extractionGaps'
 
@@ -378,6 +379,12 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, per
         onToggle={() => setRegressionOpen(o => !o)}
         onRun={runRegressionSuite}
       />
+
+      {/* ── Accuracy check — graded against confirmed answers ────── */}
+      {/* Sits beside the regression suite above deliberately: that one
+          measures whether an answer sounded confident and cited something,
+          this one whether it was right. */}
+      <GoldenSetCard documents={docs.filter(d => d.chunkCount > 0).map(d => ({ id: d.id, title: d.title }))} />
 
       {/* ── Recurring gaps — self-improvement phase 1 ────────────── */}
       <RecurringGapsCard gaps={gaps} />
