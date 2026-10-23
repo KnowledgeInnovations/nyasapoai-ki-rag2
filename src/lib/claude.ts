@@ -39,7 +39,11 @@ export const ADAPTIVE_THINKING = { type: 'adaptive' } as const
 // accepts either shape for `content` interchangeably.
 export type ClaudeContentBlock =
   | { type: 'text'; text: string }
-  | { type: 'image'; source: { type: 'base64'; media_type: 'image/png' | 'image/jpeg'; data: string } }
+  // The four the vision API accepts. GIF and WebP matter because an
+  // uploaded photograph or screenshot arrives in whatever format the
+  // device produced, and its extension is not to be trusted — a file
+  // uploaded as image.png was a WebP.
+  | { type: 'image'; source: { type: 'base64'; media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'; data: string } }
 
 export interface ClaudeMessage {
   role: 'user' | 'assistant'

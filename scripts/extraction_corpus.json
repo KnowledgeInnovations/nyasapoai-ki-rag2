@@ -103,8 +103,9 @@
       "Attachment Test",
       "Watershed"
     ],
-    "notes": "pptx — officeparser reads shape text; no per-slide boundaries",
-    "url": "https://raw.githubusercontent.com/apache/tika/main/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/test/resources/test-documents/testPPT.pptx"
+    "notes": "pptx — read slide by slide from the package, so a citation can name the slide; speaker notes labelled, not merged.",
+    "url": "https://raw.githubusercontent.com/apache/tika/main/tika-parsers/tika-parsers-standard/tika-parsers-standard-modules/tika-parser-microsoft-module/src/test/resources/test-documents/testPPT.pptx",
+    "minPages": 3
   },
   {
     "file": "tika-odt.odt",
@@ -144,5 +145,26 @@
     "minChars": 100000,
     "notes": "large plain text",
     "url": "https://raw.githubusercontent.com/apache/tika/main/CHANGES.txt"
+  },
+  {
+    "file": "book.epub",
+    "url": "https://www.gutenberg.org/ebooks/84.epub.noimages",
+    "minChars": 300000,
+    "minChunks": 300,
+    "mustContain": [
+      "Frankenstein",
+      "Mrs. Saville"
+    ],
+    "notes": "EPUB — a zip of XHTML. Read chapter by chapter via the package spine; before support was added it fell through to plain text and was refused as binary."
+  },
+  {
+    "file": "report.html",
+    "url": "https://www.gnu.org/licenses/gpl-3.0.html",
+    "minChars": 20000,
+    "mustContain": [
+      "GNU General Public License",
+      "Preamble"
+    ],
+    "notes": "Saved web page. Extracted as 48 chunks of doctype, link and meta tags before markup handling; the binary guard cannot catch it because markup IS text."
   }
 ]

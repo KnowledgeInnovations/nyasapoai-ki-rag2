@@ -30,6 +30,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { extractStructuredText, chunkPages } from '../src/lib/documentProcess'
 import { recoverEmptyPagesWithVision } from '../src/lib/visionExtraction'
+import { isImageFile, sniffImageType } from '../src/lib/documentProcess'
 
 interface Expectation {
   file: string
@@ -104,6 +105,20 @@ if (fs.existsSync(manifestPath)) {
 
 const only = process.argv.find(a => a.startsWith('--only='))?.slice('--only='.length)
 
+// tsx does not read .env.local the way Next does, so --vision without the
+// key silently transcribed nothing and looked like an extraction failure.
+if (process.argv.includes('--vision') && !process.env.ANTHROPIC_API_KEY) {
+  const envPath = path.join(process.cwd(), '.env.local')
+  const fromFile = fs.existsSync(envPath)
+    ? fs.readFileSync(envPath, 'utf8').match(/^ANTHROPIC_API_KEY=(.*)$/m)?.[1]
+    : null
+  if (fromFile) process.env.ANTHROPIC_API_KEY = fromFile.trim().replace(/^["']|["']$/g, '')
+  else {
+    console.error('--vision needs ANTHROPIC_API_KEY, and neither the environment nor .env.local has one.')
+    process.exit(1)
+  }
+}
+
 const files = fs.readdirSync(corpusDir)
   .filter(f => f !== 'manifest.json' && fs.statSync(path.join(corpusDir, f)).isFile())
   .filter(f => !only || f.includes(only))
@@ -125,8 +140,17 @@ for (const file of files) {
   const started = Date.now()
   try {
     const pages = await extractStructuredText(buffer, file)
-    if (expect?.needsVision && process.argv.includes('--vision')) {
-      const result = await recoverEmptyPagesWithVision(buffer, pages, Date.now() + 240_000, 60)
+    // An image IS the document, and a scan has no text layer: both are
+    // read by transcription, not by text extraction, so neither is a
+    // failure of extraction. Images are detected rather than declared,
+    // since the extension lies — a file uploaded as image.png was a WebP.
+    const imageType = sniffImageType(buffer)
+    const needsVision = expect?.needsVision || (isImageFile(file, buffer) && imageType != null)
+    if (needsVision && process.argv.includes('--vision')) {
+      const result = await recoverEmptyPagesWithVision(
+        buffer, pages, Date.now() + 240_000, 60, undefined,
+        imageType ? { mediaType: imageType } : undefined,
+      )
       console.log(`      ↳ vision: read ${result.recovered} of ${result.attempted} page(s), ${result.remaining} still blank`)
     }
     probe.pages = pages.length
@@ -163,7 +187,7 @@ for (const file of files) {
     // A file marked as needing vision is skipped, not failed, when --vision
     // was not passed: a scan having no text layer is the expected result,
     // and each page costs a model call to read.
-    if (expect?.needsVision && !process.argv.includes('--vision')) probe.skipped = true
+    if (needsVision && !process.argv.includes('--vision')) probe.skipped = true
     else if (probe.chars === 0) probe.failures.push('extracted nothing')
     if (probe.replacementChars > 3 && probe.replacementChars > probe.chars * 0.01) {
       probe.failures.push(`${probe.replacementChars} replacement characters — wrong text encoding`)

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse, after } from 'next/server'
 import nodePath from 'node:path'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH, insertChunkBatch, insertFactsResilient } from '@/lib/documentProcess'
+import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH, insertChunkBatch, insertFactsResilient, sniffImageType, isImageFile } from '@/lib/documentProcess'
 import { normalizeRole, canUploadDocuments } from '@/lib/roles'
 import {
   extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks,
@@ -192,13 +192,23 @@ export async function POST(request: NextRequest) {
         // (rendering needs pdfjs); recovered pages are mutated in place
         // BEFORE chunking runs below, so nothing downstream needs to know
         // this happened.
-        if (emptyPageNumbers.length && nodePath.extname(originalFilename).toLowerCase() === '.pdf') {
-          emit({ stage: 'extracting', message: `Reading ${emptyPageNumbers.length} page(s) that hold no text, as images` })
+        // A PDF whose pages hold no text, or a file that IS an image: a
+        // photograph or screenshot of paper is a normal upload, and the
+        // same transcription reads both. Before this an image produced
+        // 223 chunks of binary noise, and once that was refused it
+        // produced nothing at all.
+        const uploadedImageType = sniffImageType(buffer)
+        const treatAsImage = isImageFile(originalFilename, buffer) && uploadedImageType != null
+        if (emptyPageNumbers.length && (nodePath.extname(originalFilename).toLowerCase() === '.pdf' || treatAsImage)) {
+          emit({ stage: 'extracting', message: treatAsImage
+            ? 'Reading the uploaded image'
+            : `Reading ${emptyPageNumbers.length} page(s) that hold no text, as images` })
           const result = await recoverEmptyPagesWithVision(
             buffer, pages,
             Math.min(routeDeadline, Date.now() + VISION_RECOVERY_BUDGET_MS),
             MAX_VISION_RECOVERY_PAGES,
             pageTextStore(serviceClient, document.id),
+            treatAsImage ? { mediaType: uploadedImageType } : undefined,
           )
           if (result.recovered || result.reused) {
             note('vision_recovery',

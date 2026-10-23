@@ -2,7 +2,7 @@ import { NextRequest, after } from 'next/server'
 import path from 'node:path'
 import { getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH, insertChunkBatch, insertFactsResilient } from '@/lib/documentProcess'
+import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH, insertChunkBatch, insertFactsResilient, sniffImageType, isImageFile } from '@/lib/documentProcess'
 import { canAccessTraining, type Role } from '@/lib/roles'
 import { extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks, runCrossDocumentCorroboration, supersedeForwardProjections, applyLearnedHeuristics, looksLikeBudgetDocument, type FinancialFact } from '@/lib/factExtraction'
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
@@ -241,10 +241,19 @@ export async function POST(
         // Vision recovery — see the matching block (and its full comment) in
         // finalize/route.ts. Recovered pages are mutated in place BEFORE
         // chunking runs below.
-        if (emptyPageNumbers.length && path.extname(doc.source).toLowerCase() === '.pdf') {
+        // A PDF whose pages hold no text, or a file that IS an image: a
+        // photograph or screenshot of paper is a normal upload, and the
+        // same transcription reads both. Before this an image produced
+        // 223 chunks of binary noise, and once that was refused it
+        // produced nothing at all.
+        const uploadedImageType = sniffImageType(buffer)
+        const treatAsImage = isImageFile(doc.source, buffer) && uploadedImageType != null
+        if (emptyPageNumbers.length && (path.extname(doc.source).toLowerCase() === '.pdf' || treatAsImage)) {
           send({
             stage: 'extracting',
-            message: `Reading ${emptyPageNumbers.length} page(s) that hold no text, as images…`,
+            message: treatAsImage
+              ? 'Reading the uploaded image…'
+              : `Reading ${emptyPageNumbers.length} page(s) that hold no text, as images…`,
             progress: 18,
           })
           const result = await recoverEmptyPagesWithVision(
@@ -255,6 +264,7 @@ export async function POST(
             Math.min(routeDeadline, Date.now() + VISION_RECOVERY_BUDGET_MS),
             MAX_VISION_RECOVERY_PAGES,
             pageTextStore(service, id),
+            treatAsImage ? { mediaType: uploadedImageType } : undefined,
           )
           if (result.recovered || result.reused) {
             note('vision_recovery',

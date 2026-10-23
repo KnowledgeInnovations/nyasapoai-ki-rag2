@@ -112,6 +112,9 @@ export async function recoverEmptyPagesWithVision(
   // Where transcriptions are kept between runs. Without it the same first
   // pages are re-read on every attempt and a long scan never finishes.
   store?: PageTextStore,
+  // Set when the file IS an image rather than a PDF of pages: there is
+  // nothing to render, so the bytes go to the model as they are.
+  asImage?: { mediaType: VisionImageType },
 ): Promise<{ recovered: number; attempted: number; remaining: number; reused: number }> {
   let reused = 0
   if (store) {
@@ -144,7 +147,9 @@ export async function recoverEmptyPagesWithVision(
         if (index >= queue.length) return
         const pageNumber = queue[index]
         attempted++
-        const text = await visionTranscribePage(buffer, pageNumber, deadline)
+        const text = asImage
+          ? await visionTranscribeImage(buffer, asImage.mediaType, deadline)
+          : await visionTranscribePage(buffer, pageNumber, deadline)
         if (text) {
           const page = pages.find(p => p.page_number === pageNumber)
           if (page) { page.text = text; recovered++ }
@@ -198,6 +203,43 @@ export function pageTextStore(
           { onConflict: 'document_id,page_number' })
       if (error) console.error(`[visionExtraction] could not store page ${pageNumber}:`, error.message)
     },
+  }
+}
+
+/**
+ * Transcribes an image that IS the document — a photograph or screenshot
+ * of paper, uploaded as it was taken.
+ *
+ * Separate from the page path only in that there is nothing to render: the
+ * bytes are already an image. The media type comes from the leading bytes
+ * rather than the filename, because the extension lies — a file uploaded
+ * as image.png was a WebP, and a mislabelled media type is rejected by the
+ * model outright.
+ */
+export type VisionImageType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
+
+export async function visionTranscribeImage(
+  buffer: Buffer,
+  mediaType: VisionImageType,
+  deadline?: number,
+): Promise<string | null> {
+  try {
+    const raw = await claudeComplete({
+      maxTokens: 4096,
+      deadline,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: TRANSCRIBE_PROMPT },
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: buffer.toString('base64') } },
+        ],
+      }],
+    })
+    const text = raw.trim()
+    return text || null
+  } catch (e) {
+    console.error('[visionExtraction] transcribe failed for an uploaded image:', e)
+    return null
   }
 }
 

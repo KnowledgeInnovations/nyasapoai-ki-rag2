@@ -41,6 +41,80 @@ const SPREADSHEET_EXTS = new Set(['.xlsx', '.xlsm', '.xls', '.ods', '.csv', '.ts
 // 0 characters before, 594 after.
 const LEGACY_WORD_EXTS = new Set(['.doc'])
 
+// Images are documents here: people photograph and screenshot paper
+// constantly, and an upload of one is a normal thing to do. They carry no
+// text layer, so they are handed to the page-image transcription the
+// scanned-PDF path already uses — see the empty-page recovery in the
+// upload and training routes.
+const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif', '.tiff'])
+
+// Markup, which is text and so passed the "is this readable" test while
+// being almost entirely useless as knowledge. A saved web page extracted
+// as 48 chunks of doctype, link tags, meta tags and CSS — every one of
+// them embedded and retrievable. Silent, because the document reads as
+// ready and nothing about it looks wrong.
+const MARKUP_EXTS = new Set(['.html', '.htm', '.xhtml'])
+
+// Slide decks, read slide by slide rather than as one blob.
+//
+// officeparser returns a deck's text as a single string with no slide
+// boundaries, so a 50-slide deck became one page with no page number and a
+// citation into it could not say which slide it came from — the only
+// locator a deck has. Read from the package directly, each slide is its
+// own page, numbered as the deck numbers it, with its speaker notes
+// attached.
+const SLIDE_EXTS = new Set(['.pptx'])
+
+// Books and long reports distributed as EPUB. A zip of XHTML, so both
+// pieces already exist here: the package reader used for decks and the
+// markup converter used for Word and saved web pages. Before this an EPUB
+// fell through to "decode it as text", which produced zip headers and was
+// then correctly refused as binary — a legitimate document format that
+// could not be uploaded at all.
+const EBOOK_EXTS = new Set(['.epub'])
+
+// Control characters, excluding tab/newline/carriage return, plus the
+// replacement character. Text does not contain these; a binary file read as
+// text is mostly these.
+//
+// Nothing validated the file type on upload, and anything the extractors
+// did not recognise fell through to "decode it as text" — so an uploaded
+// image produced 223 chunks of raw binary at 35% printable characters,
+// which would then be embedded and returned as sources. Garbage that
+// reaches the index is worse than a rejected upload, because it is
+// invisible: the document reads as ready and quietly degrades every search
+// the workspace runs.
+// eslint-disable-next-line no-control-regex
+const NON_TEXT_RX = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFD]/g
+
+/** The share of a string that cannot be text. */
+function nonTextRatio(text: string): number {
+  if (!text.length) return 0
+  return (text.match(NON_TEXT_RX) ?? []).length / text.length
+}
+
+/**
+ * The real type of an image, from its leading bytes rather than its name.
+ * The extension lies: a file uploaded as image.png was a WebP, and sending
+ * mislabelled bytes to a vision model fails.
+ */
+export type SniffedImageType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
+
+export function sniffImageType(buffer: Buffer): SniffedImageType | null {
+  if (buffer.length < 12) return null
+  const hex = buffer.subarray(0, 12).toString('hex').toLowerCase()
+  if (hex.startsWith('89504e47')) return 'image/png'
+  if (hex.startsWith('ffd8ff')) return 'image/jpeg'
+  if (hex.startsWith('47494638')) return 'image/gif'
+  if (hex.startsWith('52494646') && buffer.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp'
+  return null
+}
+
+export function isImageFile(filename: string, buffer?: Buffer): boolean {
+  if (IMAGE_EXTS.has(path.extname(filename).toLowerCase())) return true
+  return buffer ? sniffImageType(buffer) != null : false
+}
+
 // How much of a spreadsheet goes into one table chunk, and how many header
 // rows are repeated at the top of each. Without the repeat, every chunk
 // after the first is a block of bare values whose columns are unlabelled,
@@ -127,6 +201,35 @@ export async function extractStructuredText(buffer: Buffer, filename: string): P
     return [{ page_number: null, text: (result?.text as string) ?? '', tables: [] }]
   }
 
+  // An image has no text to extract. Returned as one empty page so the
+  // page-image transcription in the upload and training routes reads it,
+  // exactly as it reads a scanned PDF page.
+  if (isImageFile(filename, buffer)) {
+    return [{ page_number: 1, text: '', tables: [] }]
+  }
+
+  if (EBOOK_EXTS.has(ext)) {
+    const chapters = extractEpub(buffer, filename)
+    if (chapters.length) return chapters
+    console.error(`[extract] ${filename}: could not read the EPUB package`)
+  }
+
+  if (SLIDE_EXTS.has(ext)) {
+    const slides = extractSlides(buffer, filename)
+    if (slides.length) return slides
+    // A deck whose package cannot be read still goes through officeparser,
+    // which loses the slide boundaries but keeps the words.
+    console.error(`[extract] ${filename}: could not read slides from the package, falling back to flat text`)
+  }
+
+  if (MARKUP_EXTS.has(ext)) {
+    // Reuses the same converter as .docx, which already turns headings
+    // into markdown and table rows into pipe-joined lines — so a saved web
+    // page chunks by its own structure instead of by where the tags fell.
+    const text = htmlToBlocks(stripNonContent(buffer.toString('utf-8')))
+    return [{ page_number: null, text, tables: [] }]
+  }
+
   if (SPREADSHEET_EXTS.has(ext)) return extractSpreadsheet(buffer, filename)
 
   if (ext === '.docx') return await extractDocx(buffer, filename)
@@ -158,12 +261,141 @@ export async function extractStructuredText(buffer: Buffer, filename: string): P
   // literally Windows-1252/ISO-8859-1).
   const utf8Text = buffer.toString('utf-8')
   const replacementCount = (utf8Text.match(/�/g) ?? []).length
-  if (replacementCount > 3 && replacementCount > utf8Text.length * 0.01) {
-    return [{ page_number: null, text: buffer.toString('latin1') }]
+  const latin1Text = replacementCount > 3 && replacementCount > utf8Text.length * 0.01
+    ? buffer.toString('latin1')
+    : null
+  const text = latin1Text ?? utf8Text
+
+  // Refuse what is not text at all, rather than indexing it.
+  //
+  // Measured on a file uploaded as image.png (actually a WebP): 39.5%
+  // printable, which chunked into 223 excerpts of binary noise. Checked
+  // against the control-character share rather than against ASCII, so a
+  // document in Twi, Ga, Ewe or any other script is unaffected — those
+  // carry no control characters.
+  const sample = text.slice(0, 20_000)
+  if (sample.length > 200 && nonTextRatio(sample) > 0.05) {
+    throw new Error(
+      'This file is not readable as text. It looks like a binary format this system ' +
+      'cannot read — if it is a document, re-save or export it as PDF, Word, or a ' +
+      'spreadsheet; if it is a photograph or screenshot, upload it as a PNG or JPEG ' +
+      'and it will be read as an image.',
+    )
   }
-  return [{ page_number: null, text: utf8Text }]
+
+  return [{ page_number: null, text }]
 }
 
+
+
+
+// ── EPUB ───────────────────────────────────────────────────────────
+//
+// One page per chapter document, in the order the package lists them, so a
+// citation can name the chapter it came from. The spine in the OPF file is
+// the reading order; falling back to sorting filenames would interleave
+// chapters wrongly in any book whose files are not named in order.
+function extractEpub(buffer: Buffer, filename: string): ExtractedPage[] {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { unzipSync } = require('fflate') as {
+      unzipSync: (data: Uint8Array) => Record<string, Uint8Array>
+    }
+    const files = unzipSync(new Uint8Array(buffer))
+    const decoder = new TextDecoder()
+    const read = (name: string) => (files[name] ? decoder.decode(files[name]) : null)
+
+    // container.xml names the package document; the package document's
+    // spine gives the reading order.
+    const container = read('META-INF/container.xml') ?? ''
+    const opfPath = container.match(/full-path="([^"]+)"/)?.[1]
+    const opf = opfPath ? read(opfPath) : null
+
+    let order: string[] = []
+    if (opf) {
+      const base = opfPath!.includes('/') ? opfPath!.replace(/\/[^\/]+$/, '/') : ''
+      const manifest = new Map<string, string>()
+      for (const item of opf.matchAll(/<item\b([^>]*)>/g)) {
+        const id = item[1].match(/\bid="([^"]+)"/)?.[1]
+        const href = item[1].match(/\bhref="([^"]+)"/)?.[1]
+        if (id && href) manifest.set(id, base + decodeURIComponent(href))
+      }
+      order = [...opf.matchAll(/<itemref\b[^>]*\bidref="([^"]+)"/g)]
+        .map(m => manifest.get(m[1]))
+        .filter((v): v is string => !!v && !!files[v])
+    }
+    // No readable spine: fall back to every XHTML document in the archive,
+    // in name order, which is right for most books and wrong for some —
+    // better than refusing the file.
+    if (!order.length) {
+      order = Object.keys(files).filter(n => /\.(xhtml|html|htm)$/i.test(n)).sort()
+    }
+    if (!order.length) return []
+
+    const pages: ExtractedPage[] = []
+    order.forEach((name, index) => {
+      const text = htmlToBlocks(stripNonContent(read(name) ?? ''))
+      if (text.trim().length < 20) return
+      pages.push({ page_number: index + 1, text, tables: [] })
+    })
+    return pages
+  } catch (e) {
+    console.error(`[extract] ${filename}: reading the EPUB package failed:`, (e as Error).message)
+    return []
+  }
+}
+
+// ── Slide decks ────────────────────────────────────────────────────
+//
+// A .pptx is a zip. Slide text lives in ppt/slides/slideN.xml as <a:t>
+// runs, and the speaker notes for slide N in ppt/notesSlides/notesSlideN.xml
+// — which are often where the substance of a deck actually is, and which
+// were being read as part of the same undifferentiated blob.
+function extractSlides(buffer: Buffer, filename: string): ExtractedPage[] {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { unzipSync } = require('fflate') as {
+      unzipSync: (data: Uint8Array, opts?: { filter?: (f: { name: string }) => boolean }) => Record<string, Uint8Array>
+    }
+    const files = unzipSync(new Uint8Array(buffer), {
+      filter: f => /^ppt\/(slides|notesSlides)\/[^\/]+\.xml$/.test(f.name),
+    })
+
+    const slideNumber = (name: string) => Number(name.match(/(\d+)\.xml$/)?.[1] ?? 0)
+    const decoder = new TextDecoder()
+    const textOf = (xml: string) =>
+      [...xml.matchAll(/<a:t[^>]*>([\s\S]*?)<\/a:t>/g)]
+        .map(m => decodeEntities(m[1]).trim())
+        .filter(Boolean)
+        .join('\n')
+
+    const slides = new Map<number, { body: string; notes: string }>()
+    for (const [name, bytes] of Object.entries(files)) {
+      const n = slideNumber(name)
+      if (!n) continue
+      const text = textOf(decoder.decode(bytes))
+      if (!text) continue
+      const entry = slides.get(n) ?? { body: '', notes: '' }
+      if (name.includes('notesSlides')) entry.notes = text
+      else entry.body = text
+      slides.set(n, entry)
+    }
+    if (!slides.size) return []
+
+    return [...slides.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([n, { body, notes }]) => ({
+        page_number: n,
+        // The notes are labelled rather than merged, so an answer quoting
+        // them is not presenting a presenter's aside as text on the slide.
+        text: [body, notes ? `Speaker notes:\n${notes}` : ''].filter(Boolean).join('\n\n'),
+        tables: [],
+      }))
+  } catch (e) {
+    console.error(`[extract] ${filename}: reading the slide package failed:`, (e as Error).message)
+    return []
+  }
+}
 
 // ── Spreadsheets ───────────────────────────────────────────────────
 //
@@ -258,6 +490,20 @@ async function extractDocx(buffer: Buffer, filename: string): Promise<ExtractedP
   return [{ page_number: null, text: ast.toText() ?? '' }]
 }
 
+/**
+ * Removes what a page carries for the browser rather than for the reader.
+ * Scripts, styles, navigation and the document head are not knowledge, and
+ * before this they were chunked and embedded alongside the content.
+ */
+function stripNonContent(html: string): string {
+  return html
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<head[\s\S]*?<\/head>/gi, ' ')
+    .replace(/<(nav|footer|aside|form|svg|noscript)[\s\S]*?<\/\1>/gi, ' ')
+}
+
 // Turns mammoth's HTML into the blank-line-separated blocks chunkPages
 // expects, keeping headings (as markdown, which the heading detector
 // already recognises) and table rows (pipe-joined, which the table
@@ -293,8 +539,21 @@ function htmlToBlocks(html: string): string {
   return blocks.join('\n\n')
 }
 
+const NAMED_ENTITIES: Record<string, string> = {
+  nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
+  copy: '©', reg: '®', trade: '™', hellip: '…', mdash: '—', ndash: '–',
+  lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”',
+  deg: '°', plusmn: '±', times: '×', divide: '÷', euro: '€', pound: '£',
+  cedi: '₵', sect: '§', para: '¶', middot: '·', bull: '•',
+}
+
 function decodeEntities(s: string): string {
   return s
+    // Named entities beyond the five XML ones: a licence page came through
+    // reading "Copyright &copy; 2007", which is what a reader would then be
+    // shown as the quoted source.
+    .replace(/&([a-zA-Z]{2,8});/g, (whole, name) => NAMED_ENTITIES[name] ?? whole)
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
