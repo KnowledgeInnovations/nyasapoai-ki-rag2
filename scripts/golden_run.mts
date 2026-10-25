@@ -97,19 +97,33 @@ if (seedFor) {
   process.exit(0)
 }
 
+// Confirmed questions only, matching what /api/golden-questions/run does.
+// This script graded drafts too, and reported them as failures — which made
+// its number meaningless, because a draft is a guess about what the right
+// answer is. Drafts are counted and named instead.
 const { data: questions, error: qError } = await svc
   .from('golden_questions')
   .select('id, question, expected_answer, expected_kind, expected_value, source_page, document_id, notes')
   .eq('tenant_id', tenant.id)
+  .not('verified_at', 'is', null)
   .order('created_at')
+
+const { count: draftCount } = await svc
+  .from('golden_questions')
+  .select('*', { count: 'exact', head: true })
+  .eq('tenant_id', tenant.id)
+  .is('verified_at', null)
 
 if (qError) {
   console.error(`could not read the golden set: ${qError.message}`)
   console.error('If this says the table does not exist, migration 040 has not been applied.')
   process.exit(1)
 }
+if (draftCount) {
+  console.log(`${draftCount} draft question(s) not counted — confirm them in the app first.`)
+}
 if (!questions?.length) {
-  console.error(`no golden questions for ${tenant.name}. Seed them first: --seed ${subdomain}`)
+  console.error(`no confirmed golden questions for ${tenant.name}. Seed them first: --seed ${subdomain}`)
   process.exit(1)
 }
 

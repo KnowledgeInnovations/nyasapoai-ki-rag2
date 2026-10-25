@@ -142,8 +142,16 @@ export async function POST(request: NextRequest) {
     const withUnit = unit && !new RegExp(`${unit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i').test(value)
       ? `${value} ${unit}`
       : value
-    const isNumeric = numeric.includes(fact)
-    const asNumber = Number(value.replace(/[^\d.-]/g, ''))
+    // A date is not a quantity. Stripping non-digits turned "31/10/2023"
+    // into 31,102,023 and produced a figure question no answer could ever
+    // satisfy — three such questions reached a customer's workspace. The
+    // same rule as the extractor's own parser: one number, a short
+    // optional prefix and unit, and nothing else.
+    const quantity = value.match(/^([^\d]{0,3}?)(-?[\d,]+(?:\.\d+)?)\s*([a-zA-Z%²³°/.]{0,12})$/)
+    const asNumber = quantity && !/\d/.test(quantity[3])
+      ? Number(quantity[2].replace(/,/g, ''))
+      : NaN
+    const isNumeric = numeric.includes(fact) && Number.isFinite(asNumber)
 
     drafts.push({
       // Phrased so it stays grammatical whatever shape the attribute is.
