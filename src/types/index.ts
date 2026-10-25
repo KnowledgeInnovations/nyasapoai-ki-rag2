@@ -113,6 +113,12 @@ export interface Citation {
   //   'unavailable' — the source document is no longer in the workspace,
   //                   so there is nothing left to open.
   source_state?: 'live' | 'reindexed' | 'unavailable'
+  /**
+   * The original filename. The title carries no extension, so this is what
+   * tells the viewer whether the source paginates — a PDF opens at a page,
+   * a Word file has none and has to be anchored on its text instead.
+   */
+  document_source?: string | null
 }
 
 export interface AuditLog {

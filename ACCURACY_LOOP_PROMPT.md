@@ -176,6 +176,32 @@ are historical and unrecoverable (ground rule 4) — the live defects are:
 - Re-run the citation sweep every pass. Null-page share and unopenable share
   must both move monotonically down.
 
+### Correction, 25 October 2026 — this metric overstated the problem
+
+"20% of citations have no page" counted citations that cannot have one.
+Broken down against live data: of 207 page-less citations, **113 are
+whole-document aggregate views**, which are computed across every fact in a
+document and have no single page by nature, and **94 come from .docx
+sources**, which have no pagination at all. None was a case of a page that
+existed and was lost.
+
+So the figure to track is not "citations without a page" but "citations
+whose source has pages and which lack one" — which is currently zero.
+Every fact in every PDF in this deployment carries a page (6,081 facts,
+221 without a page, none of them from a PDF).
+
+The real gap was different and is now closed: a .docx citation could name
+its section and show its text but could not put the reader at the passage,
+because SourceViewer never rendered Word at all. It now opens the document
+and scrolls to the cited passage, which is the same promise a page number
+keeps for a PDF.
+
+What remains is the 114 unopenable citations pointing at a document that
+was deleted and re-uploaded. Those cannot be recovered without inventing
+provenance (ground rule 4); the viewer states "Source removed", and their
+share falls as new citations accumulate — 32% of all citations in October,
+11% now.
+
 ## 6. SCANNED DOCUMENTS NEED A HUMAN TO FINISH THEM  (severity: medium-high)
 
 **Measured:** page-image transcription runs 6 at a time at ~9.4s a page,

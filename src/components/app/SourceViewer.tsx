@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { FileText, X, Loader2 } from 'lucide-react'
 import type { Citation } from '@/types'
 import PdfViewer from './PdfViewer'
+import DocxViewer from './DocxViewer'
 
 interface Props {
   citation: Citation | null
@@ -101,6 +102,9 @@ export default function SourceViewer({ citation, onClose }: Props) {
   const wasReindexed = citation.source_state === 'reindexed'
   const sourceUnavailable = citation.source_state === 'unavailable'
   const isFactCitation = citation.document_chunk_id == null && !wasReindexed
+  // Word and OpenDocument carry no pagination, so their citations anchor on
+  // the passage rather than on a page.
+  const isWordSource = /\.(docx?|odt)$/i.test(citation.document_source ?? citation.document_title ?? '')
   const score = isFactCitation
     ? Math.round((citation.relevance_score ?? 0) * 100)
     : matchConfidence(citation.relevance_score)
@@ -173,6 +177,15 @@ export default function SourceViewer({ citation, onClose }: Props) {
             // just showing the excerpt text below.
             <div className="flex-1">
               <PdfViewer key={citation.id} url={downloadUrl} initialPage={citation.page_number} />
+            </div>
+          ) : downloadUrl && isWordSource && citation.chunk_text ? (
+            // A Word file has no page to open at, which left its citations
+            // showing their text and nothing else — the reader could read
+            // the passage but not see where it sits. The viewer scrolls to
+            // the passage instead, which is the same promise a page number
+            // keeps for a PDF.
+            <div className="flex-1">
+              <DocxViewer key={citation.id} url={downloadUrl} highlight={citation.chunk_text} />
             </div>
           ) : (
             <>

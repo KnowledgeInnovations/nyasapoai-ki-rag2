@@ -324,8 +324,8 @@ export async function GET(request: NextRequest) {
       .select(`
         id, document_chunk_id, relevance_score, message_index,
         document_id, fact_label, cited_text, page_number, section_title,
-        document_chunks(chunk_text, document_id, metadata, documents(title)),
-        documents(title)
+        document_chunks(chunk_text, document_id, metadata, documents(title, source)),
+        documents(title, source)
       `)
       .eq('conversation_id', convId)
       .order('created_at', { ascending: true })
@@ -336,8 +336,9 @@ export async function GET(request: NextRequest) {
       // — fall back to their own synthetic label/document/page/section
       // instead of a joined chunk.
       if (!chunk) {
-        const rawDocs = row.documents as { title: string } | { title: string }[] | null | undefined
-        const docTitle = Array.isArray(rawDocs) ? rawDocs[0]?.title : rawDocs?.title
+        const rawDocs = row.documents as { title: string; source?: string } | { title: string; source?: string }[] | null | undefined
+        const docRow = Array.isArray(rawDocs) ? rawDocs[0] : rawDocs
+        const docTitle = docRow?.title
         // Three different situations arrive here, and conflating them was
         // how a destroyed citation passed for a healthy one:
         //
@@ -356,6 +357,7 @@ export async function GET(request: NextRequest) {
           document_chunk_id: null,
           document_id: row.document_id ?? '',
           document_title: docTitle ?? 'Document',
+          document_source: docRow?.source ?? null,
           chunk_text: (reindexed ? row.cited_text : row.fact_label) ?? '',
           relevance_score: row.relevance_score,
           highlight: null,
@@ -367,8 +369,9 @@ export async function GET(request: NextRequest) {
             : 'live' as const,
         }
       }
-      const rawDocs = chunk.documents as { title: string } | { title: string }[] | null | undefined
-      const docTitle = Array.isArray(rawDocs) ? rawDocs[0]?.title : rawDocs?.title
+      const rawDocs = chunk.documents as { title: string; source?: string } | { title: string; source?: string }[] | null | undefined
+      const docRow = Array.isArray(rawDocs) ? rawDocs[0] : rawDocs
+      const docTitle = docRow?.title
       const meta = (chunk.metadata ?? {}) as Record<string, unknown>
       return {
         id: row.id,
@@ -376,6 +379,7 @@ export async function GET(request: NextRequest) {
         document_chunk_id: row.document_chunk_id,
         document_id: chunk.document_id ?? '',
         document_title: docTitle ?? 'Document',
+        document_source: docRow?.source ?? null,
         chunk_text: chunk.chunk_text ?? '',
         relevance_score: row.relevance_score,
         highlight: null,
