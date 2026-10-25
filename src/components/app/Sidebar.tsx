@@ -8,6 +8,8 @@ import {
   ChevronLeft, ChevronRight, X, Plus, History, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useCurrentUserId } from './CurrentUser'
+import { scopedKey } from '@/lib/clientStore'
 import { canAccessDashboards, normalizeRole } from '@/lib/roles'
 
 interface HistoryItem {
@@ -128,6 +130,9 @@ export default function AppSidebar({ role, tenantName, tenantLogoUrl, isPlatform
   const pathname = usePathname()
   const router   = useRouter()
   const isAsk    = pathname.startsWith('/ask')
+  // Keyed to the account, for the same reason AskInterface is: browser
+  // storage is shared by everyone who signs in on this browser.
+  const currentUserId = useCurrentUserId()
   const navItems = useMemo(() => getNavItems(role, isPlatformAdmin, isPlatformTenant), [role, isPlatformAdmin, isPlatformTenant])
   const initials = useMemo(() => tenantInitials(tenantName), [tenantName])
 
@@ -191,8 +196,10 @@ export default function AppSidebar({ role, tenantName, tenantLogoUrl, isPlatform
       return
     }
     try {
-      localStorage.removeItem('ki_last_session')
-      sessionStorage.removeItem('ki_pending_conversation')
+      if (currentUserId) {
+        localStorage.removeItem(scopedKey('ki_last_session', currentUserId))
+        sessionStorage.removeItem(scopedKey('ki_pending_conversation', currentUserId))
+      }
     } catch {}
     router.push('/ask')
   }
@@ -204,7 +211,9 @@ export default function AppSidebar({ role, tenantName, tenantLogoUrl, isPlatform
       window.dispatchEvent(new CustomEvent('open-conversation', { detail: item }))
       return
     }
-    try { sessionStorage.setItem('ki_pending_conversation', item.id) } catch {}
+    try {
+      if (currentUserId) sessionStorage.setItem(scopedKey('ki_pending_conversation', currentUserId), item.id)
+    } catch {}
     router.push('/ask')
   }
 

@@ -5,6 +5,8 @@ import type { User } from '@supabase/supabase-js'
 import AppSidebar from './Sidebar'
 import AppTopNav from './TopNav'
 import AuthListener from './AuthListener'
+import { CurrentUserProvider } from './CurrentUser'
+import { purgeForeignKeys } from '@/lib/clientStore'
 
 interface Props {
   user: User
@@ -34,6 +36,12 @@ export default function AppShell({ user, role, tenantName, tenantLogoUrl, isPlat
     try { localStorage.setItem('sidebar-collapsed', String(collapsed)) } catch {}
   }, [collapsed])
 
+  // Anything this app cached in browser storage for a different account is
+  // dropped before a page can read it. Browser storage is per-origin, not
+  // per-account, and a session that ends without a clean sign-out leaves its
+  // keys behind for whoever signs in next — see src/lib/clientStore.ts.
+  useEffect(() => { purgeForeignKeys(user.id) }, [user.id])
+
   // Close mobile drawer on resize to desktop
   useEffect(() => {
     const handle = () => { if (window.innerWidth >= 768) setMobileOpen(false) }
@@ -42,6 +50,7 @@ export default function AppShell({ user, role, tenantName, tenantLogoUrl, isPlat
   }, [])
 
   return (
+    <CurrentUserProvider userId={user.id}>
     <div className="flex overflow-hidden bg-paper font-editorial-sans" style={{ height: '100dvh' }}>
       <AuthListener />
       {/* Mobile overlay backdrop */}
@@ -69,5 +78,6 @@ export default function AppShell({ user, role, tenantName, tenantLogoUrl, isPlat
         <main className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">{children}</main>
       </div>
     </div>
+    </CurrentUserProvider>
   )
 }

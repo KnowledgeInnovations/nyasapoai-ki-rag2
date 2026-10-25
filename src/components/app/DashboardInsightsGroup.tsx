@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useCurrentUserId } from './CurrentUser'
+import { scopedKey } from '@/lib/clientStore'
 import { SENTIMENT_CONFIG, type Sentiment } from './DashboardWidgets'
 
 interface InsightData {
@@ -97,11 +99,18 @@ export default function DashboardInsightsGroup({ insights }: Props) {
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(false)
 
-  const cacheKey = `dash-batch:${insights.map(i => i.label).join('|')}`
+  // Keyed to the account: these are answers drawn from documents, and
+  // sessionStorage outlives a sign-out in the same tab. With no user id
+  // there is no key this can safely be stored under, so it is fetched fresh
+  // and not cached.
+  const currentUserId = useCurrentUserId()
+  const cacheKey = currentUserId
+    ? scopedKey(`dash-batch:${insights.map(i => i.label).join('|')}`, currentUserId)
+    : null
 
   function load(forceRefresh = false) {
     if (!forceRefresh) {
-      const cached = getCached(cacheKey)
+      const cached = cacheKey ? getCached(cacheKey) : null
       if (cached) { setData(cached); setLoading(false); return }
     }
     setLoading(true)
@@ -112,7 +121,7 @@ export default function DashboardInsightsGroup({ insights }: Props) {
       body: JSON.stringify({ questions: insights }),
     })
       .then(r => r.json())
-      .then(d => { setData(d.insights); setCached(cacheKey, d.insights); setLoading(false) })
+      .then(d => { setData(d.insights); if (cacheKey) setCached(cacheKey, d.insights); setLoading(false) })
       .catch(() => { setError(true); setLoading(false) })
   }
 

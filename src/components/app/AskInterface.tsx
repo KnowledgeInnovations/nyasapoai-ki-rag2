@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useCurrentUserId } from './CurrentUser'
+import { scopedKey } from '@/lib/clientStore'
 import {
   Send, Sparkles,
   AlertTriangle, CheckCircle2, Paperclip,
@@ -248,6 +250,14 @@ function WelcomeScreen({ greeting, firstName, tenantName }: {
 
 /* ── Main component ──────────────────────────────────────── */
 export default function AskInterface({ userName = 'there', tenantName = 'Nyansa AI' }: { userName?: string; tenantName?: string }) {
+  // The snapshot below is this account's conversation, and browser storage is
+  // shared by every account that signs in on this browser. Without the id in
+  // the key, the next person to sign in reads it — which is exactly what
+  // happened on the Ghana AI Summit workspace. Null outside the app shell,
+  // and then nothing is read or written at all.
+  const currentUserId = useCurrentUserId()
+  const sessionKey  = currentUserId ? scopedKey('ki_last_session', currentUserId) : null
+  const pendingKey  = currentUserId ? scopedKey('ki_pending_conversation', currentUserId) : null
   const [messages,      setMessages]      = useState<Message[]>([])
   const [input,         setInput]         = useState('')
   const [loading,       setLoading]       = useState(false)
@@ -320,13 +330,14 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
   // field was added to stored messages, the localStorage write path needed
   // its own separate update to match, and it's easy for that to lag behind.
   useEffect(() => {
+    if (!sessionKey || !pendingKey) return
     let cancelled = false
     try {
       // A conversation the sidebar was asked to open from another page. It
       // could not dispatch `open-conversation` at an AskInterface that had
       // not mounted, so it left the id here and navigated. Consumed once, so
       // a later reload goes back through the normal last-session restore.
-      const pending = sessionStorage.getItem('ki_pending_conversation')
+      const pending = sessionStorage.getItem(pendingKey)
       if (pending) {
         fetch(`/api/chat?id=${pending}`)
           .then(r => r.ok ? r.json() : Promise.reject())
@@ -343,11 +354,11 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
           // meant the second run found nothing, while the first run's
           // cleanup had already set `cancelled` — so the conversation was
           // fetched, discarded, and the page opened empty.
-          .finally(() => { try { sessionStorage.removeItem('ki_pending_conversation') } catch {} })
+          .finally(() => { try { sessionStorage.removeItem(pendingKey) } catch {} })
         return () => { cancelled = true }
       }
 
-      const raw = localStorage.getItem('ki_last_session')
+      const raw = localStorage.getItem(sessionKey)
       if (!raw) return
       const { convId, messages: saved } = JSON.parse(raw) as {
         convId: string | null
@@ -367,14 +378,27 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
         .then(d => {
           if (cancelled) return
           const conv = d?.conversation as { id: string; messages: StoredMessage[] | null } | null
-          if (!conv?.messages?.length) { applyLocal(); return }
+          // The server has no such conversation for this account: it was
+          // deleted, or it was never ours. Either way the snapshot must not
+          // be put back on screen — showing a thread the server just refused
+          // to hand over is how one user's answer appeared on another user's
+          // Ask page, under an empty history. Drop it and start clean.
+          if (!conv) {
+            try { localStorage.removeItem(sessionKey) } catch {}
+            return
+          }
+          // A real row with no messages: a conversation recorded before the
+          // messages column existed. The local copy is all there is.
+          if (!conv.messages?.length) { applyLocal(); return }
           setSessionConvId(conv.id)
           setMessages(toRenderable(conv.messages))
         })
+        // The request itself failed (offline, server down). This snapshot is
+        // this account's own, so showing it is right.
         .catch(() => { if (!cancelled) applyLocal() })
     } catch {}
     return () => { cancelled = true }
-  }, [])
+  }, [sessionKey, pendingKey])
 
   // Restored sessions (from localStorage or the sidebar history) start with
   // empty citations on AI messages, so inline [n] markers aren't clickable.
@@ -419,7 +443,7 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
   // response finishes (sessionConvId may still be null), so a refresh or
   // accidental reload never wipes out the conversation in progress.
   useEffect(() => {
-    if (messages.length === 0) return
+    if (messages.length === 0 || !sessionKey) return
     try {
       const storable = messages.map(m => ({
         role:            m.role,
@@ -436,9 +460,9 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
         chart:           m.response?.chart,
         bar_chart:       m.response?.bar_chart,
       }))
-      localStorage.setItem('ki_last_session', JSON.stringify({ convId: sessionConvId, messages: storable }))
+      localStorage.setItem(sessionKey, JSON.stringify({ convId: sessionConvId, messages: storable }))
     } catch {}
-  }, [sessionConvId, messages])
+  }, [sessionKey, sessionConvId, messages])
 
   // Listen for sidebar "New Chat"
   useEffect(() => {
@@ -446,12 +470,12 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
       streamGuardRef.current++
       setMessages([])
       setSessionConvId(null)
-      try { localStorage.removeItem('ki_last_session') } catch {}
+      try { if (sessionKey) localStorage.removeItem(sessionKey) } catch {}
       setTimeout(() => textareaRef.current?.focus(), 50)
     }
     window.addEventListener('new-chat', handler)
     return () => window.removeEventListener('new-chat', handler)
-  }, [])
+  }, [sessionKey])
 
   // Listen for sidebar conversation click
   useEffect(() => {
