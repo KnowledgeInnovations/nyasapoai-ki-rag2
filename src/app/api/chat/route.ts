@@ -69,12 +69,19 @@ export function OPENAI_HEADERS() {
 function aiIssuePenalty(
   issueCount: number,
   isHonestInsufficiency: boolean,
-  verification: { totalNumbers: number; supportedNumbers: number },
+  verification: { totalNumbers: number; supportedNumbers: number; citationCoverage?: number },
 ): number {
   if (isHonestInsufficiency) return Math.min(10, 5 * issueCount)
-  const fullyVerified = verification.totalNumbers >= 5 &&
+  // An answer is well evidenced either way: every figure matched against
+  // the sources, or — where it states no figures — nearly every claim
+  // carrying a citation. Both deserve the same treatment, and before this
+  // only the numeric case got it: a correct, fully cited prose answer lost
+  // 15 to 30 points whenever the cross-check raised a soft issue, which it
+  // does intermittently on identical input.
+  const numericallyVerified = verification.totalNumbers >= 5 &&
     verification.supportedNumbers === verification.totalNumbers
-  return fullyVerified
+  const wellCited = verification.totalNumbers === 0 && (verification.citationCoverage ?? 0) >= 0.8
+  return numericallyVerified || wellCited
     ? Math.min(12, 6 * issueCount)
     : Math.min(30, 15 * issueCount)
 }
@@ -2015,16 +2022,16 @@ Cite this aggregate view as ${markers.join(', ')} whenever you use a count from 
           // Why a given answer scored what it did. Confidence has been wrong
           // in both directions — a correct count at 43%, an uncited aside at
           // 64% — and neither was diagnosable from the score alone.
-          console.log('[RAG] verification', {
-            totalNumbers: verification.totalNumbers,
-            supportedNumbers: verification.supportedNumbers,
-            unsupported: verification.unsupported.slice(0, 12),
-            score: verification.confidenceScore,
-            trustedFigures: aggregateFigures.length,
-            avgRetrieval: retrievalScores.length
-              ? Number((retrievalScores.reduce((a, b) => a + b, 0) / retrievalScores.length).toFixed(3))
-              : 0,
-          })
+          // Logged as one string, not an object: the platform's logger
+          // collapses objects to {} and these diagnostics were unreadable
+          // in exactly the situation they exist for.
+          console.log(
+            `[RAG] verification numbers=${verification.supportedNumbers}/${verification.totalNumbers} ` +
+            `score=${verification.confidenceScore} trusted=${aggregateFigures.length} ` +
+            `coverage=${verification.citationCoverage ?? '-'} ` +
+            `avgRetrieval=${retrievalScores.length ? (retrievalScores.reduce((a, b) => a + b, 0) / retrievalScores.length).toFixed(3) : 0} ` +
+            `unsupported=[${verification.unsupported.slice(0, 8).join(',')}]`,
+          )
 
           // The answer itself explicitly says the literal question can't be
           // fully answered from the available evidence (e.g. "does not
@@ -2077,6 +2084,7 @@ Cite this aggregate view as ${markers.join(', ')} whenever you use a count from 
               verification.confidenceScore = Math.max(floor, verification.confidenceScore - penalty)
               verification.confidenceLevel =
                 verification.confidenceScore >= 75 ? 'High' : verification.confidenceScore >= 50 ? 'Medium' : 'Low'
+              console.log(`[RAG] ai-check issues=${issues.length} -> score=${verification.confidenceScore}`)
             } else if (verified && verification.totalNumbers === 0 && !isHonestInsufficiency) {
               // No numeric claims, so verifyAnswer() above scored this purely
               // on chunk-retrieval similarity — which for a short, correctly-
@@ -2114,6 +2122,7 @@ Cite this aggregate view as ${markers.join(', ')} whenever you use a count from 
               // wasn't zero-relevance retrieval" signal than an LLM relevance
               // grade that has no way to judge page/metadata lookups from
               // content alone.
+              console.log(`[RAG] ai-check clean verified=${verified} cited=${/\[\d+\]/.test(answer)}`)
               if (/\[\d+\]/.test(answer)) {
                 const avgSignal = retrievalScores.length
                   ? retrievalScores.reduce((s, v) => s + v, 0) / retrievalScores.length

@@ -251,6 +251,38 @@ at 35% by the uncited-answer rule, but the underlying blindness remains.
 - Re-verify that the uncited-answer ceiling has not caught a legitimate case —
   inventory questions and honest-insufficiency answers are deliberately exempt.
 
+### Resolved, 25 October 2026 — a prose answer now has stable evidence
+
+**Measured:** "Who is the narrator writing his letters to?" — correct,
+seven citations — scored 97, 97 and 98 when the AI cross-check came back
+clean and 42 and 60 when it raised a soft issue, on identical input. A
+37-point spread decided by a non-deterministic check.
+
+**Cause.** With no figures to verify, the score was retrieval similarity
+alone, and the cross-check's penalty was applied on top with nothing to
+balance it: a clean check boosted into the nineties, any issue took 15 to
+30 points off a similarity base. So the number reported the checker's mood
+rather than the answer.
+
+**Fix.** An answer with no figures is now scored on citation coverage —
+the share of its substantive sentences carrying a marker — at 60% weight
+against 40% retrieval. It is the prose analogue of supported-figures over
+stated-figures: deterministic, computed from the answer itself, and about
+the property that matters, which is whether a reader can follow a claim to
+its source. Short connectives, headings and list introductions are
+excluded, since requiring a citation on "They are:" would punish an answer
+for being readable. And a well-cited answer now attracts the same reduced
+cross-check penalty that a fully-verified numeric one does.
+
+**After:** five consecutive runs of the same question scored 96, 96, 94,
+97, 98 — a four-point spread.
+
+**Still open:** an honest refusal is pinned near the 20% floor, so a
+correct "these documents do not cover this" displays 20% beside it, which
+reads as doubt about a refusal that is exactly right. Decide whether such
+an answer should show a confidence figure at all, rather than tuning the
+floor.
+
 ## 9. EXTRACTION GAPS STILL OPEN  (severity: medium)
 
 **Measured on the 16-document corpus (15 pass, 1 needs `--vision`):**

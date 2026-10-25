@@ -455,6 +455,12 @@ export function computeForecast(chunks: { chunk_text: string }[], periods = 5): 
 }
 
 export interface VerificationResult {
+  /**
+   * The share of the answer's substantive sentences carrying a citation
+   * marker. The evidence a prose answer offers, as supportedNumbers is for
+   * a numeric one.
+   */
+  citationCoverage?: number
   totalNumbers: number
   supportedNumbers: number
   growthChecks: { claimedPct: number; actualPct: number; ok: boolean; sentence: string }[]
@@ -679,6 +685,17 @@ export function verifyAnswer(
     }
   }
 
+  // The share of the answer's substantive sentences that carry a [n]
+  // marker. Short connective lines, headings and list introductions are
+  // excluded — requiring a citation on "They are:" would punish an answer
+  // for being readable.
+  const substantive = answerText
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map(line => line.trim())
+    .filter(line => line.length >= 45 && /[a-z]{4}/i.test(line) && !/:$/.test(line))
+  const citedSentences = substantive.filter(line => /\[\d+\]/.test(line)).length
+  const citationCoverage = substantive.length ? citedSentences / substantive.length : 0
+
   const avgRetrieval = retrievalScores.length
     ? retrievalScores.reduce((s, v) => s + v, 0) / retrievalScores.length
     : 0
@@ -694,10 +711,22 @@ export function verifyAnswer(
   // doesn't matter if the model fabricated the numbers it quoted from it.
   let confidenceScore: number
   if (totalNumbers === 0) {
-    // No numeric claims to check — confidence reflects retrieval quality
-    // directly (the AI verifier's issue penalty, applied by the caller,
-    // covers factual/quote accuracy for these answers).
-    confidenceScore = Math.round(retrievalComponent)
+    // No numeric claims, so the stable evidence is whether the answer's
+    // claims are cited at all.
+    //
+    // This used to be retrieval similarity alone, with the AI
+    // cross-check's penalty applied on top by the caller — which meant a
+    // non-numeric answer's score was similarity plus whatever that check
+    // happened to make of it that run. Measured: "who is the narrator
+    // writing to", correct with seven citations, scored 97, 97, 98 when
+    // the check came back clean and 42 and 60 when it raised a soft issue,
+    // on identical input. The number was reporting the checker's mood.
+    //
+    // Citation coverage is the prose analogue of "supported figures over
+    // stated figures": deterministic, computed from the answer itself, and
+    // about the property that matters — can a reader follow this claim to
+    // a source.
+    confidenceScore = Math.round(0.4 * retrievalComponent + 0.6 * citationCoverage * 100)
   } else {
     confidenceScore = Math.round(
       0.25 * retrievalComponent + 0.55 * verificationRatio * 100 + 0.2 * growthAccuracy * 100,
@@ -720,5 +749,9 @@ export function verifyAnswer(
   const confidenceLevel: VerificationResult['confidenceLevel'] =
     confidenceScore >= 75 ? 'High' : confidenceScore >= 50 ? 'Medium' : 'Low'
 
-  return { totalNumbers, supportedNumbers, growthChecks, unsupported, confidenceScore, confidenceLevel }
+  return {
+    totalNumbers, supportedNumbers, growthChecks, unsupported,
+    citationCoverage: Math.round(citationCoverage * 100) / 100,
+    confidenceScore, confidenceLevel,
+  }
 }
