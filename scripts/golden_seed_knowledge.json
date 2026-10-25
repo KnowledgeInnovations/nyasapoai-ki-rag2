@@ -1,0 +1,41 @@
+{
+  "_note": "The only trained document in this workspace is a test upload made during development (Frankenstein, as EPUB) — so this measures retrieval over 431 chunks of long-form prose, not this customer's own content. Answers verified against the indexed text with the chapter they appear in.",
+  "questions": [
+    {
+      "document": "book",
+      "source_page": 2,
+      "question": "Who is Robert Walton writing his letters to?",
+      "expected_answer": "Mrs. Saville, in England — his sister Margaret.",
+      "expected_kind": "claim",
+      "expected_value": { "must_include": ["Saville"] },
+      "notes": "\"Mrs. Saville, England\" heads the opening letters (chapter 2 of the package)."
+    },
+    {
+      "document": "book",
+      "source_page": 4,
+      "question": "From which port does the narrator hire his vessel before sailing north?",
+      "expected_answer": "Archangel.",
+      "expected_kind": "claim",
+      "expected_value": { "must_include": ["Archangel"] },
+      "notes": "Named in the fourth chapter of the package."
+    },
+    {
+      "document": "book",
+      "source_page": 13,
+      "question": "At which university does Victor Frankenstein study?",
+      "expected_answer": "The University of Ingolstadt.",
+      "expected_kind": "claim",
+      "expected_value": { "must_include": ["Ingolstadt"] },
+      "notes": "Appears in chapter 13 of the package. A single distinctive proper noun, so a wrong answer is not a coincidence."
+    },
+    {
+      "document": null,
+      "source_page": null,
+      "question": "How many copies of this book were sold in Ghana in 2025?",
+      "expected_answer": "Not in this document — it is the text of the novel, with no sales figures.",
+      "expected_kind": "absent",
+      "expected_value": {},
+      "notes": "Plausible-sounding and absent: the document is a novel, not a sales report."
+    }
+  ]
+}

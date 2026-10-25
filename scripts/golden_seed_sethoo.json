@@ -1,0 +1,32 @@
+{
+  "_note": "This workspace holds one AI-generated marketing graphic, uploaded twice. Its text is garbled IN THE SOURCE ('Feerling', 'pregrating', 'dune', 'essier') — verified by opening the image, not by trusting the transcription — so questions avoid depending on the misspelt words. Three questions is the whole of what this knowledge base can support, and that is the finding rather than a shortcoming of the set.",
+  "questions": [
+    {
+      "document": "image",
+      "source_page": 1,
+      "question": "Which school subjects appear on the books in the image?",
+      "expected_answer": "Mathematics, English, Science and Social Studies.",
+      "expected_kind": "set",
+      "expected_value": { "members": ["Mathematics", "English", "Science", "Social Studies"] },
+      "notes": "Read off the book spines in the image itself. These four are transcribed correctly, unlike the speech bubble."
+    },
+    {
+      "document": "image",
+      "source_page": 1,
+      "question": "What does the teacher in the image say they spend hours doing every week?",
+      "expected_answer": "Preparing lesson notes.",
+      "expected_kind": "claim",
+      "expected_value": { "must_include": ["lesson notes"] },
+      "notes": "The speech bubble reads 'Every week, I spend hours pregrating lesson notes' — the misspelling is in the image, so the answer is matched on 'lesson notes' only."
+    },
+    {
+      "document": null,
+      "source_page": null,
+      "question": "What does Sethoo charge for a school subscription?",
+      "expected_answer": "Not in these documents — the workspace holds one marketing graphic and no pricing material.",
+      "expected_kind": "absent",
+      "expected_value": {},
+      "notes": "Plausible for the subject matter and absent from the only document present."
+    }
+  ]
+}
