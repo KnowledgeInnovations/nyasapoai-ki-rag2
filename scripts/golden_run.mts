@@ -8,7 +8,7 @@
  * one — see ACCURACY_LOOP_PROMPT.md ground rule 1.
  *
  * Usage:
- *   npx tsx scripts/golden_run.mts --seed <tenant-subdomain>   # load the seed set
+ *   npx tsx scripts/golden_run.mts --seed <sub> [--from golden_seed_x.json]
  *   npx tsx scripts/golden_run.mts --list <tenant-subdomain>
  *   npx tsx scripts/golden_run.mts <tenant-subdomain> [--repeat 2]
  *
@@ -52,7 +52,9 @@ if (!tenant) {
 }
 
 if (seedFor) {
-  const seedPath = path.join(import.meta.dirname, 'golden_seed.json')
+  // A seed file per workspace: the answers have to be read off that
+  // workspace's own documents, so one shared file cannot serve them all.
+  const seedPath = path.join(import.meta.dirname, flag('from') ?? 'golden_seed.json')
   const seed = JSON.parse(fs.readFileSync(seedPath, 'utf8')) as {
     questions: {
       document: string | null

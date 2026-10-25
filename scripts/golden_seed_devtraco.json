@@ -1,0 +1,95 @@
+{
+  "_note": "Expected answers read off the named page or section of the named document on 25 October 2026. Favours facts that discriminate between this workspace's documents: the SOPs share a template, so a question whose answer is the same in three of them tests little. Devtraco's own team should extend and correct this — see ACCURACY_LOOP_PROMPT.md ground rule 2.",
+  "questions": [
+    {
+      "document": "Pelican",
+      "source_page": 5,
+      "question": "How many hotel units does The Pelican Hotel have?",
+      "expected_answer": "134 fully fitted and furnished hotel units.",
+      "expected_kind": "figure",
+      "expected_value": { "value": 134, "tolerance": 0 },
+      "notes": "\"a collection of 134 fully fitted and furnished hotel units\" (p5)."
+    },
+    {
+      "document": "Pelican",
+      "source_page": 5,
+      "question": "What is the starting price for a one-bedroom unit at The Pelican Hotel?",
+      "expected_answer": "From $128,544.",
+      "expected_kind": "figure",
+      "expected_value": { "value": 128544, "tolerance": 0 },
+      "notes": "\"secure one of the few one-bedroom Units, starting from $128,544\" (p5). A distinctive figure, so a wrong answer here is not a coincidence."
+    },
+    {
+      "document": "Pelican",
+      "source_page": 4,
+      "question": "Which company manages The Pelican Hotel?",
+      "expected_answer": "Aleph Hospitality.",
+      "expected_kind": "claim",
+      "expected_value": { "must_include": ["Aleph Hospitality"] },
+      "notes": "\"Backed by an experienced international hotel management team (Aleph Hospitality)\" (p4)."
+    },
+    {
+      "document": "Forte",
+      "source_page": 3,
+      "question": "How many townhouses are there at Forte Residences?",
+      "expected_answer": "18 modern townhouses.",
+      "expected_kind": "figure",
+      "expected_value": { "value": 18, "tolerance": 0 },
+      "notes": "\"a gated community of 18 modern townhouses\" (p3)."
+    },
+    {
+      "document": "Forte",
+      "source_page": 3,
+      "question": "Which road is Forte Residences located off?",
+      "expected_answer": "Off the Spintex Road.",
+      "expected_kind": "claim",
+      "expected_value": { "must_include": ["Spintex"] },
+      "notes": "\"situated in the bustling and nurturing suburb off the Spintex Road\" (p3)."
+    },
+    {
+      "document": "Address",
+      "source_page": 6,
+      "question": "How many floors does Tower A at The Address have?",
+      "expected_answer": "13 floors.",
+      "expected_kind": "figure",
+      "expected_value": { "value": 13, "tolerance": 0 },
+      "notes": "\"Rising 13 floors\" and \"Floors - 13\" (p6). Tower A is the vacation-units tower."
+    },
+    {
+      "document": "Address",
+      "source_page": 4,
+      "question": "Which Accra neighbourhood is The Address located in?",
+      "expected_answer": "Roman Ridge.",
+      "expected_kind": "claim",
+      "expected_value": { "must_include": ["Roman Ridge"] },
+      "notes": "\"Located in Accra's serene Roman Ridge, close to the international airport\" (p4)."
+    },
+    {
+      "document": "HR COMMS",
+      "source_page": null,
+      "question": "What is the next review date for the HR, CSR and Communications SOP?",
+      "expected_answer": "30th November 2026.",
+      "expected_kind": "claim",
+      "expected_value": { "must_include": ["2026"] },
+      "notes": "Document Reference table: \"Next Review Date: 30th November 2026\". Chosen because the Finance and Development SOPs are both 2028, so this answer discriminates between documents built from the same template. A .docx has no page numbers; the section is the anchor."
+    },
+    {
+      "document": "SOP Development",
+      "source_page": null,
+      "question": "Who is the owner of the Development department SOP?",
+      "expected_answer": "The Director, Development.",
+      "expected_kind": "claim",
+      "expected_value": { "must_include": ["Director"] },
+      "notes": "Document Reference table: \"Owner: Director, Development\"."
+    },
+    {
+      "document": null,
+      "source_page": null,
+      "question": "How many employees does Devtraco Group have?",
+      "expected_answer": "Not in these documents — the SOPs describe procedures and the brochures describe properties; neither states a headcount.",
+      "expected_kind": "absent",
+      "expected_value": {},
+      "notes": "Checked against all four SOPs: no headcount, staff strength or employee count appears. Plausible and adjacent to the documents' subject, which is what makes it a useful test."
+    }
+  ]
+}

@@ -48,7 +48,7 @@ export interface GradedAnswer {
 // Phrases by which an answer declines. Used only for 'absent' questions,
 // where declining IS the correct answer.
 const DISCLOSES_ABSENCE_RX =
-  /\b(no (?:figure|data|information|record|mention|reference)|not (?:stated|recorded|listed|mentioned|included|covered|available|in (?:the|these|this))|do(?:es)? not (?:contain|state|list|mention|include|cover|specify)|nothing in (?:the|these)|insufficient evidence|outside (?:the )?scope|not something (?:addressed|covered))\b/i
+  /\b(no (?:figure|data|information|record|mention|reference|total|count|headcount)|not (?:stated|recorded|listed|mentioned|included|covered|available|in (?:the|these|this))|do(?:es)?(?:n't| not) (?:contain|state|list|mention|include|cover|specify|have|give|provide)|don't have|none of (?:the|these)|nothing in (?:the|these)|insufficient evidence|outside (?:the )?scope|not something (?:addressed|covered)|could not (?:find|locate)|couldn't (?:find|locate)|cannot (?:find|locate))\b/i
 
 /**
  * Every number in a piece of text, as values. Commas are thousands
@@ -138,38 +138,42 @@ export function gradeAnswer(
     }
 
     case 'absent': {
-      // Correct means saying the documents do not have it. An answer that
-      // produces a figure for something the documents do not contain is the
-      // most damaging failure this harness can catch.
+      // The verdict rests on what the answer ASSERTS, not on how it phrases
+      // its refusal.
       //
-      // A number the QUESTION supplied is not an invention, though. The
-      // first run of this grader failed a correct answer — "Insufficient
-      // evidence found in the available documents… it does not contain any
-      // revenue or licence fee figures, for 2025 or any other year" —
-      // because "2025" appeared in it, having come from the question.
-      // Marking a right answer wrong is the same class of error as the
-      // opposite, and a harness that does it cannot be trusted to grade
-      // anything.
+      // This branch first tried to recognise disclosure language, and
+      // failed three correct answers in a row because no list of phrases is
+      // ever complete — the last one said "I don't have a total employee
+      // headcount… none of the excerpts state a company-wide employee
+      // count", which is exactly right and matched nothing. A grader that
+      // marks right answers wrong is the same class of fault as one that
+      // marks wrong answers right, and both make the number meaningless.
+      //
+      // So the test is the thing that actually matters: did the answer put
+      // forward a quantity as the answer to a question the documents cannot
+      // answer? Numbers the question itself supplied do not count, and
+      // neither do years — a correct refusal routinely names the document's
+      // own period ("as at Q2 2026"), and counting that as a fabrication
+      // failed a right answer twice.
       const asked = new Set(numbersIn(question.question))
-      const disclosed = DISCLOSES_ABSENCE_RX.test(trimmed)
-      // A year is not a quantity. A correct disclosure routinely names the
-      // document's own period — "a list of stations in good standing as at
-      // Q2 2026" — and counting that as a fabricated figure failed a right
-      // answer twice over. What this test exists to catch is a QUANTITY
-      // asserted as the answer to a question the documents cannot answer.
       const isYear = (n: number) => Number.isInteger(n) && n >= 1900 && n <= 2100
-      const inventedFigure = numbersIn(trimmed).some(n => !asked.has(n) && !isYear(n))
-      if (disclosed && !inventedFigure) {
-        return { ...base, correct: true, reason: 'Correctly says the documents do not cover this.' }
-      }
-      if (disclosed && inventedFigure) {
+      const asserted = numbersIn(trimmed).filter(n => !asked.has(n) && !isYear(n))
+      const disclosed = DISCLOSES_ABSENCE_RX.test(trimmed)
+
+      if (!asserted.length) {
         return {
           ...base,
-          correct: false,
-          reason: 'Says the documents do not cover this and states a figure anyway.',
+          correct: true,
+          reason: disclosed
+            ? 'Correctly says the documents do not cover this.'
+            : 'States no figure for something the documents do not cover.',
         }
       }
-      return { ...base, correct: false, reason: 'Answered a question the documents do not cover.' }
+      return {
+        ...base,
+        correct: false,
+        reason: `Put forward ${asserted.slice(0, 3).join(', ')} for something the documents do not cover.`,
+      }
     }
 
     case 'claim': {
