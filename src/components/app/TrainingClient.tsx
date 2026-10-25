@@ -8,7 +8,7 @@ import {
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import GoldenSetCard from './GoldenSetCard'
-import type { TrainingDoc, Performance, SelfAssessmentRun, RegressionResultRow } from '@/app/(app)/training/page'
+import type { TrainingDoc, Performance, SelfAssessmentRun, RegressionResultRow } from '@/app/(app)/settings/training/page'
 import type { RecurringGap } from '@/lib/extractionGaps'
 
 // getRegressionQuestions() (selfAssessment.ts) now generates a tenant-
@@ -317,7 +317,7 @@ export default function TrainingClient({ docs, trainedCount, untrainedCount, per
       {/* ── Header ──────────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="font-editorial text-2xl font-normal text-gray-900">AI Training</h1>
+          <h2 className="font-editorial text-xl font-normal text-gray-900">AI Training</h2>
           <p className="mt-1 text-sm text-gray-500">
             Train the AI on each document so it can answer questions from its contents.
           </p>

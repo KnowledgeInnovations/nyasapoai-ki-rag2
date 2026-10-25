@@ -4,11 +4,11 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
-  MessageSquare, FileText, LayoutDashboard, Settings, Brain, Users, Building2,
+  MessageSquare, FileText, LayoutDashboard, Settings, Building2,
   ChevronLeft, ChevronRight, X, Plus, History, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { canAccessDashboards, canAccessTraining, canManageUsers, normalizeRole } from '@/lib/roles'
+import { canAccessDashboards, normalizeRole } from '@/lib/roles'
 
 interface HistoryItem {
   id: string
@@ -17,22 +17,35 @@ interface HistoryItem {
   risks: string[]
   recommendations: string[]
   created_at: string
+  /** Last turn in the thread — what the list is ordered and grouped by.
+   *  Absent on a database without migration 042, where created_at stands
+   *  in for it. */
+  updated_at?: string | null
+}
+
+/** When this conversation was last active, for ordering and for the label
+ *  shown under its title. */
+function activeAt(item: HistoryItem): string {
+  return item.updated_at ?? item.created_at
 }
 
 // The platform-operator tenant (Nyansa AI's own workspace) has no end-users
-// or reference documents of its own — Ask/Documents/Training/Dashboards/Users
-// are all client-tenant-facing features and are hidden for it regardless of
-// role. Its entire job is cross-tenant admin, so its nav is just Tenants and
+// or reference documents of its own — Ask/Documents/Dashboards are all
+// client-tenant-facing features and are hidden for it regardless of role.
+// Its entire job is cross-tenant admin, so its nav is just Tenants and
 // Settings.
+//
+// Users and Training are not nav entries of their own any more: both are
+// administration of this workspace rather than places you go to work, so
+// they are tabs inside Settings (/settings/users, /settings/training) and
+// are still role-gated there by their own routes.
 function getNavItems(role: string, isPlatformAdmin?: boolean, isPlatformTenant?: boolean) {
   const r = normalizeRole(role)
   return [
     ...(isPlatformTenant ? [] : [{ href: '/ask', icon: MessageSquare, label: 'Ask AI' }]),
     ...(isPlatformTenant ? [] : [{ href: '/documents', icon: FileText, label: 'Documents' }]),
-    ...(canAccessTraining(r) && !isPlatformTenant   ? [{ href: '/training',   icon: Brain,           label: 'Training'   }] : []),
-    ...(canAccessDashboards(r) && !isPlatformTenant  ? [{ href: '/dashboards', icon: LayoutDashboard, label: 'Dashboard' }] : []),
-    ...(canManageUsers(r) && !isPlatformTenant       ? [{ href: '/users',      icon: Users,           label: 'Users'      }] : []),
-    ...(isPlatformAdmin                              ? [{ href: '/admin/tenants', icon: Building2,    label: 'Tenants'    }] : []),
+    ...(canAccessDashboards(r) && !isPlatformTenant ? [{ href: '/dashboards', icon: LayoutDashboard, label: 'Dashboard' }] : []),
+    ...(isPlatformAdmin                             ? [{ href: '/admin/tenants', icon: Building2,    label: 'Tenants'    }] : []),
     { href: '/settings',   icon: Settings,         label: 'Settings'   },
   ]
 }
@@ -89,6 +102,20 @@ function WorkspaceBadge({ logoUrl, initials, tenantName, className }: {
   )
 }
 
+// The time a chat was last active. Inside the Today and Yesterday groups the
+// heading already supplies the day, so only the clock time is shown; anything
+// older carries its date as well.
+//
+// Locale-formatted on the client only, which is safe here because `history`
+// is empty on the server render — there is no timestamp in the HTML for a
+// different locale or timezone to disagree with.
+function stamp(iso: string, sameDay: boolean): string {
+  const d = new Date(iso)
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  if (sameDay) return time
+  return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} · ${time}`
+}
+
 // Generate a short readable title from the query
 function deriveTitle(query: string): string {
   const q = query.trim().replace(/[?!.]+$/, '')
@@ -121,19 +148,19 @@ export default function AppSidebar({ role, tenantName, tenantLogoUrl, isPlatform
       .catch(() => {})
   }, [])
 
-  // Load history when on ask route
+  // Loaded once for the whole session, not per route. It used to be fetched
+  // on /ask and cleared on the way out, so the history vanished the moment
+  // you opened a document and came back to nothing to click.
   useEffect(() => {
-    if (isAsk) fetchHistory()
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    else setHistory([])
-  }, [isAsk, fetchHistory])
+    if (!isPlatformTenant) fetchHistory()
+  }, [isPlatformTenant, fetchHistory])
 
   // Listen for refresh events from AskInterface
   useEffect(() => {
-    const handler = () => { if (isAsk) fetchHistory() }
+    const handler = () => fetchHistory()
     window.addEventListener('refresh-chat-history', handler)
     return () => window.removeEventListener('refresh-chat-history', handler)
-  }, [isAsk, fetchHistory])
+  }, [fetchHistory])
 
   // Listen for conversation open (to highlight active item)
   useEffect(() => {
@@ -152,16 +179,33 @@ export default function AppSidebar({ role, tenantName, tenantLogoUrl, isPlatform
     return () => window.removeEventListener('new-chat', handler)
   }, [])
 
+  // Both of these are reachable from every page now, and off /ask there is
+  // no AskInterface mounted to hear a dispatched event — it would be sent
+  // into an empty room. So the intent is left where AskInterface reads it on
+  // mount, and we navigate.
   function handleNewChat() {
     setActiveConvId(null)
-    window.dispatchEvent(new CustomEvent('new-chat'))
     onClose()
+    if (isAsk) {
+      window.dispatchEvent(new CustomEvent('new-chat'))
+      return
+    }
+    try {
+      localStorage.removeItem('ki_last_session')
+      sessionStorage.removeItem('ki_pending_conversation')
+    } catch {}
+    router.push('/ask')
   }
 
   function handleOpenConversation(item: HistoryItem) {
     setActiveConvId(item.id)
-    window.dispatchEvent(new CustomEvent('open-conversation', { detail: item }))
     onClose()
+    if (isAsk) {
+      window.dispatchEvent(new CustomEvent('open-conversation', { detail: item }))
+      return
+    }
+    try { sessionStorage.setItem('ki_pending_conversation', item.id) } catch {}
+    router.push('/ask')
   }
 
   function confirmDelete(e: React.MouseEvent, item: HistoryItem) {
@@ -197,21 +241,28 @@ export default function AppSidebar({ role, tenantName, tenantLogoUrl, isPlatform
   // so a tab left open across midnight doesn't keep grouping new
   // conversations under "Yesterday"; memoizing on `history` wouldn't
   // actually prevent that since it could go stretches without changing.
+  //
+  // Ordered here as well as by the API, because what counts as "latest" is
+  // the last turn in the thread and a database without migration 042 can
+  // only order by when it was opened.
   const now  = new Date()
   const prev = new Date(now)
   prev.setDate(prev.getDate() - 1)
   const today = now.toDateString()
   const yesterday = prev.toDateString()
-  const groups: { label: string; items: HistoryItem[] }[] = []
-  const todays    = history.filter(i => new Date(i.created_at).toDateString() === today)
-  const yesterdays = history.filter(i => new Date(i.created_at).toDateString() === yesterday)
-  const older     = history.filter(i => {
-    const d = new Date(i.created_at).toDateString()
+  const ordered = [...history].sort(
+    (a, b) => new Date(activeAt(b)).getTime() - new Date(activeAt(a)).getTime()
+  )
+  const groups: { label: string; items: HistoryItem[]; sameDay: boolean }[] = []
+  const todays     = ordered.filter(i => new Date(activeAt(i)).toDateString() === today)
+  const yesterdays = ordered.filter(i => new Date(activeAt(i)).toDateString() === yesterday)
+  const older      = ordered.filter(i => {
+    const d = new Date(activeAt(i)).toDateString()
     return d !== today && d !== yesterday
   })
-  if (todays.length)     groups.push({ label: 'Today',     items: todays })
-  if (yesterdays.length) groups.push({ label: 'Yesterday', items: yesterdays })
-  if (older.length)      groups.push({ label: 'Earlier',   items: older })
+  if (todays.length)     groups.push({ label: 'Today',     items: todays,     sameDay: true  })
+  if (yesterdays.length) groups.push({ label: 'Yesterday', items: yesterdays, sameDay: true  })
+  if (older.length)      groups.push({ label: 'Earlier',   items: older,      sameDay: false })
 
   const inner = (
     <div className={cn(
@@ -244,12 +295,12 @@ export default function AppSidebar({ role, tenantName, tenantLogoUrl, isPlatform
         <nav className="shrink-0 space-y-1 p-2 mt-1">
           {navItems.map(item => {
             const active = pathname.startsWith(item.href)
-            return (
-              <Link key={item.href} href={item.href} onClick={onClose}
+            const link = (
+              <Link href={item.href} onClick={onClose}
                 title={collapsed ? item.label : undefined}
                 className={cn(
-                  'group flex items-center border-l-2 transition-all duration-150',
-                  collapsed ? 'h-10 w-10 mx-auto justify-center border-l-0' : 'gap-3 px-3 py-2.5',
+                  'group flex min-w-0 items-center border-l-2 transition-all duration-150',
+                  collapsed ? 'h-10 w-10 mx-auto justify-center border-l-0' : 'flex-1 gap-3 px-3 py-2.5',
                   active
                     ? 'border-brand bg-brand-light text-brand font-semibold'
                     : 'border-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900'
@@ -258,22 +309,44 @@ export default function AppSidebar({ role, tenantName, tenantLogoUrl, isPlatform
                   'h-4 w-4 shrink-0 transition-colors',
                   active ? 'text-brand' : 'text-gray-400 group-hover:text-gray-500'
                 )} />
-                {!collapsed && <span className="text-sm font-medium">{item.label}</span>}
+                {!collapsed && <span className="truncate text-sm font-medium">{item.label}</span>}
               </Link>
+            )
+
+            // Starting a new chat belongs beside Ask AI, which is what it
+            // acts on — it used to be a full-width dashed button lower down,
+            // visible only once you were already on /ask. A sibling of the
+            // link rather than a child of it: a button nested inside an
+            // anchor is not valid markup, and its click would fight the
+            // navigation.
+            if (item.href !== '/ask' || collapsed) {
+              return <div key={item.href} className="flex">{link}</div>
+            }
+            return (
+              <div key={item.href}
+                className={cn('flex items-stretch', active && 'bg-brand-light')}>
+                {link}
+                <button onClick={handleNewChat} title="New chat" aria-label="New chat"
+                  className={cn(
+                    'flex w-9 shrink-0 items-center justify-center transition',
+                    active
+                      ? 'text-brand hover:bg-brand/10'
+                      : 'text-gray-400 hover:bg-gray-100 hover:text-gray-700'
+                  )}>
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
             )
           })}
         </nav>
 
-        {/* Chat history — only when on /ask and sidebar is expanded */}
-        {isAsk && !collapsed && (
+        {/* Chat history — on every page, whenever the sidebar is expanded.
+            The platform tenant has no Ask AI to have a history of. */}
+        {!collapsed && !isPlatformTenant && (
           <div className="flex flex-1 flex-col overflow-hidden border-t border-gray-200 mt-2 pt-2">
-            {/* New Chat button */}
-            <div className="px-2 pb-2 shrink-0">
-              <button onClick={handleNewChat}
-                className="flex w-full items-center gap-2 border border-dashed border-gray-300 px-3 py-2 text-xs font-semibold text-gray-500 transition hover:border-brand/40 hover:bg-brand-light hover:text-brand">
-                <Plus className="h-3.5 w-3.5" /> New Chat
-              </button>
-            </div>
+            <p className="px-4 pb-1 shrink-0 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+              Chats
+            </p>
 
             {/* History list */}
             <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-3">
@@ -305,6 +378,12 @@ export default function AppSidebar({ role, tenantName, tenantLogoUrl, isPlatform
                         )}>
                           {deriveTitle(item.query)}
                         </p>
+                        <p className={cn(
+                          'mt-0.5 text-[10px] tabular-nums',
+                          activeConvId === item.id ? 'text-brand/60' : 'text-gray-400'
+                        )}>
+                          {stamp(activeAt(item), group.sameDay)}
+                        </p>
                       </button>
                       <button
                         onClick={e => confirmDelete(e, item)}
@@ -333,12 +412,6 @@ export default function AppSidebar({ role, tenantName, tenantLogoUrl, isPlatform
             : <><ChevronLeft className="h-4 w-4" /><span className="text-xs font-medium">Collapse</span></>
           }
         </button>
-        {!collapsed && (
-          <div className="mt-1 border border-gray-200 bg-gray-50 px-3 py-2 text-center">
-            <p className="text-[10px] text-gray-400">Powered by</p>
-            <p className="font-editorial text-sm text-gray-700">Nyansa<span className="text-brand">·</span>AI</p>
-          </div>
-        )}
       </div>
     </div>
   )

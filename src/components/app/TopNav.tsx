@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronDown, LogOut, Settings, Menu, PanelLeftClose, PanelLeft } from 'lucide-react'
+import { ChevronDown, LogOut, Settings, Menu } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, usePathname } from 'next/navigation'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
@@ -10,14 +10,11 @@ import { cn } from '@/lib/utils'
 interface Props {
   user: SupabaseUser
   onMenuOpen: () => void
-  sidebarCollapsed: boolean
-  onToggleSidebar: () => void
 }
 
 const pageTitles: Record<string, string> = {
   '/ask':                          'Ask AI',
   '/documents':                    'Documents',
-  '/training':                     'AI Training',
   '/dashboards/executive':         'Executive Dashboard',
   '/dashboards/sales':             'Sales Dashboard',
   '/dashboards/marketing':         'Marketing Dashboard',
@@ -27,10 +24,12 @@ const pageTitles: Record<string, string> = {
   '/dashboards/hr':                'HR Dashboard',
   '/dashboards/communications':    'Communications Dashboard',
   '/dashboards':                   'Dashboards',
+  // Users and Training are tabs under Settings now, and the prefix match
+  // below covers them.
   '/settings':                     'Settings',
 }
 
-export default function AppTopNav({ user, onMenuOpen, sidebarCollapsed, onToggleSidebar }: Props) {
+export default function AppTopNav({ user, onMenuOpen }: Props) {
   const router   = useRouter()
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -49,7 +48,9 @@ export default function AppTopNav({ user, onMenuOpen, sidebarCollapsed, onToggle
   return (
     <header className="relative z-[300] flex h-14 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 font-editorial-sans">
 
-      {/* Left: sidebar toggles + page title */}
+      {/* Left: mobile menu + page title. The desktop collapse toggle used to
+          sit here too, duplicating the one in the sidebar footer — two
+          controls for one piece of state, a step apart. */}
       <div className="flex items-center gap-2">
         {/* Mobile hamburger */}
         <button onClick={onMenuOpen} aria-label="Open menu"
@@ -57,17 +58,6 @@ export default function AppTopNav({ user, onMenuOpen, sidebarCollapsed, onToggle
           <Menu className="h-5 w-5" />
         </button>
 
-        {/* Desktop collapse/expand toggle */}
-        <button onClick={onToggleSidebar} aria-label="Toggle sidebar"
-          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="hidden md:flex h-9 w-9 items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition">
-          {sidebarCollapsed
-            ? <PanelLeft className="h-4.5 w-4.5" />
-            : <PanelLeftClose className="h-4.5 w-4.5" />
-          }
-        </button>
-
-        <div className="h-4 w-px bg-gray-200 hidden md:block" />
         <h1 className="font-editorial text-base font-normal text-gray-800">{pageTitle}</h1>
       </div>
 

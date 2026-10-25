@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useCallback } from 'react'
 import { Loader2, Trash2, UserPlus, CheckCircle2 } from 'lucide-react'
 import { ROLE_LABELS, type Role } from '@/lib/roles'
 import { cn, formatRelativeTime } from '@/lib/utils'
@@ -80,8 +79,23 @@ function ActivityDot({ member, now }: { member: Member; now: number }) {
 }
 
 export default function UsersClient({ members, currentUserId }: Props) {
-  const router = useRouter()
   const [list, setList] = useState(members)
+
+  // An invite used to leave the list untouched: router.refresh() re-ran the
+  // server component, but `list` was seeded from the prop once and never
+  // read it again, so the new "Invite pending" row only appeared after a
+  // manual page refresh — the invite looked like it had not been sent.
+  // Re-reading the list from the API is what the row actually depends on,
+  // and it also picks up the status the server derives from last_active_at
+  // rather than guessing it here.
+  const reloadMembers = useCallback(async () => {
+    try {
+      const res = await fetch('/api/users')
+      if (!res.ok) return
+      const data = await res.json() as { members?: Member[] }
+      if (Array.isArray(data.members)) setList(data.members)
+    } catch {}
+  }, [])
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [removeTarget, setRemoveTarget] = useState<Member | null>(null)
   const [removing, setRemoving] = useState(false)
@@ -138,7 +152,7 @@ export default function UsersClient({ members, currentUserId }: Props) {
       } else {
         setInviteSent(true)
         setInviteEmail('')
-        router.refresh()
+        await reloadMembers()
         setTimeout(() => setInviteSent(false), 3000)
       }
     } catch {
@@ -152,9 +166,9 @@ export default function UsersClient({ members, currentUserId }: Props) {
   const pendingCount = list.filter(m => m.status === 'pending').length
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="space-y-6">
       <div>
-        <h1 className="font-editorial text-2xl font-normal text-gray-900">Users</h1>
+        <h2 className="font-editorial text-xl font-normal text-gray-900">Users</h2>
         <p className="mt-1 text-sm text-gray-500">Manage workspace members and their roles.</p>
       </div>
 

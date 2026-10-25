@@ -39,7 +39,7 @@ export async function GET() {
   }
 
   // Acceptance is judged by actual use of the workspace, not by
-  // auth.users.last_sign_in_at — see the note in src/app/(app)/users/page.tsx
+  // auth.users.last_sign_in_at — see the note in src/app/(app)/settings/users/page.tsx
   // for why that field is unreliable here (mail security scanners follow the
   // invite link and sign the invitee in before they ever see the email).
   const members = ((memberships ?? []) as Row[]).map(m => {

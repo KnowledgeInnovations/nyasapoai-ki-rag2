@@ -322,6 +322,31 @@ export default function AskInterface({ userName = 'there', tenantName = 'Nyansa 
   useEffect(() => {
     let cancelled = false
     try {
+      // A conversation the sidebar was asked to open from another page. It
+      // could not dispatch `open-conversation` at an AskInterface that had
+      // not mounted, so it left the id here and navigated. Consumed once, so
+      // a later reload goes back through the normal last-session restore.
+      const pending = sessionStorage.getItem('ki_pending_conversation')
+      if (pending) {
+        fetch(`/api/chat?id=${pending}`)
+          .then(r => r.ok ? r.json() : Promise.reject())
+          .then(d => {
+            if (cancelled) return
+            const conv = d?.conversation as { id: string; messages: StoredMessage[] | null } | null
+            if (!conv) return
+            setSessionConvId(conv.id)
+            setMessages(toRenderable(conv.messages ?? []))
+          })
+          .catch(() => {})
+          // Cleared once the request has finished, not before it starts.
+          // React runs effects twice in development: clearing it up front
+          // meant the second run found nothing, while the first run's
+          // cleanup had already set `cancelled` — so the conversation was
+          // fetched, discarded, and the page opened empty.
+          .finally(() => { try { sessionStorage.removeItem('ki_pending_conversation') } catch {} })
+        return () => { cancelled = true }
+      }
+
       const raw = localStorage.getItem('ki_last_session')
       if (!raw) return
       const { convId, messages: saved } = JSON.parse(raw) as {

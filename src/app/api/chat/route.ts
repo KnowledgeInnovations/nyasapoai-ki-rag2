@@ -402,12 +402,30 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ citations })
   }
 
-  const { data } = await supabase
+  // Newest activity first, not newest opened: a thread answered again this
+  // morning belongs at the top of the sidebar, under today's heading, rather
+  // than wherever it was first started. updated_at arrives with migration
+  // 042, and selecting a column a database does not have fails the whole
+  // query — so the fallback is a second attempt on created_at rather than an
+  // empty history.
+  const listColumns = 'id, query, response, risks, recommendations, messages, created_at, updated_at'
+  const { data, error } = await supabase
     .from('conversations')
-    .select('id, query, response, risks, recommendations, messages, created_at')
+    .select(listColumns)
     .eq('user_id', user.id)
-    .order('created_at', { ascending: false })
+    .order('updated_at', { ascending: false })
     .limit(60)
+
+  if (error) {
+    console.error('[chat] conversation list by updated_at failed, falling back to created_at:', error.message)
+    const { data: legacy } = await supabase
+      .from('conversations')
+      .select('id, query, response, risks, recommendations, messages, created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(60)
+    return NextResponse.json({ conversations: legacy ?? [] })
+  }
 
   return NextResponse.json({ conversations: data ?? [] })
 }

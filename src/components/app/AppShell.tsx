@@ -65,12 +65,7 @@ export default function AppShell({ user, role, tenantName, tenantLogoUrl, isPlat
       />
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <AppTopNav
-          user={user}
-          onMenuOpen={() => setMobileOpen(true)}
-          sidebarCollapsed={collapsed}
-          onToggleSidebar={() => setCollapsed(c => !c)}
-        />
+        <AppTopNav user={user} onMenuOpen={() => setMobileOpen(true)} />
         <main className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">{children}</main>
       </div>
     </div>

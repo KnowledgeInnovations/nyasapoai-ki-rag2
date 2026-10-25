@@ -3,14 +3,20 @@
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { CheckCircle2, Loader2, X, Plus, User, ShieldCheck, Building2, Upload, Image as ImageIcon } from 'lucide-react'
+import { CheckCircle2, Loader2, X, Plus, Upload, Image as ImageIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { normalizeRole, ROLE_LABELS, ROLE_DESCRIPTIONS, canUploadDocuments } from '@/lib/roles'
 import PasswordSettings from './PasswordSettings'
 import TwoFactorSettings from './TwoFactorSettings'
 import EmailSettings from './EmailSettings'
 
+type TabId = 'profile' | 'security' | 'workspace'
+
 interface Props {
+  /** Which panel to render. The Settings tab nav is a set of routes now (see
+   *  src/app/(app)/settings/layout.tsx), so the active one comes from the URL
+   *  rather than from state held here. */
+  section: TabId
   email: string
   name: string
   role: string
@@ -19,8 +25,6 @@ interface Props {
   /** Public URL of the tenant's custom icon, or null when using the default. */
   logoUrl: string | null
 }
-
-type TabId = 'profile' | 'security' | 'workspace'
 
 const ROLE_BADGES: Record<string, string> = {
   senior: 'bg-gold/15 text-yellow-700 border-gold/30',
@@ -37,9 +41,7 @@ function initialsFor(name: string, email: string): string {
   return email.slice(0, 2).toUpperCase()
 }
 
-export default function SettingsClient({ email, name, role, emailDomains, isPlatformTenant, logoUrl }: Props) {
-  const [activeTab, setActiveTab] = useState<TabId>('profile')
-
+export default function SettingsClient({ section, email, name, role, emailDomains, isPlatformTenant, logoUrl }: Props) {
   const [displayName, setDisplayName] = useState(name)
   const [saving,      setSaving]      = useState(false)
   const [saved,       setSaved]       = useState(false)
@@ -154,38 +156,9 @@ export default function SettingsClient({ email, name, role, emailDomains, isPlat
     }
   }
 
-  const TABS: { id: TabId; label: string; icon: typeof User }[] = [
-    { id: 'profile',   label: 'Profile',   icon: User },
-    { id: 'security',  label: 'Security',  icon: ShieldCheck },
-    { id: 'workspace', label: 'Workspace', icon: Building2 },
-  ]
-
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
-      {/* Page header */}
-      <div>
-        <h1 className="font-editorial text-2xl font-normal text-gray-900">Settings</h1>
-        <p className="mt-1 text-sm text-gray-500">Manage your profile, security, and workspace preferences.</p>
-      </div>
-
-      <div className="flex flex-col gap-6 md:flex-row">
-        {/* Tab nav — horizontal scroll on mobile, vertical sidebar from md up */}
-        <nav className="flex gap-1.5 overflow-x-auto pb-1 md:w-52 md:shrink-0 md:flex-col md:overflow-visible md:pb-0">
-          {TABS.map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                'flex shrink-0 items-center gap-2.5 whitespace-nowrap  px-4 py-2.5 text-sm font-semibold transition',
-                activeTab === tab.id ? 'bg-brand text-white shadow-md shadow-brand/20' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800',
-              )}>
-              <tab.icon className="h-4 w-4" />
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-
-        {/* Active tab content */}
-        <div className="min-w-0 flex-1 space-y-6">
-          {activeTab === 'profile' && (
+    <>
+          {section === 'profile' && (
             <>
             <section className="overflow-hidden  border border-gray-200/80 bg-white p-6 shadow-2xl shadow-black/5 md:p-8">
               <div className="mb-6 flex flex-wrap items-center gap-4  border border-gray-100 bg-gray-50/60 p-5">
@@ -232,14 +205,14 @@ export default function SettingsClient({ email, name, role, emailDomains, isPlat
             </>
           )}
 
-          {activeTab === 'security' && (
+          {section === 'security' && (
             <>
               <PasswordSettings email={email} />
               <TwoFactorSettings />
             </>
           )}
 
-          {activeTab === 'workspace' && (
+          {section === 'workspace' && (
             <>
               <section className="overflow-hidden  border border-gray-200 bg-white shadow-sm">
                 <div className="border-b border-gray-100 bg-gray-50/60 px-6 py-4">
@@ -376,8 +349,6 @@ export default function SettingsClient({ email, name, role, emailDomains, isPlat
               )}
             </>
           )}
-        </div>
-      </div>
-    </div>
+    </>
   )
 }

@@ -109,8 +109,15 @@ create table public.conversations (
   risks            text[],
   recommendations  text[],
   messages         jsonb not null default '[]'::jsonb,
-  created_at       timestamptz not null default now()
+  created_at       timestamptz not null default now(),
+  -- Last turn in the thread, which is what the sidebar history orders by.
+  -- See migration 042: created_at alone put a chat answered today under
+  -- whatever date it was first opened on.
+  updated_at       timestamptz not null default now()
 );
+
+create index if not exists conversations_user_updated_idx
+  on public.conversations (user_id, updated_at desc);
 
 -- ─────────────────────────────────────────
 -- CITATIONS  (which chunks supported an answer)
@@ -247,7 +254,8 @@ create or replace function public.append_conversation_messages(
 language plpgsql security definer as $$
 begin
   update public.conversations
-  set    messages = messages || p_new_messages
+  set    messages   = messages || p_new_messages,
+         updated_at = now()
   where  id      = p_conversation_id
     and  user_id = p_user_id;
 end;
