@@ -134,6 +134,29 @@ function parseDateValue(value: string): string | null {
   return null
 }
 
+/**
+ * The page a value sits on, within an excerpt that may span several.
+ *
+ * Finds where the value appears in the excerpt's text and reads off the
+ * page covering that position. Falls back to where the excerpt began when
+ * the value cannot be located — a paraphrased or reformatted value, say —
+ * which is the old behaviour and no worse than it was.
+ */
+function pageOf(chunk: ProcessedChunk | undefined, valueText: string): number | null {
+  if (!chunk) return null
+  const markers = chunk.page_offsets
+  if (!markers?.length) return chunk.page_number
+  const at = chunk.text.indexOf(valueText)
+  if (at < 0) return chunk.page_number
+  // The last marker at or before the value's position.
+  let page = markers[0].page
+  for (const marker of markers) {
+    if (marker.offset > at) break
+    page = marker.page
+  }
+  return page
+}
+
 // Words a model uses to mean "there is no unit". Stored as absence.
 const UNIT_PLACEHOLDERS = new Set(['null', 'none', 'n/a', 'na', 'undefined', 'nil', '-', ''])
 
@@ -142,10 +165,36 @@ function emptyUnit(unit: string | null | undefined): string | null {
   return UNIT_PLACEHOLDERS.has(trimmed.toLowerCase()) ? null : trimmed
 }
 
+/**
+ * The number a value states, where it states exactly one.
+ *
+ * The previous rule required the whole string to be digits, so every
+ * quantity carrying its unit failed: measured on this deployment, 2,059
+ * facts contained a digit and had no parsed number — "13 mins",
+ * "38.56 sqm", "$5,000", "17 floor" — against 424 that parsed. Nothing
+ * downstream can do arithmetic on a number it cannot see, so averages,
+ * comparisons, numeric verification of an answer's figures and any
+ * projection were all working from 17% of the numbers in the document.
+ *
+ * Deliberately strict about what counts as one quantity. The whole string
+ * must be a short optional prefix, one number, and a short optional unit —
+ * so "$5,000" and "38.56 sqm" parse, while "Unit 904B" does not (too much
+ * text before the number), nor does "2 - 3 days" (two numbers), nor a
+ * sentence that happens to contain a figure. A wrong number in the numeric
+ * layer is worse than a missing one: it would be averaged.
+ */
 function parseNumberValue(value: string): number | null {
-  const cleaned = value.replace(/[,$]/g, '').trim()
-  const n = parseFloat(cleaned)
-  return Number.isFinite(n) && /^-?[\d.]+%?$/.test(cleaned) ? n : null
+  const trimmed = value.trim()
+  // prefix: a currency symbol, sign, or up to three other characters.
+  // suffix: a unit, percent sign, or ordinal — nothing sentence-like.
+  const match = trimmed.match(/^([^\d]{0,3}?)(-?[\d,]+(?:\.\d+)?)\s*([a-zA-Z%²³°/.]{0,12})$/)
+  if (!match) return null
+  const [, , digits, suffix] = match
+  // A second number anywhere means this is a range or a pair, not a
+  // quantity: "2 - 3 days", "1/2 acre".
+  if (/\d/.test(suffix)) return null
+  const n = parseFloat(digits.replace(/,/g, ''))
+  return Number.isFinite(n) ? n : null
 }
 
 // Reorders chunks into an evenly-spread traversal (small local runs,
@@ -391,7 +440,11 @@ ${combined}`,
         // back as a unit and renders as "8 null". An absent unit has to be
         // absent.
         unit: emptyUnit(f.unit),
-        page_number: sourceChunk?.page_number ?? null,
+        // The page the value is actually printed on, not the page the
+        // excerpt it came from happened to start on. See page_offsets on
+        // ProcessedChunk: a chunk spanning pages 89-91 used to attribute
+        // everything in it to 89.
+        page_number: pageOf(sourceChunk, valueText),
         section_title: sourceChunk?.section_title ?? null,
         // Same base as aiEnhanceTableFacts — reaches the >=70 validated
         // gate without claiming table-extraction-grade certainty.

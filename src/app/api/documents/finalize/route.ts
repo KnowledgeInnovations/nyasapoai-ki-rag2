@@ -363,6 +363,10 @@ export async function POST(request: NextRequest) {
                     chunk_index: start + j,
                     total_chunks: chunks.length,
                     page_number: c.page_number,
+                    // Where each page starts inside this chunk's text, so a fact
+                    // drawn from it can be attributed to the page it is actually
+                    // on rather than to wherever the chunk began.
+                    page_offsets: c.page_offsets ?? null,
                     section_title: c.section_title,
                     fiscal_year: c.fiscal_year,
                     ministry: c.ministry,

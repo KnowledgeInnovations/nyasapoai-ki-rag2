@@ -134,6 +134,20 @@ export interface ExtractedPage {
 export interface ProcessedChunk {
   text: string
   page_number: number | null
+  /**
+   * Where each page's text begins within this chunk's own text, so a fact
+   * can be attributed to the page it actually appears on.
+   *
+   * A chunk accumulates across page boundaries and page_number records
+   * only where it STARTED, so every fact drawn from a chunk spanning pages
+   * 89 to 91 was attributed to 89. Measured against the source on one
+   * brochure: 83% of facts cited the page their value is on, 13% were off
+   * by one or two pages, and a worked case had the $5,000 reservation
+   * amount — printed on pages 91 and 92 — cited as page 89. A citation
+   * that opens the wrong page is worse than one with no page, because the
+   * reader concludes the figure was invented.
+   */
+  page_offsets?: { offset: number; page: number }[]
   section_title: string | null
   fiscal_year: string | null
   ministry: string | null
@@ -832,11 +846,29 @@ export function chunkPages(
   // 56 chunks carried it on the first attempt.
   let legendThisPage = false
 
+  // Page markers for the chunk being accumulated: the offset within
+  // `current` at which each page's text begins.
+  let pageOffsets: { offset: number; page: number }[] = []
+  const markPage = (page: number | null) => {
+    if (page == null) return
+    const last = pageOffsets[pageOffsets.length - 1]
+    if (last && last.page === page) return
+    pageOffsets.push({ offset: current.length, page })
+  }
+
   const flush = () => {
     const body = current.trim()
     const text = legendThisPage && body && !body.startsWith('[Columns:')
       ? `${columnLegend}\n${body}`
       : body
+    // Offsets are recorded against `current`; the trim and the legend
+    // shift them, so correct for both rather than storing offsets that
+    // point at the wrong characters.
+    const leadingTrim = current.length - current.trimStart().length
+    const legendShift = text === body ? 0 : columnLegend!.length + 1
+    const offsets = pageOffsets
+      .map(m => ({ offset: Math.max(0, m.offset - leadingTrim + legendShift), page: m.page }))
+      .filter(m => m.offset <= text.length)
     // Low floor — high enough to skip stray page-number/whitespace
     // artifacts, low enough not to drop a short but meaningful trailing
     // line (e.g. an isolated total-figure sentence).
@@ -844,6 +876,7 @@ export function chunkPages(
       chunks.push({
         text,
         page_number: currentPage,
+        page_offsets: offsets.length > 1 ? offsets : undefined,
         section_title: currentSection,
         fiscal_year: docFiscalYear,
         ministry: extractMinistry(text),
@@ -852,6 +885,7 @@ export function chunkPages(
       })
     }
     current = ''
+    pageOffsets = []
   }
 
   for (const page of pages) {
@@ -898,6 +932,10 @@ export function chunkPages(
         if (current.length >= maxChars * 0.7) flush()
         currentSection = cleanHeading(block)
         if (current.length === 0) currentPage = page.page_number
+        // A page whose first contribution is a heading needs its marker
+        // here too, or that page's text is recorded against the previous
+        // one.
+        markPage(page.page_number)
         current += (current ? '\n\n' : '') + block.trim()
         continue
       }
@@ -919,6 +957,9 @@ export function chunkPages(
       if (block.length < 8) continue
 
       if (current.length === 0) currentPage = page.page_number
+      // Every page that contributes prose gets a marker, not only the
+      // page a chunk began on.
+      markPage(page.page_number)
 
       if (block.length > maxChars) {
         const sentences = block.match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g) ?? [block]
@@ -927,6 +968,7 @@ export function chunkPages(
             flush()
             current = sent
             currentPage = page.page_number
+            markPage(page.page_number)
           } else {
             current += (current ? ' ' : '') + sent
           }
@@ -936,6 +978,7 @@ export function chunkPages(
         flush()
         current = overlap + '\n\n' + block
         currentPage = page.page_number
+        markPage(page.page_number)
       } else {
         current += (current ? '\n\n' : '') + block
       }

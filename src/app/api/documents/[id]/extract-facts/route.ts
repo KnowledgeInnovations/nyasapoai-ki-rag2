@@ -52,6 +52,10 @@ interface ChunkRow {
   fiscal_year: string | null
   ministry: string | null
   sector: string | null
+  // Carries page_offsets: where each page starts inside this excerpt's
+  // text. Without it, a fact from an excerpt spanning pages is attributed
+  // to the page the excerpt began on — see ProcessedChunk.page_offsets.
+  metadata: Record<string, unknown> | null
 }
 
 export async function POST(
@@ -92,7 +96,7 @@ export async function POST(
   // The queue: chunks of this document not yet checked for facts.
   const { data: pending, error: pendingError } = await service
     .from('document_chunks')
-    .select('id, chunk_text, page_number, section_title, fiscal_year, ministry, sector')
+    .select('id, chunk_text, page_number, section_title, fiscal_year, ministry, sector, metadata')
     .eq('document_id', id)
     .is('facts_extracted_at', null)
     .order('chunk_index', { ascending: true })
@@ -142,6 +146,7 @@ export async function POST(
     rows.map(r => ({
       text: r.chunk_text,
       page_number: r.page_number,
+      page_offsets: (r.metadata?.page_offsets as { offset: number; page: number }[] | null) ?? undefined,
       section_title: r.section_title,
       fiscal_year: r.fiscal_year,
       ministry: r.ministry,
@@ -201,7 +206,7 @@ export async function POST(
   }
 
   const factKey = (f: { subject?: string | null; attribute?: string | null; value_text?: string | null; value_number?: number | null; page_number?: number | null }) =>
-    [f.subject ?? '', f.attribute ?? '', f.value_text ?? '', f.value_number ?? '', f.page_number ?? ''].join(' ').toLowerCase()
+    [f.subject ?? '', f.attribute ?? '', f.value_text ?? '', f.value_number ?? '', f.page_number ?? ''].join('').toLowerCase()
 
   const seenAlready = new Set(priorFacts.map(factKey))
   const beforeDedupe = facts.length
