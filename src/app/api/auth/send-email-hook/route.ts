@@ -77,7 +77,9 @@ export async function POST(req: Request) {
   // seconds after the invite was created, before any of them opened the app.
   //
   // The interstitial renders harmlessly for a scanner and redeems the token
-  // only on a real click. See src/app/auth/accept-invite/page.tsx.
+  // only on a real click. See src/components/auth/AuthContinue.tsx, which
+  // takes its wording from the `type` below — every auth email comes through
+  // the one page, so a sign-in link must not be described as an invitation.
   // Host the interstitial on the same origin the link ultimately lands on —
   // redirect_to already carries the tenant's own subdomain, so the invitee
   // stays on their workspace's host the whole way through.
@@ -89,7 +91,7 @@ export async function POST(req: Request) {
   }
 
   const confirmationURL = email_data.token_hash && appOrigin
-    ? `${appOrigin}/auth/accept-invite?token_hash=${encodeURIComponent(email_data.token_hash)}&type=${encodeURIComponent(verifyTypeFor(actionType))}&redirect_to=${encodeURIComponent(email_data.redirect_to ?? '')}`
+    ? `${appOrigin}/auth/continue?token_hash=${encodeURIComponent(email_data.token_hash)}&type=${encodeURIComponent(verifyTypeFor(actionType))}&redirect_to=${encodeURIComponent(email_data.redirect_to ?? '')}`
     : undefined
 
   const email = buildAuthEmail(actionType, { confirmationURL, token: email_data.token })
