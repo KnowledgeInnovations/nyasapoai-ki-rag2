@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { getMembership, getTenant } from '@/lib/supabase/server'
+import { getMembership, getTenant, getUser } from '@/lib/supabase/server'
 import { validateSubdomainFormat } from '@/lib/tenant'
 import { normalizePlan } from '@/lib/plans'
 import { normalizeStatus } from '@/lib/workspaceStatus'
+import { recordAudit, AUDIT_ACTIONS } from '@/lib/audit'
 
 /**
  * Platform-admin provisioning: create a workspace on any plan, with its first
@@ -186,6 +187,21 @@ export async function POST(request: NextRequest) {
     await rollback(`membership failed: ${membershipError.message}`)
     return NextResponse.json({ error: 'Could not create the workspace.' }, { status: 500 })
   }
+
+  // Recorded against the new workspace, attributed to the platform admin
+  // who provisioned it — so the workspace's own log shows how it came to
+  // exist rather than beginning mid-story.
+  await recordAudit({
+    tenantId: tenant.id,
+    userId: (await getUser())?.id ?? null,
+    action: AUDIT_ACTIONS.WORKSPACE_CREATED,
+    resourceType: 'workspace',
+    resourceId: tenant.id,
+    metadata: {
+      name: tenant.name, subdomain: tenant.subdomain, plan, status,
+      via: 'platform admin', admin: adminEmail,
+    },
+  })
 
   console.log(`[admin/tenants] created ${tenant.name} (${tenant.subdomain}) on ${plan}/${status}, admin ${adminEmail}`)
 

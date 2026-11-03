@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { getMembership, getTenant, getTenantLogoPath, invalidateTenant, invalidateTenantLogo } from '@/lib/supabase/server'
+import { getMembership, getTenant, getTenantLogoPath, invalidateTenant, invalidateTenantLogo, getUser } from '@/lib/supabase/server'
+import { recordAudit, AUDIT_ACTIONS } from '@/lib/audit'
 import { TENANT_LOGO_BUCKET, publicUrlFor } from '@/lib/tenantLogo'
 
 function svc() {
@@ -86,6 +87,15 @@ export async function POST(request: NextRequest) {
 
   invalidateTenant(membership.tenant_id)
   invalidateTenantLogo(tenant.subdomain)
+
+  await recordAudit({
+    tenantId: membership.tenant_id,
+    userId: (await getUser())?.id ?? null,
+    action: AUDIT_ACTIONS.WORKSPACE_LOGO,
+    resourceType: 'workspace',
+    resourceId: membership.tenant_id,
+    metadata: { removed: false },
+  })
   return NextResponse.json({ logoPath: path, url: publicUrlFor(path) })
 }
 
@@ -118,5 +128,14 @@ export async function DELETE() {
 
   invalidateTenant(membership.tenant_id)
   invalidateTenantLogo(tenant.subdomain)
+
+  await recordAudit({
+    tenantId: membership.tenant_id,
+    userId: (await getUser())?.id ?? null,
+    action: AUDIT_ACTIONS.WORKSPACE_LOGO,
+    resourceType: 'workspace',
+    resourceId: membership.tenant_id,
+    metadata: { removed: true },
+  })
   return NextResponse.json({ logoPath: null })
 }

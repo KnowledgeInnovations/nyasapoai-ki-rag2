@@ -1,6 +1,6 @@
 import { NextRequest, after } from 'next/server'
 import path from 'node:path'
-import { getMembership } from '@/lib/supabase/server'
+import { getMembership, getUser } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH, insertChunkBatch, insertFactsResilient, sniffImageType, isImageFile, tableChunkFloor } from '@/lib/documentProcess'
 import { canAccessTraining, type Role } from '@/lib/roles'
@@ -11,6 +11,7 @@ import { profileDocument, headingMatcherFor, type DocumentProfile } from '@/lib/
 import { knownCount } from '@/lib/dbResult'
 import { MAX_CHUNKS_PER_DOCUMENT, describeChunkCeiling } from '@/lib/plans'
 import { recoverEmptyPagesWithVision, pageTextStore, visionExtractFactsFromPage } from '@/lib/visionExtraction'
+import { recordAudit, AUDIT_ACTIONS } from '@/lib/audit'
 import type { ProcessingWarning } from '@/types'
 
 // Below this many budget-specific facts, a document is unlikely to be a
@@ -587,6 +588,19 @@ export async function POST(
         // writing straight to the document row instead of through the
         // (by-then-closed) SSE stream.
         await service.from('documents').update({ status: 'ready' }).eq('id', id)
+
+        // After the document is actually ready, never before. The cron can
+        // retrain without a signed-in user, so the actor may be nobody —
+        // recorded as a system action rather than attributed to someone.
+        await recordAudit({
+          tenantId: doc.tenant_id,
+          userId: (await getUser())?.id ?? null,
+          action: AUDIT_ACTIONS.DOCUMENT_TRAINED,
+          resourceType: 'document',
+          resourceId: id,
+          metadata: { title: doc.title ?? null, chunks: chunks.length },
+        })
+
         send({
           stage:      'complete',
           message:    `Training complete — ${chunks.length} knowledge chunks stored and ready for AI queries.`,

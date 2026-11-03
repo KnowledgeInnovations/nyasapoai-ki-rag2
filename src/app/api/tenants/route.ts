@@ -3,6 +3,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { getUser, getMembership, invalidateMembership } from '@/lib/supabase/server'
 import { validateSubdomainFormat } from '@/lib/tenant'
 import { grantablePlan, PLAN_SIGNUP } from '@/lib/plans'
+import { recordAudit, AUDIT_ACTIONS } from '@/lib/audit'
 
 function svc() {
   return createServiceClient(
@@ -98,6 +99,16 @@ export async function POST(request: NextRequest) {
   }
 
   invalidateMembership(user.id)
+
+  // The first entry in every workspace's log: who made it, and on what.
+  await recordAudit({
+    tenantId: tenant.id,
+    userId: user.id,
+    action: AUDIT_ACTIONS.WORKSPACE_CREATED,
+    resourceType: 'workspace',
+    resourceId: tenant.id,
+    metadata: { name: tenant.name, subdomain: tenant.subdomain, plan, status, via: 'signup' },
+  })
 
   // `usable` tells the caller whether to open the workspace or explain that
   // it is waiting on activation — the alternative is sending someone who

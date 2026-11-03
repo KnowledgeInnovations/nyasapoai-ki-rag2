@@ -2,13 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { User, ShieldCheck, Building2, Users, Brain } from 'lucide-react'
+import { User, ShieldCheck, Building2, Users, Brain, ScrollText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export interface SettingsTab {
   href:  string
   label: string
-  icon:  'profile' | 'security' | 'workspace' | 'users' | 'training'
+  icon:  'profile' | 'security' | 'workspace' | 'users' | 'training' | 'audit'
 }
 
 // Named rather than passed as components, because the tab list is built in a
@@ -20,6 +20,7 @@ const ICONS = {
   workspace: Building2,
   users:     Users,
   training:  Brain,
+  audit:     ScrollText,
 } as const
 
 // One tab per route rather than client-side state, so Users and Training can

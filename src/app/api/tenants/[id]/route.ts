@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { getMembership, getTenant } from '@/lib/supabase/server'
+import { getMembership, getTenant, getUser } from '@/lib/supabase/server'
 import { normalizePlan } from '@/lib/plans'
 import { normalizeStatus, STATUS_LABELS } from '@/lib/workspaceStatus'
+import { recordAudit, AUDIT_ACTIONS } from '@/lib/audit'
 
 function svc() {
   return createServiceClient(
@@ -137,8 +138,10 @@ export async function PATCH(
   }
 
   const service = svc()
+  // The current values, read before the update: a change is only meaningful
+  // in the log if it says what it changed from.
   const { data: target } = await service
-    .from('tenants').select('id, name, is_platform').eq('id', id).maybeSingle()
+    .from('tenants').select('id, name, plan, status, is_platform').eq('id', id).maybeSingle()
   if (!target) return NextResponse.json({ error: 'Workspace not found' }, { status: 404 })
   if (target.is_platform) {
     return NextResponse.json({ error: 'The platform workspace has no plan to change.' }, { status: 400 })
@@ -154,6 +157,29 @@ export async function PATCH(
   if (error || !updated) {
     console.error('[tenants] plan/status update failed:', error?.message)
     return NextResponse.json({ error: 'Could not update the workspace.' }, { status: 500 })
+  }
+
+  // Two separate entries when both change, because they are two different
+  // decisions and each is asked about on its own.
+  if (update.plan && update.plan !== target.plan) {
+    await recordAudit({
+      tenantId: id,
+      userId: (await getUser())?.id ?? null,
+      action: AUDIT_ACTIONS.WORKSPACE_PLAN,
+      resourceType: 'workspace',
+      resourceId: id,
+      metadata: { from: target.plan, to: update.plan, by: 'platform admin' },
+    })
+  }
+  if (update.status && update.status !== normalizeStatus(target.status)) {
+    await recordAudit({
+      tenantId: id,
+      userId: (await getUser())?.id ?? null,
+      action: AUDIT_ACTIONS.WORKSPACE_STATUS,
+      resourceType: 'workspace',
+      resourceId: id,
+      metadata: { from: normalizeStatus(target.status), to: update.status, by: 'platform admin' },
+    })
   }
 
   console.log(

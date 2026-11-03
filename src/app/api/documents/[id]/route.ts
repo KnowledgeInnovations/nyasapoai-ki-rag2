@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getMembership } from '@/lib/supabase/server'
+import { getMembership, getUser } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { canDeleteDocuments } from '@/lib/roles'
+import { recordAudit, AUDIT_ACTIONS } from '@/lib/audit'
 
 function svc() {
   return createServiceClient(
@@ -33,7 +34,7 @@ export async function DELETE(
   // Fetch the document to get file_path (scoped to this tenant)
   const { data: doc, error: fetchError } = await service
     .from('documents')
-    .select('id, file_path, tenant_id')
+    .select('id, title, file_path, tenant_id')
     .eq('id', id)
     .eq('tenant_id', membership.tenant_id)
     .single()
@@ -51,6 +52,15 @@ export async function DELETE(
     console.error('Document delete error:', deleteError)
     return NextResponse.json({ error: 'Failed to delete document record' }, { status: 500 })
   }
+
+  await recordAudit({
+    tenantId: membership.tenant_id,
+    userId: (await getUser())?.id ?? null,
+    action: AUDIT_ACTIONS.DOCUMENT_DELETED,
+    resourceType: 'document',
+    resourceId: id,
+    metadata: { title: doc.title ?? null },
+  })
 
   // 3. Remove the stored file.
   //

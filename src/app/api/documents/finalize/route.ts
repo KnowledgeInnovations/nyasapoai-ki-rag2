@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH, insertChunkBatch, insertFactsResilient, sniffImageType, isImageFile, tableChunkFloor } from '@/lib/documentProcess'
 import { normalizeRole, canUploadDocuments } from '@/lib/roles'
+import { recordAudit, AUDIT_ACTIONS } from '@/lib/audit'
 import {
   extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks,
   runCrossDocumentCorroboration, supersedeForwardProjections, applyLearnedHeuristics,
@@ -120,6 +121,18 @@ export async function POST(request: NextRequest) {
     console.error('Document insert error:', docError)
     return NextResponse.json({ error: `Failed to create document record: ${docError?.message}` }, { status: 500 })
   }
+
+  // The upload is the recorded event, not the processing that follows it:
+  // processing can fail, and "who put this file here" is still the question
+  // worth answering afterwards.
+  await recordAudit({
+    tenantId: membership.tenant_id,
+    userId: user.id,
+    action: AUDIT_ACTIONS.DOCUMENT_UPLOADED,
+    resourceType: 'document',
+    resourceId: document.id,
+    metadata: { title: docTitle, source: originalFilename, bytes: body.fileSize ?? 0 },
+  })
 
   const enc = new TextEncoder()
 

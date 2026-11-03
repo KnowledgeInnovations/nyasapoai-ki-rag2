@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getMembership, getTenant } from '@/lib/supabase/server'
+import { getMembership, getTenant, getUser } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { canManageUsers, normalizeRole, type Role } from '@/lib/roles'
 import { limitsFor, canAddUser, canAddSeniorUser } from '@/lib/plans'
+import { recordAudit, AUDIT_ACTIONS } from '@/lib/audit'
 
 function svc() {
   return createServiceClient(
@@ -133,6 +134,18 @@ export async function POST(request: NextRequest) {
     console.error('Membership insert error:', membershipError)
     return NextResponse.json({ error: 'Failed to add user to workspace' }, { status: 500 })
   }
+
+  // Recorded after the membership exists, not after the invite was sent:
+  // the invite can be delivered and never accepted, but the membership is
+  // the thing that granted access.
+  await recordAudit({
+    tenantId: membership.tenant_id,
+    userId: (await getUser())?.id ?? null,
+    action: AUDIT_ACTIONS.USER_INVITED,
+    resourceType: 'user',
+    resourceId: invited.user.id,
+    metadata: { email, role: normalizeRole(role) },
+  })
 
   return NextResponse.json({ success: true })
 }

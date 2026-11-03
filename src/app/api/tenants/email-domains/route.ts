@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { getMembership, invalidateTenant } from '@/lib/supabase/server'
+import { getMembership, invalidateTenant, getUser } from '@/lib/supabase/server'
+import { recordAudit, AUDIT_ACTIONS } from '@/lib/audit'
 
 function svc() {
   return createServiceClient(
@@ -48,5 +49,15 @@ export async function PATCH(request: NextRequest) {
   }
 
   invalidateTenant(membership.tenant_id)
+
+  await recordAudit({
+    tenantId: membership.tenant_id,
+    userId: (await getUser())?.id ?? null,
+    action: AUDIT_ACTIONS.WORKSPACE_DOMAINS,
+    resourceType: 'workspace',
+    resourceId: membership.tenant_id,
+    metadata: { domains: cleaned },
+  })
+
   return NextResponse.json({ domains: cleaned })
 }

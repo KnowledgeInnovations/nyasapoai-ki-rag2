@@ -3,6 +3,7 @@ import { mustCount } from '@/lib/dbResult'
 import { getMembership, getUser, invalidateMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { canManageUsers, normalizeRole, type Role } from '@/lib/roles'
+import { recordAudit, AUDIT_ACTIONS } from '@/lib/audit'
 
 function svc() {
   return createServiceClient(
@@ -26,6 +27,13 @@ export async function PATCH(
   if (!role) return NextResponse.json({ error: 'Role is required' }, { status: 400 })
 
   const service = svc()
+  // Read before the update: "changed from Junior to Senior" is the useful
+  // record, and the old value is gone a line later.
+  const { data: previous } = await service
+    .from('memberships').select('role')
+    .eq('user_id', id).eq('tenant_id', membership.tenant_id).maybeSingle()
+  const { data: subject } = await service
+    .from('users').select('email').eq('id', id).maybeSingle()
   const { error } = await service
     .from('memberships')
     .update({ role: normalizeRole(role) })
@@ -38,6 +46,20 @@ export async function PATCH(
   }
 
   invalidateMembership(id)
+
+  await recordAudit({
+    tenantId: membership.tenant_id,
+    userId: (await getUser())?.id ?? null,
+    action: AUDIT_ACTIONS.USER_ROLE_CHANGED,
+    resourceType: 'user',
+    resourceId: id,
+    metadata: {
+      email: subject?.email ?? null,
+      from: previous?.role ? normalizeRole(previous.role) : null,
+      to: normalizeRole(role),
+    },
+  })
+
   return NextResponse.json({ success: true })
 }
 
@@ -57,6 +79,14 @@ export async function DELETE(
   }
 
   const service = svc()
+  // Same reason as the role change: once the membership row is gone there is
+  // nothing left to say who was removed.
+  const { data: subject } = await service
+    .from('users').select('email').eq('id', id).maybeSingle()
+  const { data: hadRole } = await service
+    .from('memberships').select('role')
+    .eq('user_id', id).eq('tenant_id', membership.tenant_id).maybeSingle()
+
   const { error } = await service
     .from('memberships')
     .delete()
@@ -67,6 +97,15 @@ export async function DELETE(
     console.error('Member remove error:', error)
     return NextResponse.json({ error: 'Failed to remove member' }, { status: 500 })
   }
+
+  await recordAudit({
+    tenantId: membership.tenant_id,
+    userId: user?.id ?? null,
+    action: AUDIT_ACTIONS.USER_REMOVED,
+    resourceType: 'user',
+    resourceId: id,
+    metadata: { email: subject?.email ?? null, role: hadRole?.role ?? null },
+  })
 
   invalidateMembership(id)
 
