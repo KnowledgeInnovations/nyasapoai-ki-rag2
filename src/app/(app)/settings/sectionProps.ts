@@ -12,6 +12,7 @@ export async function settingsSectionProps() {
   const logoPath = tenant ? await getTenantLogoPath(tenant.subdomain) : null
 
   return {
+    plan:             tenant?.plan ?? 'starter',
     email:            user?.email ?? '',
     name:             user?.user_metadata?.name ?? '',
     role:             membership?.role ?? 'junior',

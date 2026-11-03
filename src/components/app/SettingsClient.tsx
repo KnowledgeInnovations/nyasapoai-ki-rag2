@@ -6,6 +6,8 @@ import { createClient } from '@/lib/supabase/client'
 import { CheckCircle2, Loader2, X, Plus, Upload, Image as ImageIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { normalizeRole, ROLE_LABELS, ROLE_DESCRIPTIONS, canUploadDocuments } from '@/lib/roles'
+import { normalizePlan } from '@/lib/plans'
+import PlanSettings from './PlanSettings'
 import PasswordSettings from './PasswordSettings'
 import TwoFactorSettings from './TwoFactorSettings'
 import EmailSettings from './EmailSettings'
@@ -22,6 +24,8 @@ interface Props {
   role: string
   emailDomains: string[]
   isPlatformTenant: boolean
+  /** The workspace's current plan, so a Senior can change it themselves. */
+  plan: string
   /** Public URL of the tenant's custom icon, or null when using the default. */
   logoUrl: string | null
 }
@@ -41,7 +45,7 @@ function initialsFor(name: string, email: string): string {
   return email.slice(0, 2).toUpperCase()
 }
 
-export default function SettingsClient({ section, email, name, role, emailDomains, isPlatformTenant, logoUrl }: Props) {
+export default function SettingsClient({ section, email, name, role, emailDomains, isPlatformTenant, logoUrl, plan }: Props) {
   const [displayName, setDisplayName] = useState(name)
   const [saving,      setSaving]      = useState(false)
   const [saved,       setSaved]       = useState(false)
@@ -214,6 +218,10 @@ export default function SettingsClient({ section, email, name, role, emailDomain
 
           {section === 'workspace' && (
             <>
+              {normalizedRole === 'senior' && !isPlatformTenant && (
+                <PlanSettings currentPlan={normalizePlan(plan)} />
+              )}
+
               <section className="overflow-hidden  border border-gray-200 bg-white shadow-sm">
                 <div className="border-b border-gray-100 bg-gray-50/60 px-6 py-4">
                   <h2 className="text-sm font-bold text-gray-800">Workspace Access</h2>
