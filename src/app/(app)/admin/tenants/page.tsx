@@ -4,6 +4,8 @@ import { getMembership, getTenant } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import TenantsClient from '@/components/app/TenantsClient'
 import { normalizeStatus } from '@/lib/workspaceStatus'
+import PlanPricesClient from '@/components/app/PlanPricesClient'
+import { getPlanPrices, PLAN_ORDER } from '@/lib/planPrices'
 
 export const metadata: Metadata = { title: 'Tenants — Nyansa AI' }
 
@@ -90,6 +92,8 @@ export default async function TenantsPage() {
     }
   })
 
+  const prices = await getPlanPrices()
+
   return (
     <div className="max-w-5xl space-y-6">
       <div>
@@ -100,6 +104,8 @@ export default async function TenantsPage() {
           you are setting it up for them.
         </p>
       </div>
+
+      <PlanPricesClient initial={PLAN_ORDER.map(p => prices[p])} />
 
       <TenantsClient tenants={tenantRows} />
     </div>

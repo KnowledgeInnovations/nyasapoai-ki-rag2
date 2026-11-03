@@ -2,6 +2,8 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { getPlanPrices, formatPrice, periodLabel } from '@/lib/planPrices'
+import type { Plan } from '@/lib/plans'
 
 export const metadata: Metadata = {
   title: 'Pricing — Nyansa AI',
@@ -11,6 +13,7 @@ export const metadata: Metadata = {
 const tiers = [
   {
     n: '01',
+    plan: 'starter' as Plan,
     name: 'Starter',
     tagline: 'For small teams getting started with document AI.',
     features: [
@@ -24,6 +27,7 @@ const tiers = [
   },
   {
     n: '02',
+    plan: 'professional' as Plan,
     name: 'Professional',
     tagline: 'For growing organizations with multiple teams and departments.',
     features: [
@@ -37,6 +41,7 @@ const tiers = [
   },
   {
     n: '03',
+    plan: 'enterprise' as Plan,
     name: 'Enterprise',
     tagline: 'For large organizations with custom security and deployment needs.',
     features: [
@@ -50,7 +55,11 @@ const tiers = [
   },
 ]
 
-export default function PricingPage() {
+// Prices are read at request time, so changing one in the admin screen
+// shows here without a deploy.
+export default async function PricingPage() {
+  const prices = await getPlanPrices()
+
   return (
     <div className="bg-paper px-6 py-24 font-editorial-sans md:px-8">
       <div className="animate-fade-up mx-auto max-w-2xl text-center">
@@ -77,6 +86,27 @@ export default function PricingPage() {
             <div className="font-editorial mb-3.5 text-2xl italic text-brand">{tier.n}</div>
             <h2 className="text-lg font-semibold text-gray-900">{tier.name}</h2>
             <p className="mt-2 text-sm leading-relaxed text-gray-500">{tier.tagline}</p>
+
+            {/* No published price says so, rather than showing a zero —
+                which would be the one figure that is actively wrong. */}
+            <div className="mt-5 border-t border-gray-200/70 pt-5">
+              {formatPrice(prices[tier.plan]) ? (
+                <>
+                  <p className="font-editorial text-3xl font-normal text-gray-900">
+                    {formatPrice(prices[tier.plan])}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {periodLabel(prices[tier.plan])}
+                    {prices[tier.plan].unit ? ` · ${prices[tier.plan].unit}` : ''}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="font-editorial text-2xl font-normal text-gray-900">Talk to us</p>
+                  <p className="mt-1 text-xs text-gray-500">Priced to your requirements</p>
+                </>
+              )}
+            </div>
 
             <ul className="mt-6 flex-1 space-y-3">
               {tier.features.map(f => (
