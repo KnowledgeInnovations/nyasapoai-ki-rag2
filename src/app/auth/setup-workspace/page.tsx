@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { slugify, validateSubdomainFormat } from '@/lib/tenant'
 import { tenantUrl } from '@/lib/domain'
+import { PLANS, PLAN_SIGNUP, normalizePlan, type Plan } from '@/lib/plans'
 
 type SubdomainStatus = 'idle' | 'checking' | 'available' | 'unavailable'
 
@@ -23,6 +24,10 @@ export default function SetupWorkspacePage() {
   const [subdomainError, setSubdomainError] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  // Chosen at signup and carried here in the confirmation link's user
+  // metadata. Shown, not editable: changing tier is a billing decision, not
+  // a form field on the way in.
+  const [plan, setPlan] = useState<Plan>('starter')
 
   const checkTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -70,7 +75,10 @@ export default function SetupWorkspacePage() {
         return
       }
 
-      const meta = user.user_metadata as { workspace_name?: string; workspace_subdomain?: string } | null
+      const meta = user.user_metadata as {
+        workspace_name?: string; workspace_subdomain?: string; workspace_plan?: string
+      } | null
+      if (meta?.workspace_plan) setPlan(normalizePlan(meta.workspace_plan))
       if (meta?.workspace_name) setName(meta.workspace_name)
       if (meta?.workspace_subdomain) {
         setSubdomain(meta.workspace_subdomain)
@@ -134,9 +142,9 @@ export default function SetupWorkspacePage() {
       const res = await fetch('/api/tenants', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), subdomain }),
+        body: JSON.stringify({ name: name.trim(), subdomain, plan }),
       })
-      const data = await res.json() as { error?: string }
+      const data = await res.json() as { error?: string; usable?: boolean }
       if (!res.ok) {
         setError(data.error ?? 'Something went wrong. Please try again.')
         return
@@ -144,7 +152,13 @@ export default function SetupWorkspacePage() {
       // Full navigation (not router.push) — the workspace now lives on its own
       // subdomain. The shared cookie domain (see src/lib/domain.ts) keeps the
       // session valid there.
-      window.location.href = tenantUrl(subdomain, '/ask')
+      //
+      // A paid plan opens in payment_required, so /ask would bounce them
+      // straight to the unavailable page. Send them there directly rather
+      // than through a redirect that looks like something went wrong.
+      window.location.href = data.usable === false
+        ? tenantUrl(subdomain, '/workspace-unavailable')
+        : tenantUrl(subdomain, '/ask')
     } catch {
       setError('Something went wrong. Please try again.')
     } finally {
@@ -170,6 +184,21 @@ export default function SetupWorkspacePage() {
           <h1 className="font-editorial mt-6 text-2xl font-normal text-gray-900">Create your workspace</h1>
           <p className="mt-2 text-sm text-gray-500">
             This becomes your organization&apos;s private Nyansa AI workspace.
+          </p>
+        </div>
+
+        {/* What they picked at signup, so the plan is not a surprise on the
+            other side. A paid plan says plainly that it needs activating
+            rather than letting them discover it at the door. */}
+        <div className="mt-6 flex items-start justify-between gap-3 border border-gray-200 bg-white px-5 py-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Plan</p>
+            <p className="mt-0.5 text-sm font-semibold text-gray-900">{PLANS[plan].label}</p>
+          </div>
+          <p className="max-w-[60%] text-right text-xs leading-relaxed text-gray-500">
+            {PLAN_SIGNUP[plan].initialStatus === 'active'
+              ? 'Ready to use as soon as you finish here.'
+              : 'Your workspace will be created now and opens once we have activated it.'}
           </p>
         </div>
 

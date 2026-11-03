@@ -200,6 +200,61 @@ export function canUploadFile(limits: PlanLimits, fileBytes: number): LimitCheck
  * because silently indexing a third of a workbook is worse than declining
  * it: the document would read as ready while most of it was missing.
  */
+/* ── Signing up for a plan ───────────────────────────────────
+ *
+ * All three tiers are self-serve: a visitor picks one and starts using the
+ * workspace immediately. No enquiry, no email, no waiting for somebody to
+ * approve them.
+ *
+ * That is a deliberate product decision, and it has a commercial
+ * consequence worth stating plainly rather than discovering later: no
+ * payment provider is wired in yet, so a plan is self-declared. Anyone can
+ * select Enterprise and get a workspace with no cap on users, documents,
+ * storage, file size or queries. What keeps that honest is visibility, not
+ * a gate — /admin/tenants lists every workspace with its plan and lifecycle
+ * status, and a platform admin can change either at any time. When billing
+ * is wired in, this table is the single place to make a tier wait for
+ * payment: set `initialStatus` to 'payment_required' and that plan opens
+ * blocked until it is activated.
+ */
+export interface PlanSignup {
+  /** Can a visitor create this themselves? All tiers currently can. */
+  selfServe: boolean
+  /** Lifecycle status a self-serve workspace opens in. */
+  initialStatus: 'active' | 'payment_required'
+  /** Shown under the plan on the signup chooser. */
+  signupNote: string
+}
+
+export const PLAN_SIGNUP: Record<Plan, PlanSignup> = {
+  starter: {
+    selfServe: true,
+    initialStatus: 'active',
+    signupNote: 'Start using it straight away.',
+  },
+  professional: {
+    selfServe: true,
+    initialStatus: 'active',
+    signupNote: 'More users, more documents, bigger files.',
+  },
+  enterprise: {
+    selfServe: true,
+    initialStatus: 'active',
+    signupNote: 'No limits on users, documents or storage.',
+  },
+}
+
+/**
+ * The plan a public signup request may be granted. Everything is self-serve
+ * today, so this is the identity function — but it stays as the one place
+ * that decides, so restricting a tier later is a single edit here rather
+ * than a hunt through the routes.
+ */
+export function grantablePlan(requested: string | null | undefined): Plan {
+  const plan = normalizePlan(requested)
+  return PLAN_SIGNUP[plan].selfServe ? plan : DEFAULT_PLAN
+}
+
 export const MAX_CHUNKS_PER_DOCUMENT = 8_000
 
 export function describeChunkCeiling(chunkCount: number): string {

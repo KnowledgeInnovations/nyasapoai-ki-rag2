@@ -6,12 +6,19 @@ import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 import { createImplicitClient } from '@/lib/supabase/implicitClient'
 import { slugify, validateSubdomainFormat } from '@/lib/tenant'
+import { PLANS, PLAN_SIGNUP, type Plan } from '@/lib/plans'
 
 type SubdomainStatus = 'idle' | 'checking' | 'available' | 'unavailable'
-type Step = 'account' | 'workspace'
+type Step = 'plan' | 'account' | 'workspace'
+
+const PLAN_ORDER: Plan[] = ['starter', 'professional', 'enterprise']
 
 export default function SignupPage() {
-  const [step, setStep] = useState<Step>('account')
+  // The plan comes first, the way it does on the pricing page. It is a
+  // request rather than a grant: the server decides what is actually
+  // created, because two of the three tiers cost money. See PLAN_SIGNUP.
+  const [step, setStep] = useState<Step>('plan')
+  const [plan, setPlan] = useState<Plan>('starter')
 
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -93,7 +100,14 @@ export default function SignupPage() {
         email,
         password,
         options: {
-          data: { name, workspace_name: orgName.trim(), workspace_subdomain: subdomain },
+          data: {
+            name,
+            workspace_name: orgName.trim(),
+            workspace_subdomain: subdomain,
+            // Carried through the confirmation email to /auth/setup-workspace,
+            // which asks for it. The server still decides what it grants.
+            workspace_plan: plan,
+          },
           emailRedirectTo: `${window.location.origin}/auth/setup-workspace`,
         },
       })
@@ -114,11 +128,21 @@ export default function SignupPage() {
             Nyansa<span className="text-brand">·</span>AI
           </Link>
           <h1 className="font-editorial mt-6 text-2xl font-normal text-gray-900">
-            {done ? 'Create your account' : step === 'account' ? 'Create your account' : 'Create your workspace'}
+            {done
+              ? 'Create your account'
+              : step === 'plan'
+                ? 'Choose your plan'
+                : step === 'account'
+                  ? 'Create your account'
+                  : 'Create your workspace'}
           </h1>
           {!done && (
             <p className="mt-2 text-sm text-gray-500">
-              {step === 'account' ? (
+              {step === 'plan' ? (
+                <>You can change this later.{' '}
+                  <Link href="/pricing" className="font-medium text-brand hover:underline">Compare plans</Link>
+                </>
+              ) : step === 'account' ? (
                 <>Already have an account?{' '}
                   <Link href="/auth/login" className="font-medium text-brand hover:underline">Sign in</Link>
                 </>
@@ -133,6 +157,57 @@ export default function SignupPage() {
           <div className="mt-8 border border-brand/20 bg-brand-light p-6 text-center">
             <p className="font-medium text-brand-dark">Check your email</p>
             <p className="mt-1 text-sm text-gray-600">We sent a confirmation link to <strong>{email}</strong></p>
+          </div>
+        ) : step === 'plan' ? (
+          <div className="mt-8 space-y-3">
+            {PLAN_ORDER.map(p => {
+              const limits = PLANS[p]
+              const signup = PLAN_SIGNUP[p]
+              const selected = plan === p
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPlan(p)}
+                  className={
+                    'w-full border p-5 text-left transition ' +
+                    (selected
+                      ? 'border-brand bg-brand-light'
+                      : 'border-gray-200 bg-white hover:border-gray-300')
+                  }
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className={'text-sm font-bold ' + (selected ? 'text-brand' : 'text-gray-900')}>
+                      {limits.label}
+                    </span>
+                    {p === 'enterprise' && (
+                      <span className="shrink-0 border border-gold/30 bg-gold/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-yellow-700">
+                        Unlimited
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">{limits.audience}</p>
+                  <p className={'mt-2 text-xs ' + (selected ? 'text-brand/80' : 'text-gray-400')}>
+                    {signup.signupNote}
+                  </p>
+                </button>
+              )
+            })}
+
+            {/* Every tier goes the same way: pick it and keep going. No
+                enquiry, no waiting to be approved. */}
+            <button
+              type="button"
+              onClick={() => { setError(''); setStep('account') }}
+              className="mt-2 w-full bg-brand py-3 text-sm font-semibold text-white transition hover:bg-brand-dark"
+            >
+              Continue with {PLANS[plan].label}
+            </button>
+
+            <p className="pt-1 text-center text-sm text-gray-500">
+              Already have an account?{' '}
+              <Link href="/auth/login" className="font-medium text-brand hover:underline">Sign in</Link>
+            </p>
           </div>
         ) : step === 'account' ? (
           <form onSubmit={handleAccountNext} className="mt-8 space-y-4">
@@ -180,6 +255,14 @@ export default function SignupPage() {
               className="w-full bg-brand py-3 text-sm font-semibold text-white transition hover:bg-brand-dark"
             >
               Continue
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setError(''); setStep('plan') }}
+              className="w-full text-center text-sm font-medium text-gray-500 hover:text-gray-700"
+            >
+              ← Back to plans
             </button>
 
             <p className="text-center text-xs text-gray-400">

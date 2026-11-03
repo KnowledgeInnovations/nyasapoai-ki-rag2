@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { getMembership, getTenant } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import TenantsClient from '@/components/app/TenantsClient'
+import { normalizeStatus } from '@/lib/workspaceStatus'
 
 export const metadata: Metadata = { title: 'Tenants — Nyansa AI' }
 
@@ -24,7 +25,7 @@ export default async function TenantsPage() {
   const service = svc()
   const { data: tenants } = await service
     .from('tenants')
-    .select('id, name, subdomain, plan, created_at, is_platform, memberships(count)')
+    .select('id, name, subdomain, plan, status, created_at, is_platform, memberships(count)')
     .eq('is_platform', false)
     .order('created_at', { ascending: false })
 
@@ -33,6 +34,7 @@ export default async function TenantsPage() {
     name: string
     subdomain: string
     plan: string
+    status: string | null
     created_at: string
     is_platform: boolean
     memberships: { count: number }[]
@@ -78,6 +80,7 @@ export default async function TenantsPage() {
       name: t.name,
       subdomain: t.subdomain,
       plan: t.plan,
+      status: normalizeStatus(t.status),
       createdAt: t.created_at,
       memberCount: t.memberships?.[0]?.count ?? 0,
       isPlatform: t.is_platform,
@@ -88,10 +91,14 @@ export default async function TenantsPage() {
   })
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="max-w-5xl space-y-6">
       <div>
         <h1 className="font-editorial text-2xl font-normal text-gray-900">Tenants</h1>
-        <p className="mt-1 text-sm text-gray-500">All workspaces on the Nyansa AI platform.</p>
+        <p className="mt-1 text-sm text-gray-500">
+          Every workspace on the Nyansa AI platform, with the plan it is on and
+          whether it is open. Customers create their own; create one here when
+          you are setting it up for them.
+        </p>
       </div>
 
       <TenantsClient tenants={tenantRows} />

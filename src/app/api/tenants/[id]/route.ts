@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { getMembership, getTenant } from '@/lib/supabase/server'
+import { normalizePlan } from '@/lib/plans'
+import { normalizeStatus, STATUS_LABELS } from '@/lib/workspaceStatus'
 
 function svc() {
   return createServiceClient(
@@ -77,5 +79,91 @@ export async function DELETE(
     ...(orphanedFiles
       ? { warning: `The workspace was deleted, but ${orphanedFiles} stored file(s) could not be removed. This has been logged for an administrator to clear.` }
       : {}),
+  })
+}
+
+/**
+ * Platform-admin only: change a workspace's plan or lifecycle status.
+ *
+ * This is how an Enterprise enquiry becomes an Enterprise workspace, and how
+ * a paid workspace is activated once payment has been settled. Before this
+ * existed, `plan` could only be changed by editing the database by hand, so
+ * every sale ended in someone running SQL against production.
+ *
+ * Suspension is reversible and never deletes anything — see migration 034.
+ * Only these two fields are writable: the name and subdomain are identity,
+ * and a subdomain change would break every link and bookmark a workspace has.
+ */
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params
+
+  const membership = await getMembership()
+  if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const actingTenant = await getTenant(membership.tenant_id)
+  if (membership.role !== 'senior' || !actingTenant?.is_platform) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  let body: unknown
+  try { body = await request.json() } catch {
+    return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+  }
+  const { plan: rawPlan, status: rawStatus } = (body ?? {}) as { plan?: string; status?: string }
+
+  const update: { plan?: string; status?: string } = {}
+  // normalizePlan/normalizeStatus fall back to a default for anything they do
+  // not recognise, which would quietly downgrade a workspace on a typo. Only
+  // accept a value that survives the round trip unchanged.
+  if (rawPlan !== undefined) {
+    const plan = normalizePlan(rawPlan)
+    if (plan !== String(rawPlan).trim().toLowerCase()) {
+      return NextResponse.json({ error: `Unknown plan "${rawPlan}".` }, { status: 400 })
+    }
+    update.plan = plan
+  }
+  if (rawStatus !== undefined) {
+    const status = normalizeStatus(rawStatus)
+    if (status !== String(rawStatus).trim().toLowerCase()) {
+      return NextResponse.json({ error: `Unknown status "${rawStatus}".` }, { status: 400 })
+    }
+    update.status = status
+  }
+  if (!Object.keys(update).length) {
+    return NextResponse.json({ error: 'Nothing to change.' }, { status: 400 })
+  }
+
+  const service = svc()
+  const { data: target } = await service
+    .from('tenants').select('id, name, is_platform').eq('id', id).maybeSingle()
+  if (!target) return NextResponse.json({ error: 'Workspace not found' }, { status: 404 })
+  if (target.is_platform) {
+    return NextResponse.json({ error: 'The platform workspace has no plan to change.' }, { status: 400 })
+  }
+
+  const { data: updated, error } = await service
+    .from('tenants')
+    .update(update)
+    .eq('id', id)
+    .select('id, name, subdomain, plan, status')
+    .single()
+
+  if (error || !updated) {
+    console.error('[tenants] plan/status update failed:', error?.message)
+    return NextResponse.json({ error: 'Could not update the workspace.' }, { status: 500 })
+  }
+
+  console.log(
+    `[tenants] ${target.name} -> ` +
+    [update.plan && `plan ${update.plan}`, update.status && `status ${update.status}`]
+      .filter(Boolean).join(', '),
+  )
+
+  return NextResponse.json({
+    tenant: updated,
+    statusLabel: STATUS_LABELS[normalizeStatus(updated.status)],
   })
 }

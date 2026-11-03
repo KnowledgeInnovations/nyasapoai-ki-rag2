@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { getUser, getMembership, invalidateMembership } from '@/lib/supabase/server'
 import { validateSubdomainFormat } from '@/lib/tenant'
+import { grantablePlan, PLAN_SIGNUP } from '@/lib/plans'
 
 function svc() {
   return createServiceClient(
@@ -24,7 +25,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'You already belong to a workspace' }, { status: 400 })
   }
 
-  const { name, subdomain: rawSubdomain } = await request.json() as { name?: string; subdomain?: string }
+  const { name, subdomain: rawSubdomain, plan: requestedPlan } = await request.json() as {
+    name?: string; subdomain?: string; plan?: string
+  }
+
+  // Every tier is self-serve, so this grants what was asked for. It still
+  // goes through grantablePlan rather than trusting the body directly: that
+  // function is the one place deciding what a signup may have, and a tier
+  // that is ever restricted again should be restricted there, not here.
+  const plan = grantablePlan(requestedPlan)
+  const status = PLAN_SIGNUP[plan].initialStatus
 
   const orgName = (name ?? '').trim()
   if (!orgName || orgName.length > 200) {
@@ -61,8 +71,14 @@ export async function POST(request: NextRequest) {
 
   const { data: tenant, error: tenantError } = await service
     .from('tenants')
-    .insert({ name: orgName, subdomain, email_domains: creatorDomain ? [creatorDomain] : [] })
-    .select('id, name, subdomain')
+    .insert({
+      name: orgName,
+      subdomain,
+      plan,
+      status,
+      email_domains: creatorDomain ? [creatorDomain] : [],
+    })
+    .select('id, name, subdomain, plan, status')
     .single()
 
   if (tenantError || !tenant) {
@@ -83,5 +99,8 @@ export async function POST(request: NextRequest) {
 
   invalidateMembership(user.id)
 
-  return NextResponse.json({ tenant })
+  // `usable` tells the caller whether to open the workspace or explain that
+  // it is waiting on activation — the alternative is sending someone who
+  // just signed up straight into a redirect they were not expecting.
+  return NextResponse.json({ tenant, usable: status === 'active' })
 }
