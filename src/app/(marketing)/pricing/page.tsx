@@ -45,7 +45,7 @@ const tiers = [
       'Dedicated onboarding & training',
       'On-premise / custom deployment options',
     ],
-    cta: { label: 'Talk to us', href: '/contact' },
+    cta: { label: 'Talk to us', href: '/contact?plan=enterprise' },
     highlighted: false,
   },
 ]
