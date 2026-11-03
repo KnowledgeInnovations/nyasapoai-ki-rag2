@@ -4,7 +4,7 @@ import { cookies, headers } from 'next/headers'
 import { cache } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { normalizeRole, type Role } from '@/lib/roles'
-import { cookieDomainForHost } from '@/lib/domain'
+import { cookieDomainForHost, subdomainFromHost } from '@/lib/domain'
 
 // ── Module-level caches ────────────────────────────────────────
 // Survive across requests within the same server process.
@@ -109,19 +109,41 @@ export const getSessionId = cache(async (): Promise<string | null> => {
 })
 
 // ── getMembership — cached 5 min across requests ───────────────
+//
+// A person can belong to more than one workspace: creating one is limited to
+// a single workspace per account, but an invitation can add another, and one
+// did. This used to end in .single(), which errors when a second row exists
+// rather than returning either — so the moment anyone was invited into a
+// second workspace, this returned null and every protected route decided
+// they had no workspace at all. Observed on a real account that was a member
+// of two: locked out of the product entirely, including the workspace they
+// had been using for a week.
+//
+// Which workspace is meant is not a guess: the host says so. Each workspace
+// lives on its own subdomain (see src/lib/domain.ts), so the subdomain being
+// visited selects the membership. Without one — on the root domain — the
+// oldest membership is used, deterministically, so the answer does not
+// change between requests.
 export const getMembership = cache(async () => {
   const user = await getUser()
   if (!user) return null
 
-  const hit = membershipCache.get(user.id)
+  // The cache key has to include the host. Keyed on the user alone, a person
+  // in two workspaces would be served whichever one they visited first for
+  // the next five minutes, on every subdomain.
+  const host = (await headers()).get('host')
+  const subdomain = subdomainFromHost(host)
+  const cacheKey = `${user.id}::${subdomain ?? ''}`
+
+  const hit = membershipCache.get(cacheKey)
   if (hit && hit.exp > Date.now()) return hit.v
 
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('memberships')
-    .select('tenant_id, role')
+    .select('tenant_id, role, created_at, tenants:tenant_id(subdomain)')
     .eq('user_id', user.id)
-    .single()
+    .order('created_at', { ascending: true })
 
   // A transient query failure (network blip, rate limit, momentary outage)
   // is not the same as "this user has no membership" — caching it as such
@@ -132,10 +154,25 @@ export const getMembership = cache(async () => {
     return null
   }
 
-  const raw = data as { tenant_id: string; role: string } | null
-  const val = raw ? { tenant_id: raw.tenant_id, role: normalizeRole(raw.role) } : null
+  type Row = {
+    tenant_id: string
+    role: string
+    created_at: string
+    tenants: { subdomain: string } | { subdomain: string }[] | null
+  }
+  const rows = (data ?? []) as Row[]
+  const subdomainOf = (r: Row) => (Array.isArray(r.tenants) ? r.tenants[0] : r.tenants)?.subdomain
+
+  // The workspace whose subdomain is being visited, or the oldest when the
+  // host names none. A subdomain the user is not a member of resolves to no
+  // membership, which is correct: they are not in that workspace.
+  const chosen = subdomain
+    ? rows.find(r => subdomainOf(r) === subdomain) ?? null
+    : rows[0] ?? null
+
+  const val = chosen ? { tenant_id: chosen.tenant_id, role: normalizeRole(chosen.role) } : null
   evict(membershipCache)
-  membershipCache.set(user.id, { v: val, exp: Date.now() + MEMBERSHIP_TTL })
+  membershipCache.set(cacheKey, { v: val, exp: Date.now() + MEMBERSHIP_TTL })
   return val
 })
 
@@ -280,7 +317,12 @@ export async function touchLastActive(userId: string, tenantId: string): Promise
 // affected user's role/permission checks keep returning the stale cached
 // value for up to MEMBERSHIP_TTL.
 export function invalidateMembership(userId: string) {
-  membershipCache.delete(userId)
+  // Entries are keyed by user AND host, so one delete is not enough — every
+  // host this user has been seen on has to go, or a stale role survives on
+  // the subdomains they did not happen to request from.
+  for (const key of membershipCache.keys()) {
+    if (key === userId || key.startsWith(`${userId}::`)) membershipCache.delete(key)
+  }
 }
 
 // Drop a tenant's cached row immediately — call after updating it (e.g.

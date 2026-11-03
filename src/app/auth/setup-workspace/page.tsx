@@ -64,13 +64,17 @@ export default function SetupWorkspacePage() {
         return
       }
 
-      const { data: membership } = await supabase
+      // limit(1) rather than maybeSingle(): someone in two workspaces is
+      // emphatically not someone who needs to create their first one, but
+      // maybeSingle() errors on two rows and would have sent them here to
+      // make a third.
+      const { data: memberships } = await supabase
         .from('memberships')
         .select('tenant_id')
         .eq('user_id', user.id)
-        .maybeSingle()
+        .limit(1)
 
-      if (membership) {
+      if (memberships && memberships.length > 0) {
         router.replace('/ask')
         return
       }

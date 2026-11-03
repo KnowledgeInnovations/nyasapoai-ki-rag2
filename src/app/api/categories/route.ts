@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { normalizeRole, canManageCategories } from '@/lib/roles'
 
@@ -16,11 +16,12 @@ export async function POST(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: membership } = await supabase
-    .from('memberships')
-    .select('tenant_id, role')
-    .eq('user_id', user.id)
-    .single()
+  // getMembership() rather than a lookup of its own: it is the one place
+  // that knows a person can belong to more than one workspace and that the
+  // host decides which. This used to end in .single(), which errors on a
+  // second membership row and reported "No workspace found" to someone who
+  // had two.
+  const membership = await getMembership()
 
   if (!membership) return NextResponse.json({ error: 'No workspace found' }, { status: 403 })
   if (!canManageCategories(normalizeRole(membership.role))) {

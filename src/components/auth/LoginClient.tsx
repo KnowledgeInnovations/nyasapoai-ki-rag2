@@ -47,13 +47,25 @@ function LoginForm({ tenant }: FormProps) {
   async function finishLogin() {
     if (tenant) {
       const { data: { user } } = await supabase.auth.getUser()
-      const { data: membership } = await supabase
+      // Scoped to this workspace, which is the actual question. It used to
+      // fetch "this account's membership" with .maybeSingle(), which errors
+      // when there is more than one row and returns null — so anyone who
+      // belonged to two workspaces was told they belonged to neither.
+      const { data: membership, error: membershipError } = await supabase
         .from('memberships')
         .select('tenant_id')
         .eq('user_id', user!.id)
+        .eq('tenant_id', tenant.id)
         .maybeSingle()
 
-      if (membership?.tenant_id !== tenant.id) {
+      if (membershipError) {
+        // Do not sign them out over a query that failed to answer: that is
+        // not the same as an answer of no.
+        await supabase.auth.signOut()
+        setError('We could not check your access just now. Please try again.')
+        return
+      }
+      if (!membership) {
         await supabase.auth.signOut()
         setError(`This account isn't part of the ${tenant.name} workspace.`)
         return
