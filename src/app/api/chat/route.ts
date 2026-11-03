@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { rowsOrEmpty } from '@/lib/dbResult'
-import { createClient, getUser, getMembership, getTenant } from '@/lib/supabase/server'
+import { createClient, getUser, getMembership, getTenant, metaString } from '@/lib/supabase/server'
 import { DEFAULT_TENANT_DESCRIPTION } from '@/lib/tenant'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { classifyQuery, computeGrowthCalculations, computeCAGR, computeAggregate, computeForecast, verifyAnswer, type QueryType, type FactForVerification } from '@/lib/ragAnalysis'
@@ -564,7 +564,7 @@ export async function POST(request: NextRequest) {
   /* ── Small talk shortcut ──────────────────────────────────── */
   const smallTalkRx = /^(hi+|hello+|hey+|good\s?(morning|afternoon|evening)|howdy|hiya|greetings|yo|what'?s up|sup|ok(ay)?|alright|sure|got\s*it|noted|understood|thanks?|thank\s*you|cheers|perfect|great|sounds?\s*good|makes?\s*sense|i\s*see|nice|cool|awesome|wonderful|brilliant|excellent|amazing|yes|no|yep|nope|yeah|nah|absolutely|definitely|of\s*course|certainly|bye|goodbye|see\s*you|take\s*care|later|cya|no\s*worries|no\s*problem|appreciate\s*(it|that)?|well\s*done|good\s*job|interesting|i\s*understand)[!?.,\s]*$/i
   if (smallTalkRx.test(query.trim())) {
-    const firstName = (user.user_metadata?.name || user.email?.split('@')[0] || 'there').split(/\s+/)[0]
+    const firstName = (metaString(user, 'name') ?? user.email?.split('@')[0] ?? 'there').split(/\s+/)[0]
     const msg = await claudeComplete({
       temperature: 0.5, maxTokens: 120,
       system: `You are ${orgName} AI, a document assistant for ${orgName} — ${orgDescription}. The user sent a short conversational message. Reply in 1–2 sentences, professionally and directly — a capable colleague, not a hype-man. Address them as ${firstName}. No emoji, no exclamation marks unless genuinely warranted, no filler enthusiasm ("Great news!", "It's great to have you here!"). Gently remind them you can help with documents if appropriate. Use the conversation history below to understand context before responding.`,

@@ -4,11 +4,11 @@ import { useState } from 'react'
 import { ChevronDown, LogOut, Settings, Menu } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, usePathname } from 'next/navigation'
-import type { User as SupabaseUser } from '@supabase/supabase-js'
+import type { AuthenticatedUser } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 
 interface Props {
-  user: SupabaseUser
+  user: AuthenticatedUser
   onMenuOpen: () => void
 }
 
@@ -41,7 +41,8 @@ export default function AppTopNav({ user, onMenuOpen }: Props) {
     router.push('/auth/login')
   }
 
-  const displayName = user.user_metadata?.name || user.email?.split('@')[0] || 'User'
+  const metaName = user.user_metadata?.name
+  const displayName = (typeof metaName === 'string' && metaName) || user.email?.split('@')[0] || 'User'
   const initials    = displayName.slice(0, 2).toUpperCase()
   const pageTitle   = Object.entries(pageTitles).find(([k]) => pathname.startsWith(k))?.[1] ?? 'Workspace'
 

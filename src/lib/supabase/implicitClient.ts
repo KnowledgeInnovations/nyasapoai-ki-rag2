@@ -3,8 +3,10 @@ import { createClient } from '@supabase/supabase-js'
 /**
  * createBrowserClient() (./client.ts) hardcodes flowType: 'pkce' with no way
  * to override it — fine for sign-in itself (no email link involved), but
- * wrong for anything that emails a confirmation link (signup, password
- * reset, email change): PKCE binds the link to a code verifier stored in
+ * wrong for anything that emails a link the person clicks (signup, password
+ * reset, email change, and the email sign-in link — that last one was
+ * missing from this list and was broken because of it): PKCE binds the link
+ * to a code verifier stored in
  * *this* browser, so clicking it from a different browser or device — the
  * realistic case for a link delivered by email — fails with "PKCE code
  * verifier not found in storage." Use this throwaway implicit-flow client

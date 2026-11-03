@@ -2,6 +2,7 @@
 
 import { useState, Suspense } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { createImplicitClient } from '@/lib/supabase/implicitClient'
 import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, ArrowRight, Loader2, Mail } from 'lucide-react'
 import TotpChallengeForm from './TotpChallengeForm'
@@ -115,9 +116,21 @@ function LoginForm({ tenant }: FormProps) {
     setError('')
     setLoading(true)
     try {
-      const { error } = await supabase.auth.signInWithOtp({
+      // The implicit client, not the PKCE one this component otherwise
+      // uses. An emailed link is realistically opened on a phone while it
+      // was requested on a laptop, and a PKCE link only completes in the
+      // browser that asked — see src/lib/supabase/implicitClient.ts, which
+      // already says exactly this about signup and password reset. The
+      // email sign-in link belonged on that list and was not on it.
+      const { error } = await createImplicitClient().auth.signInWithOtp({
         email,
-        options: { emailRedirectTo: `${window.location.origin}/ask` },
+        options: {
+          // /ask does nothing with the tokens a sign-in link arrives
+          // carrying: the layout finds no session cookie and sends them to
+          // the login page, which looks exactly like a broken link. The
+          // callback route turns the link into a session first.
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=/ask`,
+        },
       })
       if (error) setError(error.message)
       else setMagicSent(true)

@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { getUser, getMembership, getTenant, getTenantLogoPath, getWorkspaceStatus, createClient, getSessionId, touchLastActive } from '@/lib/supabase/server'
+import { getUser, getMembership, getTenant, getTenantLogoPath, getWorkspaceStatus, getSessionId, touchLastActive, needsMfaStepUp } from '@/lib/supabase/server'
 import { workspaceAccess } from '@/lib/workspaceStatus'
 import { subdomainFromHost, tenantUrlForHost, rootUrlForHost } from '@/lib/domain'
 import { isSessionEmailMfaVerified } from '@/lib/emailMfa'
@@ -27,12 +27,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       sessionId,
     )
     if (!verified) redirect('/auth/mfa-challenge')
-  } else {
-    // getAuthenticatorAssuranceLevel() reads the already-fetched session
-    // locally — no extra Auth API round trip.
-    const supabase = await createClient()
-    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-    if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') redirect('/auth/mfa-challenge')
+  } else if (await needsMfaStepUp()) {
+    redirect('/auth/mfa-challenge')
   }
 
   const membership = await getMembership()

@@ -1,4 +1,4 @@
-import { getUser, getMembership, getTenant, getTenantLogoPath } from '@/lib/supabase/server'
+import { getUser, getMembership, getTenant, getTenantLogoPath, metaString } from '@/lib/supabase/server'
 import { publicUrlFor } from '@/lib/tenantLogo'
 import { getPlanPrices, PLAN_ORDER } from '@/lib/planPrices'
 
@@ -23,7 +23,7 @@ export async function settingsSectionProps() {
     paidUntil:        (tenant as { paid_until?: string | null } | null)?.paid_until ?? null,
     paymentChannel:   (tenant as { paystack_channel?: string | null } | null)?.paystack_channel ?? null,
     email:            user?.email ?? '',
-    name:             user?.user_metadata?.name ?? '',
+    name:             metaString(user, 'name') ?? '',
     role:             membership?.role ?? 'junior',
     emailDomains:     tenant?.email_domains ?? [],
     isPlatformTenant: tenant?.is_platform ?? false,

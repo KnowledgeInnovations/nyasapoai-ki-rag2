@@ -2,7 +2,34 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { cookies, headers } from 'next/headers'
 import { cache } from 'react'
-import type { User } from '@supabase/supabase-js'
+
+/**
+ * The signed-in user, as proven by the verified access token.
+ *
+ * Deliberately not Supabase's `User`: this is built from the JWT's claims,
+ * and the JWT does not carry everything that type promises (created_at, for
+ * one). Returning a `User` with invented fields would be a small lie that
+ * somebody later relies on. These are the fields the token actually proves,
+ * and they are the only ones this application reads.
+ */
+export interface AuthenticatedUser {
+  id: string
+  email: string | null
+  phone: string | null
+  role: string | null
+  app_metadata: Record<string, unknown>
+  user_metadata: Record<string, unknown>
+}
+
+/**
+ * A string out of user_metadata, or null. That object is free-form — anything
+ * can be written into it from the client — so reading a field is a narrowing,
+ * not an assumption that it is there and is text.
+ */
+export function metaString(user: AuthenticatedUser | null | undefined, key: string): string | null {
+  const value = user?.user_metadata?.[key]
+  return typeof value === 'string' && value.trim() ? value : null
+}
 import { normalizeRole, type Role } from '@/lib/roles'
 import { cookieDomainForHost, subdomainFromHost } from '@/lib/domain'
 
@@ -17,7 +44,7 @@ const USER_TTL       = 30_000  // 30 s  — auth check
 const MEMBERSHIP_TTL = 300_000 // 5 min — membership rarely changes
 const TENANT_TTL     = 300_000 // 5 min — tenant name/subdomain rarely changes
 
-const userCache       = new Map<string, Entry<User | null>>()
+const userCache       = new Map<string, Entry<AuthenticatedUser | null>>()
 const membershipCache = new Map<string, Entry<{ tenant_id: string; role: Role } | null>>()
 const tenantCache      = new Map<string, Entry<{ id: string; name: string; subdomain: string; plan: string | null; description: string | null; is_platform: boolean; email_domains: string[] } | null>>()
 const subdomainTenantCache = new Map<string, Entry<{ id: string; name: string; subdomain: string } | null>>()
@@ -61,6 +88,17 @@ export const createClient = cache(async () => {
   )
 })
 
+/**
+ * The verified claims of the current access token, read once per request.
+ * Everything that needs identity goes through here rather than reading the
+ * session, which is unverified.
+ */
+export const getAuthClaims = cache(async () => {
+  const supabase = await createClient()
+  const { data } = await supabase.auth.getClaims()
+  return data?.claims ?? null
+})
+
 // ── getUser — cached 30 s across requests ─────────────────────
 export const getUser = cache(async () => {
   const cookieStore = await cookies()
@@ -71,14 +109,33 @@ export const getUser = cache(async () => {
     if (hit && hit.exp > Date.now()) return hit.v
   }
 
-  const supabase = await createClient()
-  // Use getSession() (local JWT verification, no network call) instead of
-  // getUser() (which makes a network round-trip to /auth/v1/user and can
-  // trigger a refresh attempt that exhausts rate limits when the refresh
-  // token is stale). Middleware already handles token refresh and writes
-  // updated cookies to the forwarded request before server components run.
-  const { data: { session } } = await supabase.auth.getSession()
-  const user = session?.user ?? null
+  // getClaims(), not getSession().user.
+  //
+  // The original reasoning for avoiding getUser() still holds: it is a
+  // network round-trip to /auth/v1/user on every request, and can trigger a
+  // refresh that exhausts rate limits when the refresh token is stale. But
+  // reading `.user` off getSession() took the user straight from the cookie
+  // without verifying anything, which is why Supabase wrapped that property
+  // in a warning proxy — one line of log per authenticated request, on every
+  // route, saying so.
+  //
+  // getClaims() keeps the speed and removes the problem. This project signs
+  // with ES256, so it fetches the JWKS once, caches it, and verifies the
+  // signature locally with WebCrypto — no per-request network call, and the
+  // claims are actually proven rather than assumed. (On a symmetric-key
+  // project it falls back to a verified getUser() call, which is slower but
+  // still correct.)
+  const claims = await getAuthClaims()
+  const user: AuthenticatedUser | null = claims?.sub
+    ? {
+        id: claims.sub,
+        email: (claims.email as string | undefined) ?? null,
+        phone: (claims.phone as string | undefined) ?? null,
+        role: (claims.role as string | undefined) ?? null,
+        app_metadata: (claims.app_metadata as Record<string, unknown> | undefined) ?? {},
+        user_metadata: (claims.user_metadata as Record<string, unknown> | undefined) ?? {},
+      }
+    : null
 
   if (key) {
     evict(userCache)
@@ -86,6 +143,45 @@ export const getUser = cache(async () => {
   }
 
   return user
+})
+
+/**
+ * Does this request need a step-up to two-factor before it is let through?
+ *
+ * The layout used to ask getAuthenticatorAssuranceLevel() with no argument,
+ * which reads session.user.factors straight out of the cookie. That is not
+ * only what Supabase's "could be insecure" warning was about — one line per
+ * authenticated request, on every route — it is a real weakness: the stored
+ * session JSON is not signature-protected as a whole, so a tampered cookie
+ * could keep a valid access token while claiming the account has no
+ * enrolled factors, and walk past the step-up.
+ *
+ * Given the token, the very same function asks the Auth server instead and
+ * trusts nothing local. The cost is one network call, so it is only paid
+ * when it can change the answer: a session already at aal2 has stepped up,
+ * and there is nothing left to check.
+ */
+export const needsMfaStepUp = cache(async (): Promise<boolean> => {
+  const supabase = await createClient()
+
+  // The access token, not the user — reading access_token off the session is
+  // not what the warning is about, and the token is signed.
+  const { data: { session } } = await supabase.auth.getSession()
+  const accessToken = session?.access_token
+  if (!accessToken) return false
+
+  const claims = await getAuthClaims()
+  if (claims?.aal === 'aal2') return false
+
+  const { data: aal, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel(accessToken)
+  if (error) {
+    // Refusing to guess. Failing open would let a 2FA account through on a
+    // transient error; failing closed sends them to a challenge they can
+    // complete. Closed is the safe direction for an authentication gate.
+    console.error('[auth] could not determine assurance level, requiring step-up:', error.message)
+    return true
+  }
+  return !!aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2'
 })
 
 // ── getSessionId — the JWT's session_id claim ──────────────────
@@ -97,15 +193,11 @@ export const getUser = cache(async () => {
 // JWT decoding; actual authentication is still enforced by getUser() before
 // any of this ever runs.
 export const getSessionId = cache(async (): Promise<string | null> => {
-  const supabase = await createClient()
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session) return null
-  try {
-    const payload = JSON.parse(Buffer.from(session.access_token.split('.')[1], 'base64url').toString('utf8'))
-    return payload.session_id ?? null
-  } catch {
-    return null
-  }
+  // The same verified claims as getUser(), rather than splitting the token
+  // apart by hand. Same value, now signature-checked.
+  const claims = await getAuthClaims()
+  const sessionId = claims?.session_id
+  return typeof sessionId === 'string' ? sessionId : null
 })
 
 // ── getMembership — cached 5 min across requests ───────────────

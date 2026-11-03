@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import type { User } from '@supabase/supabase-js'
+import type { AuthenticatedUser } from '@/lib/supabase/server'
 import AppSidebar from './Sidebar'
 import AppTopNav from './TopNav'
 import AuthListener from './AuthListener'
@@ -9,7 +9,7 @@ import { CurrentUserProvider } from './CurrentUser'
 import { purgeForeignKeys } from '@/lib/clientStore'
 
 interface Props {
-  user: User
+  user: AuthenticatedUser
   role: string
   tenantName: string
   tenantLogoUrl?: string | null
