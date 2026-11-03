@@ -1,5 +1,6 @@
 import { getUser, getMembership, getTenant, getTenantLogoPath } from '@/lib/supabase/server'
 import { publicUrlFor } from '@/lib/tenantLogo'
+import { getPlanPrices, PLAN_ORDER } from '@/lib/planPrices'
 
 // Shared by the Profile, Security and Workspace routes, which render the same
 // client component with a different `section`. All served from cache — no
@@ -11,8 +12,16 @@ export async function settingsSectionProps() {
   // workspace falls back to the default icon.
   const logoPath = tenant ? await getTenantLogoPath(tenant.subdomain) : null
 
+  const prices = await getPlanPrices()
+
   return {
     plan:             tenant?.plan ?? 'starter',
+    prices:           PLAN_ORDER.map(p => prices[p]),
+    // Null when the workspace is not on paid billing — see migration 047.
+    // Tolerates 047 not having run: the column is absent, so it reads as
+    // undefined and the panel simply says nothing about payment.
+    paidUntil:        (tenant as { paid_until?: string | null } | null)?.paid_until ?? null,
+    paymentChannel:   (tenant as { paystack_channel?: string | null } | null)?.paystack_channel ?? null,
     email:            user?.email ?? '',
     name:             user?.user_metadata?.name ?? '',
     role:             membership?.role ?? 'junior',

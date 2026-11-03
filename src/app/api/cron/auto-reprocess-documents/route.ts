@@ -100,6 +100,20 @@ export async function GET(request: NextRequest) {
   }
   console.log('[auto-reprocess] orphaned-file sweep:', JSON.stringify(reaped))
 
+  // Billing, for the same reason: one scheduled slot, several jobs. It
+  // reports its own failures and changes nothing when it cannot read the
+  // workspace list, so it cannot interfere with the retraining below.
+  let billing: unknown = null
+  try {
+    const r = await fetch(`${baseUrl}/api/cron/billing`, {
+      headers: { 'x-cron-secret': process.env.CRON_SECRET! },
+    })
+    billing = await r.json().catch(() => ({ error: `status ${r.status}` }))
+  } catch (e) {
+    billing = { error: (e as Error).message }
+  }
+  console.log('[auto-reprocess] billing sweep:', JSON.stringify(billing))
+
   for (const doc of candidates) {
     // Record the attempt BEFORE calling out — if the retrain itself hangs
     // or this handler gets killed mid-call, the document still shows as
@@ -201,5 +215,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ checked: candidates?.length ?? 0, results, orphanedFiles: reaped })
+  return NextResponse.json({ checked: candidates?.length ?? 0, results, orphanedFiles: reaped, billing })
 }

@@ -7,6 +7,7 @@ import { CheckCircle2, Loader2, X, Plus, Upload, Image as ImageIcon } from 'luci
 import { cn } from '@/lib/utils'
 import { normalizeRole, ROLE_LABELS, ROLE_DESCRIPTIONS, canUploadDocuments } from '@/lib/roles'
 import { normalizePlan } from '@/lib/plans'
+import type { PlanPrice } from '@/lib/planPrices'
 import PlanSettings from './PlanSettings'
 import PasswordSettings from './PasswordSettings'
 import TwoFactorSettings from './TwoFactorSettings'
@@ -26,6 +27,9 @@ interface Props {
   isPlatformTenant: boolean
   /** The workspace's current plan, so a Senior can change it themselves. */
   plan: string
+  prices: PlanPrice[]
+  paidUntil: string | null
+  paymentChannel: string | null
   /** Public URL of the tenant's custom icon, or null when using the default. */
   logoUrl: string | null
 }
@@ -45,7 +49,7 @@ function initialsFor(name: string, email: string): string {
   return email.slice(0, 2).toUpperCase()
 }
 
-export default function SettingsClient({ section, email, name, role, emailDomains, isPlatformTenant, logoUrl, plan }: Props) {
+export default function SettingsClient({ section, email, name, role, emailDomains, isPlatformTenant, logoUrl, plan, prices, paidUntil, paymentChannel }: Props) {
   const [displayName, setDisplayName] = useState(name)
   const [saving,      setSaving]      = useState(false)
   const [saved,       setSaved]       = useState(false)
@@ -219,7 +223,12 @@ export default function SettingsClient({ section, email, name, role, emailDomain
           {section === 'workspace' && (
             <>
               {normalizedRole === 'senior' && !isPlatformTenant && (
-                <PlanSettings currentPlan={normalizePlan(plan)} />
+                <PlanSettings
+                  currentPlan={normalizePlan(plan)}
+                  prices={prices}
+                  paidUntil={paidUntil}
+                  paymentChannel={paymentChannel}
+                />
               )}
 
               <section className="overflow-hidden  border border-gray-200 bg-white shadow-sm">

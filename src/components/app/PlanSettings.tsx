@@ -2,8 +2,9 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, Loader2, AlertTriangle } from 'lucide-react'
+import { Check, Loader2, AlertTriangle, CreditCard } from 'lucide-react'
 import { PLANS, formatBytes, type Plan } from '@/lib/plans'
+import { formatPrice, periodLabel, type PlanPrice } from '@/lib/planPrices'
 import { cn } from '@/lib/utils'
 
 const ORDER: Plan[] = ['starter', 'professional', 'enterprise']
@@ -33,8 +34,51 @@ function summarise(plan: Plan): string[] {
  * workspace already holds that the new plan would not allow, and changes
  * nothing until that has been seen and confirmed.
  */
-export default function PlanSettings({ currentPlan }: { currentPlan: Plan }) {
+interface Props {
+  currentPlan: Plan
+  prices: PlanPrice[]
+  /** When the workspace is paid up to. Null = not on paid billing. */
+  paidUntil: string | null
+  /** 'card', 'mobile_money', … — how they last paid. */
+  paymentChannel: string | null
+}
+
+export default function PlanSettings({ currentPlan, prices, paidUntil, paymentChannel }: Props) {
   const router = useRouter()
+  const priceOf = (p: Plan) => prices.find(x => x.plan === p) ?? null
+  const [payingFor, setPayingFor] = useState<Plan | null>(null)
+  const [payError, setPayError] = useState('')
+
+  // Paystack can charge a saved card again without the customer; mobile
+  // money has no equivalent, so a MoMo payer renews by approving each time.
+  // Saying "renews automatically" to them would be untrue.
+  const autoRenews = paymentChannel === 'card'
+
+  async function pay(target: Plan) {
+    setPayingFor(target)
+    setPayError('')
+    try {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: target }),
+      })
+      const data = await res.json() as { authorizationUrl?: string; error?: string }
+      if (!res.ok || !data.authorizationUrl) {
+        setPayError(data.error ?? 'Could not start the payment.')
+        return
+      }
+      // Paystack's own hosted page: card and mobile money, their PCI scope —
+      // no card details ever reach this application. assign() rather than
+      // setting location.href, which the immutability lint rule reads as
+      // writing to something it should not.
+      window.location.assign(data.authorizationUrl)
+    } catch {
+      setPayError('Could not start the payment.')
+    } finally {
+      setPayingFor(null)
+    }
+  }
   const [plan, setPlan] = useState<Plan>(currentPlan)
   const [selected, setSelected] = useState<Plan | null>(null)
   const [busy, setBusy] = useState(false)
@@ -83,6 +127,19 @@ export default function PlanSettings({ currentPlan }: { currentPlan: Plan }) {
         <p className="mt-0.5 text-xs text-gray-500">
           You are on {PLANS[plan].label}. Change it whenever you need to — it takes effect immediately.
         </p>
+        {paidUntil && (
+          <p className="mt-1.5 text-xs text-gray-600">
+            Paid until{' '}
+            <span className="font-semibold text-gray-900">
+              {new Date(paidUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}
+            </span>
+            {autoRenews
+              ? ' · renews automatically on your saved card'
+              : paymentChannel
+                ? ' · we will ask you to approve the next payment'
+                : ''}
+          </p>
+        )}
       </div>
 
       <div className="space-y-3 p-6">
@@ -110,7 +167,34 @@ export default function PlanSettings({ currentPlan }: { currentPlan: Plan }) {
                     )}
                   </div>
                   <p className="mt-0.5 text-xs text-gray-500">{PLANS[p].audience}</p>
+                  {(() => {
+                    const pr = priceOf(p)
+                    if (!pr) return null
+                    const amount = formatPrice(pr)
+                    return (
+                      <p className="mt-1.5 text-sm">
+                        {amount
+                          ? <>
+                              <span className="font-semibold text-gray-900">{amount}</span>
+                              <span className="text-xs text-gray-500"> {periodLabel(pr)}{pr.unit ? ` · ${pr.unit}` : ''}</span>
+                            </>
+                          : <span className="text-xs text-gray-500">Priced to your requirements — talk to us</span>}
+                      </p>
+                    )
+                  })()}
                 </div>
+                {isCurrent && (priceOf(p)?.amount ?? 0) > 0 && (
+                  <button
+                    onClick={() => pay(p)}
+                    disabled={payingFor !== null}
+                    className="flex shrink-0 items-center gap-2 bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:opacity-50"
+                  >
+                    {payingFor === p
+                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                      : <CreditCard className="h-4 w-4" />}
+                    {paidUntil ? 'Renew' : 'Pay now'}
+                  </button>
+                )}
                 {!isCurrent && (
                   <button
                     onClick={() => change(p, false)}
@@ -141,6 +225,9 @@ export default function PlanSettings({ currentPlan }: { currentPlan: Plan }) {
 
         {error && (
           <p className="border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{error}</p>
+        )}
+        {payError && (
+          <p className="border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{payError}</p>
         )}
         {saved && (
           <div className="flex items-center gap-2 border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-700">
