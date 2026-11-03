@@ -41,12 +41,12 @@ export default function ContactForm({ source }: { source?: string }) {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setError(data.error ?? 'Something went wrong. Please try again, or email hello@nyansaai.com.')
+        setError(data.error ?? 'Something went wrong. Please try again, or email no-reply@nyansaai.com.')
       } else {
         setSent(true)
       }
     } catch {
-      setError('Could not reach us just now. Please try again, or email hello@nyansaai.com.')
+      setError('Could not reach us just now. Please try again, or email no-reply@nyansaai.com.')
     } finally {
       setSending(false)
     }
@@ -62,8 +62,8 @@ export default function ContactForm({ source }: { source?: string }) {
         <p className="mt-3 text-sm leading-relaxed text-gray-500">
           Thank you — it is with our team and we will reply within one business
           day. If it is urgent, email us directly at{' '}
-          <a href="mailto:hello@nyansaai.com" className="text-brand underline underline-offset-2">
-            hello@nyansaai.com
+          <a href="mailto:no-reply@nyansaai.com" className="text-brand underline underline-offset-2">
+            no-reply@nyansaai.com
           </a>.
         </p>
       </div>

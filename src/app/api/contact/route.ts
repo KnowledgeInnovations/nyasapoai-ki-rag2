@@ -161,7 +161,7 @@ export async function POST(request: NextRequest) {
     } catch {
       console.error(`[contact] LOST ENQUIRY from <${cleaned.email}> — neither stored nor emailed. Body: ${JSON.stringify(cleaned)}`)
       return NextResponse.json({
-        error: 'We could not record your message just now. Please email us directly at hello@nyansaai.com and we will come straight back to you.',
+        error: 'We could not record your message just now. Please email us directly at no-reply@nyansaai.com and we will come straight back to you.',
       }, { status: 502 })
     }
     return NextResponse.json({ ok: true })

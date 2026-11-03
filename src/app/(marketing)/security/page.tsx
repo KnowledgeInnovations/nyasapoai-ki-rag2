@@ -53,7 +53,7 @@ export default function SecurityPage() {
           We work with legal and compliance teams on custom data processing agreements, GDPR requirements, and on-premise deployment options.
         </p>
         <a
-          href="mailto:security@nyansaai.com"
+          href="mailto:no-reply@nyansaai.com"
           className="mt-6 inline-flex items-center gap-2 bg-brand px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-dark"
         >
           Talk to our security team <ArrowRight className="h-3.5 w-3.5" />
