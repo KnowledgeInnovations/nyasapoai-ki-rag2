@@ -55,8 +55,23 @@ const tiers = [
   },
 ]
 
-// Prices are read at request time, so changing one in the admin screen
-// shows here without a deploy.
+/**
+ * Rendered per request, not prerendered.
+ *
+ * Without this Next treats the page as static — nothing in it reads cookies
+ * or headers, so it was baked at build time and served from the CDN with
+ * whatever prices existed then. A price set afterwards in /admin/tenants
+ * would not have appeared here until the next deploy, while the admin panel
+ * said "the pricing page shows these now". Confirmed on production as
+ * X-Vercel-Cache: PRERENDER before this was added.
+ *
+ * The cost is one small query per visit. If this page ever takes real
+ * traffic, `export const revalidate = 60` trades a minute of staleness for
+ * a cached render; per-request is the right default while prices changing
+ * immediately matters more than shaving a query.
+ */
+export const dynamic = 'force-dynamic'
+
 export default async function PricingPage() {
   const prices = await getPlanPrices()
 
