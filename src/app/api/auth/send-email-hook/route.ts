@@ -13,9 +13,14 @@ import { buildAuthEmail } from '@/lib/authEmailTemplates'
 // anything in it. SEND_EMAIL_HOOK_SECRET must match hook_send_email_secrets
 // configured on the Supabase project (the `whsec_...` part, no `v1,` prefix).
 
-// after() runs inside the route's max duration, so leave the post-response
-// SMTP send room to finish rather than being cut off at the platform default.
-export const maxDuration = 30
+// after() runs inside the route's max duration, so the post-response send has
+// to fit inside it. Thirty seconds did not: under a burst of invites each
+// send is its own invocation competing for Microsoft's few allowed
+// connections, where a single send was measured at 15 to 52 seconds. The
+// function was being killed mid-send and the invite vanished with it, which
+// is exactly what "we sent twenty invites and they never arrived" looked
+// like. Sixty, plus the retry/backoff in sendEmail().
+export const maxDuration = 60
 
 interface HookUser {
   email: string

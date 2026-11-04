@@ -8,21 +8,54 @@
 
 import nodemailer from 'nodemailer'
 
-let cachedTransporter: ReturnType<typeof nodemailer.createTransport> | null = null
+let cachedTransporter: nodemailer.Transporter | null = null
 
-function getTransporter() {
+function getTransporter(): nodemailer.Transporter {
   if (cachedTransporter) return cachedTransporter
-  cachedTransporter = nodemailer.createTransport({
+  const port = Number(process.env.SMTP_PORT ?? 465)
+  const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT ?? 465),
-    secure: Number(process.env.SMTP_PORT ?? 465) === 465,
+    port,
+    secure: port === 465,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASSWORD,
     },
+    // Microsoft 365 client submission allows only a handful of simultaneous
+    // connections per mailbox, and answers the rest with
+    // "432 4.3.2 Concurrent connections limit exceeded". Measured: twenty
+    // sends fired at once lost one outright and took a median of 25 seconds
+    // each, the slowest 52. Pooling keeps one instance to two connections
+    // and paces them.
+    pool: true,
+    maxConnections: 2,
+    maxMessages: 50,
+    rateDelta: 1000,
+    rateLimit: 4,
+    connectionTimeout: 20_000,
+    greetingTimeout: 20_000,
+    socketTimeout: 30_000,
   })
-  return cachedTransporter
+  cachedTransporter = transporter
+  return transporter
 }
+
+/**
+ * Errors worth trying again. A concurrency or throttling refusal means "not
+ * now", not "never" — the message is fine and the mailbox is fine, there was
+ * simply no free connection. Treating that as a permanent failure is how an
+ * invite disappears.
+ */
+function isTransient(e: unknown): boolean {
+  const err = e as { responseCode?: number; code?: string; message?: string }
+  const code = Number(err?.responseCode)
+  if (code >= 400 && code < 500) return true            // 4xx: try later
+  const sys = String(err?.code ?? '')
+  if (['ETIMEDOUT', 'ECONNRESET', 'ECONNECTION', 'ESOCKET', 'EENVELOPE'].includes(sys)) return true
+  return /concurrent connections|too many|throttl|try again/i.test(String(err?.message ?? ''))
+}
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 export interface SendEmailOptions {
   to: string | string[]
@@ -32,19 +65,44 @@ export interface SendEmailOptions {
   replyTo?: string
 }
 
+/** How many goes a message gets before it is declared lost. */
+const MAX_ATTEMPTS = 4
+
 export async function sendEmail({ to, subject, html, text, replyTo }: SendEmailOptions): Promise<void> {
-  try {
-    const info = await getTransporter().sendMail({
-      from: process.env.EMAIL_FROM,
-      to,
-      subject,
-      html,
-      text,
-      replyTo,
-    })
-    console.log(`[email] sent "${subject}" to ${Array.isArray(to) ? to.join(', ') : to} — messageId: ${info.messageId}`)
-  } catch (e) {
-    console.error(`[email] failed to send "${subject}" to ${Array.isArray(to) ? to.join(', ') : to}:`, (e as Error).message)
-    throw e
+  const recipient = Array.isArray(to) ? to.join(', ') : to
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const info = await getTransporter().sendMail({
+        from: process.env.EMAIL_FROM,
+        to,
+        subject,
+        html,
+        text,
+        replyTo,
+      })
+      console.log(
+        `[email] sent "${subject}" to ${recipient} — messageId: ${info.messageId}` +
+        (attempt > 1 ? ` (attempt ${attempt})` : ''),
+      )
+      return
+    } catch (e) {
+      const last = attempt === MAX_ATTEMPTS
+      if (last || !isTransient(e)) {
+        console.error(
+          `[email] FAILED to send "${subject}" to ${recipient} after ${attempt} attempt(s): ${(e as Error).message}`,
+        )
+        throw e
+      }
+      // Backoff with jitter. Every invite in a batch is its own invocation
+      // racing for the same few connections, so they must not all come back
+      // at the same moment — without the jitter they would collide again.
+      const wait = Math.round((2 ** (attempt - 1)) * 1500 * (0.5 + Math.random()))
+      console.warn(
+        `[email] "${subject}" to ${recipient} deferred (${(e as Error).message.slice(0, 60)}); ` +
+        `retrying in ${wait}ms, attempt ${attempt + 1} of ${MAX_ATTEMPTS}`,
+      )
+      await sleep(wait)
+    }
   }
 }
