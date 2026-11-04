@@ -1,0 +1,107 @@
+# Render Blueprint — the whole deployment as code.
+#
+# Create the services from this rather than by hand in the dashboard: it is
+# reviewable, and it means the cron job cannot be forgotten, which is how a
+# migration quietly loses the nightly retrain and the billing sweep.
+#
+# Secrets are deliberately NOT here. Every one is `sync: false`, which means
+# Render prompts for it on first deploy and stores it encrypted. A blueprint
+# lives in the repository; the repository is public.
+#
+# Full walkthrough: docs/RENDER_MIGRATION.md
+
+services:
+  # ── The application ──────────────────────────────────────────
+  - type: web
+    name: nyansaai
+    runtime: node
+    region: frankfurt          # closest of Render's regions to Ghana
+    plan: standard             # NOT free: a free instance sleeps when idle,
+                               # and a cold start breaks the Supabase email
+                               # hook, which allows 5 seconds to respond.
+    branch: master             # the branch this project actually lives on
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+
+    envVars:
+      - key: NODE_VERSION
+        value: "22"            # Render-only, so it cannot disturb Vercel's
+                               # own Node selection during the cutover.
+      - key: NODE_ENV
+        value: production
+
+      # Public — these end up in the browser bundle anyway.
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false            # https://www.nyansaai.com
+      - key: NEXT_PUBLIC_ROOT_DOMAIN
+        sync: false            # nyansaai.com
+
+      # Secrets.
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: SEND_EMAIL_HOOK_SECRET
+        sync: false
+
+      # Mail. One long-running process means one shared connection pool,
+      # which is the point of moving here — see the migration guide.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false            # 587
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+
+      # Payments. Omit until Paystack is live; the code declines to take
+      # money when unset rather than pretending.
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: PAYSTACK_PUBLIC_KEY
+        sync: false
+      - key: CONTACT_NOTIFY_EMAIL
+        sync: false            # optional; defaults to no-reply@nyansaai.com
+
+  # ── The nightly job ──────────────────────────────────────────
+  # Replaces the single entry in vercel.json. The route it calls chains the
+  # orphaned-file sweep and the billing sweep itself, so one schedule still
+  # covers all three.
+  #
+  # Uses node rather than curl: the base image is guaranteed to have node,
+  # and a missing curl would fail silently at 03:00 rather than loudly now.
+  - type: cron
+    name: nyansaai-nightly
+    runtime: node
+    region: frankfurt
+    plan: starter
+    branch: master
+    schedule: "0 3 * * *"      # 03:00 UTC, as on Vercel
+    buildCommand: "echo no build needed"
+    startCommand: >
+      node -e "
+      const u=process.env.APP_URL+'/api/cron/auto-reprocess-documents';
+      fetch(u,{headers:{'x-cron-secret':process.env.CRON_SECRET}})
+        .then(async r=>{const t=await r.text();
+          console.log('status',r.status,t.slice(0,500));
+          if(!r.ok)process.exit(1);})
+        .catch(e=>{console.error('cron call failed:',e.message);process.exit(1);});
+      "
+    envVars:
+      - key: APP_URL
+        sync: false            # https://www.nyansaai.com
+      - key: CRON_SECRET
+        sync: false            # must match the web service's value

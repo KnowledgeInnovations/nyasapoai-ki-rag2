@@ -38,7 +38,19 @@ export async function proxy(request: NextRequest) {
     // session at all — it authenticates via its own signed-webhook check,
     // not a cookie, so it must bypass this redirect or every auth email
     // Supabase tries to send would fail.
-    const isPublicWebhook = url.pathname === '/api/auth/send-email-hook'
+    // Server-to-server callers carry no cookie. Each authenticates itself —
+    // the email hook by its signed-webhook check, Paystack by an HMAC
+    // signature over the raw body — so redirecting them to a login page
+    // would simply break them. Paystack posts to the root domain today, so
+    // this is belt and braces; it stops being belt and braces the moment
+    // anyone points a webhook at a tenant host.
+    const isPublicWebhook =
+      url.pathname === '/api/auth/send-email-hook' ||
+      url.pathname === '/api/billing/webhook' ||
+      // Liveness. A platform health check has no session and must never be
+      // answered with a redirect to a sign-in page, or the deploy looks
+      // unhealthy and never goes live.
+      url.pathname === '/api/health'
     // The workspace favicon must stay public: browsers and link-preview
     // crawlers fetch it with no session, and redirecting it to /auth/login
     // hands them an HTML page where an image should be, so the tab icon
