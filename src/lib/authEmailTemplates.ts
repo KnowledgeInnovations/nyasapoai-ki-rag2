@@ -77,6 +77,16 @@ const EXPIRES_FOOTNOTE =
   `This link expires in ${LINK_TTL_HOURS} hours and can only be used once. ` +
   'If you request another, it replaces this one — always use the newest email.'
 
+/**
+ * Footnote for the emailed verification code.
+ *
+ * Supabase applies ONE expiry to everything it emails, codes included, so
+ * this is the same window as the links rather than a shorter one of its own.
+ * The code issued by our own step-up check (src/lib/emailMfa.ts) is a
+ * separate thing entirely, lives for ten minutes, and says so itself.
+ */
+const CODE_EXPIRES_FOOTNOTE = `This code expires in ${LINK_TTL_HOURS} hours and can only be used once.`
+
 /** Plain-text body for a link email, carrying the same expiry note as the HTML. */
 function linkText(line: string, url: string) {
   return [`${line}: ${url}`, '', EXPIRES_FOOTNOTE].join('\n')
@@ -123,8 +133,8 @@ export function buildAuthEmail(actionType: string, vars: { confirmationURL?: str
     case 'reauthentication':
       return {
         subject: "Confirm it's you",
-        html: shell('', '', '', "Confirm it's you", codeBody("You're about to perform a sensitive action. Enter this code to confirm it's really you.", vars.token ?? ''), 'This code expires shortly.'),
-        text: `Your verification code is ${vars.token}`,
+        html: shell('', '', '', "Confirm it's you", codeBody("You're about to perform a sensitive action. Enter this code to confirm it's really you.", vars.token ?? ''), CODE_EXPIRES_FOOTNOTE),
+        text: [`Your verification code is ${vars.token}`, '', CODE_EXPIRES_FOOTNOTE].join('\n'),
       }
     case 'password_changed':
       return {
