@@ -54,8 +54,13 @@ services:
       - key: SEND_EMAIL_HOOK_SECRET
         sync: false
 
-      # Mail. One long-running process means one shared connection pool,
-      # which is the point of moving here — see the migration guide.
+      # Mail. Two ways out, chosen at runtime by which credential is set:
+      # RESEND_API_KEY wins when present, SMTP is the fallback. Set the
+      # Resend key and outbound mail leaves over HTTP, which has no
+      # connection limit to exhaust; leave it blank and nothing changes.
+      - key: RESEND_API_KEY
+        sync: false            # optional, but the reason bulk invites stop
+                               # hitting "432 concurrent connections"
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
