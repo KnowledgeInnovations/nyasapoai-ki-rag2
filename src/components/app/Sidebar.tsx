@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   MessageSquare, FileText, LayoutDashboard, Settings, Building2,
-  ChevronLeft, ChevronRight, X, Plus, History, Trash2,
+  ChevronLeft, ChevronRight, X, Plus, History, Trash2, Gauge,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useCurrentUserId } from './CurrentUser'
@@ -48,6 +48,7 @@ function getNavItems(role: string, isPlatformAdmin?: boolean, isPlatformTenant?:
     ...(isPlatformTenant ? [] : [{ href: '/documents', icon: FileText, label: 'Documents' }]),
     ...(canAccessDashboards(r) && !isPlatformTenant ? [{ href: '/dashboards', icon: LayoutDashboard, label: 'Dashboard' }] : []),
     ...(isPlatformAdmin                             ? [{ href: '/admin/tenants', icon: Building2,    label: 'Tenants'    }] : []),
+    ...(isPlatformAdmin                             ? [{ href: '/admin/usage',   icon: Gauge,        label: 'Usage'      }] : []),
     { href: '/settings',   icon: Settings,         label: 'Settings'   },
   ]
 }
