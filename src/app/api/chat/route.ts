@@ -20,6 +20,7 @@ import { AGENTIC_SYSTEM_ADDENDUM } from '@/lib/agentTools'
 import { canAccessTraining } from '@/lib/roles'
 import { getConfirmedHeuristicsText } from '@/lib/answerHeuristics'
 import { isAggregateQuestion, buildFactAggregateBlock } from '@/lib/factAggregates'
+import { withUsage, recordUsage, anthropicTokens } from '@/lib/usage'
 import type { ChartData, RAGResponse } from '@/types'
 
 // The agentic path (default for all real chat traffic — see the `agentic`
@@ -462,7 +463,27 @@ export async function DELETE(request: NextRequest) {
 }
 
 /* ── POST: streaming chat ─────────────────────────────────── */
+/**
+ * Attributes every model call made under this request to a workspace.
+ *
+ * The alternative was threading a tenant id through fifteen call sites and
+ * four levels of the extraction pipeline, where it would have been silently
+ * dropped by the next call site anyone added. See src/lib/usage.ts.
+ */
 export async function POST(request: NextRequest) {
+  const [user, membership] = await Promise.all([getUser(), getMembership()])
+  const tenantForUsage = membership ? await getTenant(membership.tenant_id) : null
+  return withUsage(
+    {
+      tenantId:    membership?.tenant_id ?? null,
+      tenantLabel: tenantForUsage?.name ?? null,
+      userId:      user?.id ?? null,
+    },
+    () => handleChat(request),
+  )
+}
+
+async function handleChat(request: NextRequest) {
   // Both calls served from module-level cache after first request — near zero latency
   const [user, membership] = await Promise.all([getUser(), getMembership()])
   if (!user)       return new Response('Unauthorized', { status: 401 })
@@ -1927,6 +1948,11 @@ Cite this aggregate view as ${markers.join(', ')} whenever you use a count from 
         const decoder = new TextDecoder()
         let fullText  = ''
         let buf       = ''
+        // Anthropic reports input (and cache) tokens once, on message_start,
+        // and a running output total on each message_delta. Neither is a
+        // complete picture on its own, so both are collected and the row is
+        // written after the stream closes.
+        const streamUsage = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 }
 
         try {
           while (true) {
@@ -1941,8 +1967,25 @@ Cite this aggregate view as ${markers.join(', ')} whenever you use a count from 
               if (!line.startsWith('data: ')) continue
               const raw = line.slice(6).trim()
               if (!raw) continue
-              let parsed: { type?: string; delta?: { type?: string; text?: string; stop_reason?: string }; usage?: { output_tokens?: number; output_tokens_details?: { thinking_tokens?: number } } }
+              let parsed: {
+                type?: string
+                delta?: { type?: string; text?: string; stop_reason?: string }
+                usage?: { output_tokens?: number; output_tokens_details?: { thinking_tokens?: number } }
+                message?: { usage?: unknown }
+              }
               try { parsed = JSON.parse(raw) } catch { continue }
+              if (parsed.type === 'message_start') {
+                const u = anthropicTokens(parsed.message?.usage)
+                streamUsage.inputTokens      = u.inputTokens ?? 0
+                streamUsage.cacheWriteTokens = u.cacheWriteTokens ?? 0
+                streamUsage.cacheReadTokens  = u.cacheReadTokens ?? 0
+                streamUsage.outputTokens     = u.outputTokens ?? 0
+                continue
+              }
+              if (parsed.type === 'message_delta' && typeof parsed.usage?.output_tokens === 'number') {
+                // Cumulative, not incremental — assign rather than add.
+                streamUsage.outputTokens = parsed.usage.output_tokens
+              }
               // Surface truncation: with adaptive thinking, thinking tokens
               // count against max_tokens — if the model hits the cap the
               // visible answer is silently cut mid-sentence. Log it so a
@@ -1960,6 +2003,14 @@ Cite this aggregate view as ${markers.join(', ')} whenever you use a count from 
               controller.enqueue(enc.encode(`data: ${JSON.stringify({ t: token })}\n\n`))
             }
           }
+
+          // Context passed explicitly: the stream's start() callback runs
+          // outside the awaited chain that carries the ambient context.
+          recordUsage({
+            provider: 'anthropic', model: CLAUDE_REASONING_MODEL, operation: 'chat',
+            tokens: streamUsage,
+            context: { tenantId, tenantLabel: orgName, userId: user!.id },
+          })
 
           const parsed = parseDelimited(fullText)
 

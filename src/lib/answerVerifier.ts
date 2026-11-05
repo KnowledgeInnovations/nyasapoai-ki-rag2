@@ -15,6 +15,7 @@
 // A function, not a module-level constant — see getAnthropicHeaders() in
 // claude.ts for why: Next.js dev-server env reloads can bake a stale/undefined
 // key into a constant captured at import time.
+import { recordUsage, openaiTokens } from './usage'
 function getOpenAIHeaders() {
   return {
     'Content-Type': 'application/json',
@@ -301,6 +302,7 @@ export async function verifyAnswerWithAI(
     })
     if (!res.ok) throw new Error(`OpenAI API error ${res.status}: ${await res.text()}`)
     const data = await res.json()
+    recordUsage({ provider: 'openai', model: 'gpt-4o-mini', operation: 'verify', tokens: openaiTokens(data.usage) })
     const raw = data.choices?.[0]?.message?.content ?? ''
     if (!raw) return { issues: [], verified: false }
 

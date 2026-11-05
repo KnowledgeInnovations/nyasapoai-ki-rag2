@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withRequestUsage } from '@/lib/usageRequest'
 import { getMembership, getTenant } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { claudeComplete } from '@/lib/claude'
@@ -24,7 +25,12 @@ function svc() {
   )
 }
 
+/** Attributes every model call under this handler — see src/lib/usage.ts. */
 export async function POST(request: NextRequest) {
+  return withRequestUsage(() => handlePost(request))
+}
+
+async function handlePost(request: NextRequest) {
   const membership = await getMembership()
   if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 

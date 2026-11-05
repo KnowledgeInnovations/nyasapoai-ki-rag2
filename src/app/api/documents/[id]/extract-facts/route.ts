@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse, after } from 'next/server'
+import { withRequestUsage } from '@/lib/usageRequest'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { getMembership } from '@/lib/supabase/server'
 import { canAccessTraining } from '@/lib/roles'
@@ -58,7 +59,15 @@ interface ChunkRow {
   metadata: Record<string, unknown> | null
 }
 
+/** Attributes every model call under this handler — see src/lib/usage.ts. */
 export async function POST(
+  request: NextRequest,
+  ctx: { params: Promise<{ id: string }> },
+) {
+  return withRequestUsage(() => handlePost(request, ctx))
+}
+
+async function handlePost(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {

@@ -22,6 +22,7 @@
  */
 
 import { getAnthropicHeaders, CLAUDE_REASONING_MODEL, ADAPTIVE_THINKING } from './claude'
+import { recordUsage, anthropicTokens } from './usage'
 import { AGENT_TOOLS, executeAgentTool, type AgentToolContext } from './agentTools'
 
 const MAX_ITERATIONS = 5
@@ -110,6 +111,9 @@ async function callClaude(
   const reader  = res.body.getReader()
   const decoder = new TextDecoder()
   let buf = ''
+  // Input and cache tokens arrive once on message_start; output accumulates
+  // on message_delta. Recorded after the stream closes, when both are known.
+  const streamUsage = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 }
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
@@ -125,8 +129,21 @@ async function callClaude(
         type?: string; index?: number
         content_block?: { type: string; id?: string; name?: string }
         delta?: { type?: string; text?: string; partial_json?: string; thinking?: string; signature?: string; stop_reason?: string }
+        message?: { usage?: unknown }
+        usage?: { output_tokens?: number }
       }
       try { evt = JSON.parse(raw) } catch { continue }
+      if (evt.type === 'message_start') {
+        const u = anthropicTokens(evt.message?.usage)
+        streamUsage.inputTokens      = u.inputTokens ?? 0
+        streamUsage.cacheWriteTokens = u.cacheWriteTokens ?? 0
+        streamUsage.cacheReadTokens  = u.cacheReadTokens ?? 0
+        streamUsage.outputTokens     = u.outputTokens ?? 0
+        continue
+      }
+      if (evt.type === 'message_delta' && typeof evt.usage?.output_tokens === 'number') {
+        streamUsage.outputTokens = evt.usage.output_tokens   // cumulative
+      }
 
       if (evt.type === 'content_block_start' && evt.content_block && evt.index != null) {
         const cb = evt.content_block
@@ -155,6 +172,10 @@ async function callClaude(
       }
     }
   }
+
+  // One row per turn of the loop, so a question that took five tool calls
+  // shows as five charges rather than one — which is what the bill does.
+  recordUsage({ provider: 'anthropic', model: CLAUDE_REASONING_MODEL, operation: 'agentic', tokens: streamUsage })
 
   const content: AnthropicContentBlock[] = blocks.filter(Boolean).map(b => {
     if (b.type === 'tool_use') return { type: 'tool_use', id: b.toolId!, name: b.toolName!, input: b.inputJson ? JSON.parse(b.inputJson) : {} }

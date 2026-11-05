@@ -14,6 +14,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { recordUsage, openaiTokens } from './usage'
 import {
   canonicalizeEntity, dedupeFacts, cumulativeByEntity, topNGrowth, proportionOfTotal,
   summarizeTrend, forecastNextYear, type FactRow,
@@ -322,6 +323,7 @@ export async function executeSearchDocuments(ctx: AgentToolContext, input: { que
     body: JSON.stringify({ model: 'text-embedding-3-small', input: input.query }),
   })
   const embData = await embRes.json()
+  recordUsage({ provider: 'openai', model: 'text-embedding-3-small', operation: 'embed', tokens: openaiTokens(embData.usage) })
   const queryEmbedding = embData.data?.[0]?.embedding
   if (!queryEmbedding) return { error: 'Search failed (embedding error)' }
 

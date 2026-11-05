@@ -1,4 +1,5 @@
 import { NextRequest, after } from 'next/server'
+import { withRequestUsage } from '@/lib/usageRequest'
 import path from 'node:path'
 import { getMembership, getUser } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
@@ -61,7 +62,15 @@ const PROCESSING_BUDGET_MS = 240_000
 // leave a scanned document with text but no embeddings.
 const VISION_RECOVERY_BUDGET_MS = 100_000
 
+/** Attributes every model call under this handler — see src/lib/usage.ts. */
 export async function POST(
+  request: NextRequest,
+  ctx: { params: Promise<{ id: string }> },
+) {
+  return withRequestUsage(() => handlePost(request, ctx))
+}
+
+async function handlePost(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {

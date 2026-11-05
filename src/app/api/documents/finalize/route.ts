@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse, after } from 'next/server'
+import { withRequestUsage } from '@/lib/usageRequest'
 import nodePath from 'node:path'
 import { createClient, getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
@@ -66,7 +67,12 @@ const PROCESSING_BUDGET_MS = 240_000
 // same constant in the training route.
 const VISION_RECOVERY_BUDGET_MS = 100_000
 
+/** Attributes every model call under this handler — see src/lib/usage.ts. */
 export async function POST(request: NextRequest) {
+  return withRequestUsage(() => handlePost(request))
+}
+
+async function handlePost(request: NextRequest) {
   const routeDeadline = Date.now() + PROCESSING_BUDGET_MS
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

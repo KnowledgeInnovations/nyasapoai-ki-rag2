@@ -5,6 +5,7 @@
 
 import path from 'path'
 import { claudeComplete, isNetworkError, withRetry } from './claude'
+import { recordUsage, openaiTokens } from './usage'
 
 // The DOMMatrix/ImageData/Path2D polyfills pdf-parse needs are installed in
 // src/instrumentation.ts, which Next.js guarantees runs to completion before
@@ -1118,6 +1119,7 @@ export async function embedBatch(texts: string[], deadline?: number): Promise<nu
       })
       if (!res.ok) throw new Error(`OpenAI embeddings error ${res.status}: ${await res.text()}`)
       const data = await res.json()
+      recordUsage({ provider: 'openai', model: 'text-embedding-3-small', operation: 'embed', tokens: openaiTokens(data.usage) })
       if (!Array.isArray(data?.data)) throw new Error('OpenAI embeddings: malformed response')
       return (data.data as { index: number; embedding: number[] }[])
         .sort((a, b) => a.index - b.index)

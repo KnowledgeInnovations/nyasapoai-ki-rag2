@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withRequestUsage } from '@/lib/usageRequest'
+import { recordUsage, openaiTokens } from '@/lib/usage'
 import { getMembership, getUser } from '@/lib/supabase/server'
 import { canAccessTraining } from '@/lib/roles'
 import { getServiceClient, OPENAI_HEADERS } from '@/app/api/chat/route'
@@ -57,7 +59,12 @@ interface ResultDoc {
   excerpts:   { pageNumber: number | null; sectionTitle: string | null; text: string }[]
 }
 
+/** Attributes every model call under this handler — see src/lib/usage.ts. */
 export async function POST(request: NextRequest) {
+  return withRequestUsage(() => handlePost(request))
+}
+
+async function handlePost(request: NextRequest) {
   const membership = await getMembership()
   if (!membership || !canAccessTraining(membership.role)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -228,6 +235,7 @@ async function reviewSearchResult(
     })
     if (!res.ok) throw new Error(`OpenAI API error ${res.status}: ${await res.text()}`)
     const data = await res.json()
+    recordUsage({ provider: 'openai', model: 'gpt-4o-mini', operation: 'search', tokens: openaiTokens(data.usage) })
     const raw = data.choices?.[0]?.message?.content ?? ''
     if (!raw) return null
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withRequestUsage } from '@/lib/usageRequest'
 import { getMembership, getTenant } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { getDashboardThemes } from '@/lib/dashboardThemes'
@@ -14,7 +15,12 @@ function svc() {
   )
 }
 
+/** Attributes every model call under this handler — see src/lib/usage.ts. */
 export async function GET(request: NextRequest) {
+  return withRequestUsage(() => handleGet(request))
+}
+
+async function handleGet(request: NextRequest) {
   const membership = await getMembership()
   if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 

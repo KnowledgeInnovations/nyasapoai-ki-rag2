@@ -50,7 +50,11 @@ export interface ClaudeMessage {
   content: string | ClaudeContentBlock[]
 }
 
+import { recordUsage, anthropicTokens, type Operation } from './usage'
+
 interface ClaudeCompleteOptions {
+  /** What this call is for, for usage accounting. See src/lib/usage.ts. */
+  operation?: Operation | string
   system?: string
   messages: ClaudeMessage[]
   maxTokens?: number
@@ -172,7 +176,7 @@ export async function withRetry<T>(
   }
 }
 
-export async function claudeComplete({ system, messages, maxTokens = 1024, temperature = 0, signal, deadline }: ClaudeCompleteOptions): Promise<string> {
+export async function claudeComplete({ system, messages, maxTokens = 1024, temperature = 0, signal, deadline, operation = 'other' }: ClaudeCompleteOptions): Promise<string> {
   // Scale with the requested output size, floor at the old flat default
   // (small calls keep behaving exactly as before), and never exceed what's
   // actually left of the caller's deadline (minus safety margin) or the
@@ -261,6 +265,10 @@ export async function claudeComplete({ system, messages, maxTokens = 1024, tempe
     await new Promise(r => setTimeout(r, (Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : attempt) * 1000))
   }
   const data = await res!.json()
+  // The provider's own count of what it will bill for. Recorded, never
+  // awaited: see src/lib/usage.ts on why accounting must not be able to fail
+  // the call it is measuring.
+  recordUsage({ provider: 'anthropic', model: CLAUDE_MODEL, operation, tokens: anthropicTokens(data.usage) })
   return (data.content?.[0]?.text ?? '').trim()
 }
 
