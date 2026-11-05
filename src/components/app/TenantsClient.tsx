@@ -26,11 +26,18 @@ export interface TenantRow {
   isPlatform: boolean
   queryCount30d: number
   documentCount30d: number
-  estimatedMonthlyCostUsd: number
+  /** Measured spend over the window, from recorded token usage. */
+  spendUsd30d: number
+  modelCalls30d: number
+  /** Calls whose model had no rate set, so the spend above is a floor. */
+  unpricedCalls30d: number
 }
 
 interface Props {
   tenants: TenantRow[]
+  /** False when nothing has been recorded yet, so the column can say so. */
+  usageRecorded: boolean
+  windowDays: number
 }
 
 /** How many members a workspace shows before asking to be expanded. */
@@ -49,7 +56,7 @@ const STATUS_TONE: Record<WorkspaceStatus, string> = {
   suspended:        'border-red-200 bg-red-50 text-red-700',
 }
 
-export default function TenantsClient({ tenants }: Props) {
+export default function TenantsClient({ tenants, usageRecorded, windowDays }: Props) {
   const router = useRouter()
   const [list, setList] = useState(tenants)
   const [deleteTarget, setDeleteTarget] = useState<TenantRow | null>(null)
@@ -379,6 +386,30 @@ export default function TenantsClient({ tenants }: Props) {
         )}
       </section>
 
+      {/* ── at a glance ───────────────────────────────────── */}
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[
+          { label: 'Workspaces', value: String(list.length), hint: `${list.filter(t => t.status === 'active').length} active` },
+          { label: 'Members', value: String(list.reduce((a, t) => a + t.memberCount, 0)), hint: 'across all workspaces' },
+          {
+            label: `Spend, ${windowDays} days`,
+            value: usageRecorded ? `$${list.reduce((a, t) => a + t.spendUsd30d, 0).toFixed(2)}` : '—',
+            hint: usageRecorded ? 'measured from tokens' : 'nothing recorded yet',
+          },
+          {
+            label: 'Needs attention',
+            value: String(list.filter(t => t.status === 'past_due' || t.status === 'payment_required' || t.status === 'suspended').length),
+            hint: 'unpaid or suspended',
+          },
+        ].map(k => (
+          <div key={k.label} className="border border-gray-200 bg-white px-4 py-3.5 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{k.label}</p>
+            <p className="mt-1.5 font-editorial text-2xl font-normal text-gray-900">{k.value}</p>
+            <p className="mt-0.5 text-[11px] text-gray-400">{k.hint}</p>
+          </div>
+        ))}
+      </section>
+
       {/* ── the list ──────────────────────────────────────── */}
       <section className="overflow-hidden border border-gray-200 bg-white shadow-sm">
         <div className="border-b border-gray-100 bg-gray-50/60 px-6 py-4">
@@ -413,6 +444,19 @@ export default function TenantsClient({ tenants }: Props) {
             </div>
           </div>
         </div>
+        {/* Column headers. Previously every number in a row was unlabelled,
+            so "27" could have been members, questions or dollars. */}
+        <div className="hidden items-center gap-4 border-b border-gray-100 bg-white px-6 py-2 lg:flex">
+          <span className="min-w-0 flex-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Workspace</span>
+          <span className="w-32 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Plan</span>
+          <span className="w-36 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Status</span>
+          <span className="w-24 shrink-0 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-400">Members</span>
+          <span className="w-28 shrink-0 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-400">Spend</span>
+          <span className="w-28 shrink-0 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-400">Activity</span>
+          <span className="w-24 shrink-0 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-400">Created</span>
+          <span className="w-9 shrink-0" />
+        </div>
+
         <div className="divide-y divide-gray-100">
           {visible.map(({ t, matched }) => {
             // A member match is its own reason to show the list, so a search
@@ -462,9 +506,28 @@ export default function TenantsClient({ tenants }: Props) {
                     : null}
                   {t.memberCount} {t.memberCount === 1 ? 'member' : 'members'}
                 </button>
-                <div className="w-32 shrink-0 text-right" title={`Estimated AI cost: ${t.queryCount30d} questions + ${t.documentCount30d} documents uploaded in the last 30 days. Modeled from average per-call cost, not measured billing.`}>
-                  <p className="text-sm font-semibold text-gray-700">~${t.estimatedMonthlyCostUsd.toFixed(2)}<span className="text-[10px] font-normal text-gray-400">/mo</span></p>
-                  <p className="text-[10px] text-gray-400">{t.queryCount30d} questions · {t.documentCount30d} docs</p>
+                <div
+                  className="w-28 shrink-0 text-right"
+                  title={usageRecorded
+                    ? `${t.modelCalls30d} model calls in the last ${windowDays} days, priced from the tokens each one reported.`
+                      + (t.unpricedCalls30d ? ` ${t.unpricedCalls30d} of them used a model with no rate set, so this is a floor.` : '')
+                    : 'No model usage has been recorded yet. Usage is captured from the moment the recording code is deployed; earlier spend cannot be recovered.'}
+                >
+                  {usageRecorded ? (
+                    <>
+                      <p className="text-sm font-semibold tabular-nums text-gray-900">
+                        ${t.spendUsd30d.toFixed(2)}
+                        {t.unpricedCalls30d > 0 && <span className="ml-0.5 text-amber-600">+</span>}
+                      </p>
+                      <p className="text-[10px] text-gray-400">{t.modelCalls30d} calls</p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-300">—</p>
+                  )}
+                </div>
+                <div className="w-28 shrink-0 text-right" title={`In the last ${windowDays} days`}>
+                  <p className="text-sm tabular-nums text-gray-700">{t.queryCount30d}</p>
+                  <p className="text-[10px] text-gray-400">{t.documentCount30d} docs</p>
                 </div>
                 <span className="w-24 shrink-0 text-right text-xs text-gray-400">
                   {new Date(t.createdAt).toLocaleDateString()}

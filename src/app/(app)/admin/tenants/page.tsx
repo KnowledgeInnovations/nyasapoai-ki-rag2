@@ -44,28 +44,34 @@ export default async function TenantsPage() {
 
   const rows = (tenants ?? []) as unknown as Row[]
 
-  // No real token-usage logging exists yet, so this is a model-based
-  // estimate, not measured billing: average cost per chat turn and per
-  // uploaded document, derived from typical Claude/OpenAI call sizes in the
-  // chat and document-processing pipelines (embedding + rerank + AI
-  // verification + 1-5 agentic Claude rounds per question; a Claude
-  // table-cleaning pass per document with tables). Good enough for a budget
-  // ballpark; swap for real per-call usage logging once that exists.
-  const AVG_COST_PER_QUERY_USD = 0.10
-  const AVG_COST_PER_DOCUMENT_USD = 0.20
+  // Spend here is measured, not estimated: every model call records the
+  // token counts the provider itself reported (migration 049, src/lib/usage.ts)
+  // and the cost it was priced at. This replaced a flat per-question and
+  // per-document assumption that could not be reconciled against an invoice.
+  //
+  // Two consequences worth knowing when reading these figures:
+  //   - it only covers calls made since usage recording was deployed;
+  //     earlier spend was never recorded and cannot be recovered.
+  //   - a call whose model has no rate set contributes tokens but no cost,
+  //     so an unpriced model makes this a floor. /admin/usage says so
+  //     explicitly and is the place to set rates.
   const USAGE_WINDOW_DAYS = 30
   // Server Component rendered once per request, not memoized/re-invoked
   // like a Client Component — the purity rule has no special case for this.
   // eslint-disable-next-line react-hooks/purity
   const cutoff = new Date(Date.now() - USAGE_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString()
 
-  const [{ data: convRows }, { data: docRows }, { data: memberRows }] = await Promise.all([
+  const [{ data: convRows }, { data: docRows }, { data: memberRows }, { data: usageRows }] = await Promise.all([
     service.from('conversations').select('tenant_id, messages').gte('created_at', cutoff),
     service.from('documents').select('tenant_id').gte('created_at', cutoff),
     // Every membership on the platform, with the person behind it. One query
     // rather than one per tenant: there are tens of these, not thousands, and
     // a request per row would make the page slower than the data warrants.
     service.from('memberships').select('tenant_id, role, users(id, email, name)'),
+    // Measured spend. Returns an empty list rather than an error before
+    // migration 049 has run, so this page keeps working either way — the
+    // column simply reads as no spend recorded.
+    service.from('model_usage').select('tenant_id, cost_usd').gte('created_at', cutoff).limit(50_000),
   ])
 
   const queryCountByTenant = new Map<string, number>()
@@ -109,6 +115,17 @@ export default async function TenantsPage() {
       (a.name ?? a.email).localeCompare(b.name ?? b.email))
   }
 
+  const spendByTenant = new Map<string, { costUsd: number; calls: number; unpriced: number }>()
+  for (const u of (usageRows ?? []) as { tenant_id: string | null; cost_usd: string | number | null }[]) {
+    if (!u.tenant_id) continue
+    const e = spendByTenant.get(u.tenant_id) ?? { costUsd: 0, calls: 0, unpriced: 0 }
+    e.calls++
+    if (u.cost_usd === null) e.unpriced++
+    else e.costUsd += Number(u.cost_usd)
+    spendByTenant.set(u.tenant_id, e)
+  }
+  const usageRecorded = (usageRows ?? []).length > 0
+
   const tenantRows = rows.map(t => {
     const queryCount30d = queryCountByTenant.get(t.id) ?? 0
     const documentCount30d = docCountByTenant.get(t.id) ?? 0
@@ -124,7 +141,9 @@ export default async function TenantsPage() {
       isPlatform: t.is_platform,
       queryCount30d,
       documentCount30d,
-      estimatedMonthlyCostUsd: queryCount30d * AVG_COST_PER_QUERY_USD + documentCount30d * AVG_COST_PER_DOCUMENT_USD,
+      spendUsd30d:   spendByTenant.get(t.id)?.costUsd ?? 0,
+      modelCalls30d: spendByTenant.get(t.id)?.calls ?? 0,
+      unpricedCalls30d: spendByTenant.get(t.id)?.unpriced ?? 0,
     }
   })
 
@@ -143,7 +162,7 @@ export default async function TenantsPage() {
 
       <PlanPricesClient initial={PLAN_ORDER.map(p => prices[p])} />
 
-      <TenantsClient tenants={tenantRows} />
+      <TenantsClient tenants={tenantRows} usageRecorded={usageRecorded} windowDays={USAGE_WINDOW_DAYS} />
     </div>
   )
 }
