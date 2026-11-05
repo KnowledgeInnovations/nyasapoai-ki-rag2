@@ -54,11 +54,12 @@ of this one and works on either host.
 | Question | Why it matters |
 |---|---|
 | Keep Vercel running during cutover? | Recommended. DNS moves last, so both can serve until you are satisfied. |
-| Which Render plan? | **Not free.** A free instance sleeps when idle and a cold start breaks the email hook. Standard or above. |
+| Which Render plans? | **Two separate choices, both called a plan.** The *workspace* plan should be **Pro** ($25/mo flat, unlimited members) — a Hobby workspace allows **no team members at all**, so only one person could ever have access, and it includes just 5 GB bandwidth and 2 custom domains. The *compute* plan for the web service should be **Standard** (`1c-2g`, $25/mo) and must **not** be Free: a free instance spins down after 15 minutes idle, and the cold start breaks the email hook's 5-second budget — reintroducing the exact failure you are migrating to fix. |
 | Who holds the DNS for `nyansaai.com`? | You need to add records, including a wildcard. |
 
 **Have to hand:** every value currently in Vercel → Settings → Environment
-Variables. There are 15, and a missing one does not fail the build — it fails
+Variables. Render will prompt for 20 (18 on the web service, 2 on the cron
+job), and a missing one does not fail the build — it fails
 at runtime, usually in the one feature nobody tests.
 
 ---
@@ -153,9 +154,25 @@ Render issues TLS for wildcards, **but the root domain must also point at
 Render** or wildcard verification fails. Add all three; do not add only the
 wildcard.
 
-Render shows the DNS records to create. Do not point them yet if you want a
-controlled cutover — adding the domains in Render is safe while DNS still
-resolves to Vercel.
+Render then shows the DNS records to create. **A wildcard needs more than one
+record**, and omitting any of them makes certificate issuance fail *silently* —
+which presents as a site that will not load over HTTPS, with nothing in the
+logs to explain it:
+
+- the wildcard record itself, pointing at the service
+- `_acme-challenge`, in the form `[your-service-subdomain].verify.renderdns.com`,
+  which is how Render proves ownership to Let's Encrypt
+- `_cf-custom-hostname`
+
+If the domain has **CAA records**, Render's certificate authorities must be
+permitted by them, or issuance fails the same quiet way.
+
+Also note the included allowance: **Hobby includes 2 custom domains and this
+project needs 3**; Pro includes 15. Domains beyond the allowance cost $0.25
+per month each.
+
+Do not point the records yet if you want a controlled cutover — adding the
+domains in Render is safe while DNS still resolves to Vercel.
 
 ---
 
@@ -245,9 +262,13 @@ problem that breaks the Supabase email hook's five-second budget. If invites
 start failing again after a quiet night, check the plan first.
 
 **Build memory.** This is a large Next build with native dependencies
-(`@napi-rs/canvas`, `pdf-parse`, `officeparser`). If the build is killed
-without a clear error, it ran out of memory — use a larger instance for
-building.
+(`@napi-rs/canvas`, `pdf-parse`, `officeparser`). Builds do **not** use the
+running service's resources — they run on separate build compute, and the
+default Starter pipeline tier gives 2 CPU / 8 GB RAM on every plan. So moving
+the service to a bigger compute plan will not help a failing build. If a build
+is cancelled for memory, switch the workspace's pipeline tier to
+**Performance** (requires Pro or higher). Builds are also cancelled if disk
+exceeds 16 GB or the build command runs past 120 minutes.
 
 **`maxDuration` does nothing here.** Twenty-one route files export it. On
 Render it is ignored, which is fine — there is no function limit. What does
