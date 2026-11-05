@@ -14,13 +14,22 @@ import { buildAuthEmail } from '@/lib/authEmailTemplates'
 // configured on the Supabase project (the `whsec_...` part, no `v1,` prefix).
 
 // after() runs inside the route's max duration, so the post-response send has
-// to fit inside it. Thirty seconds did not: under a burst of invites each
-// send is its own invocation competing for Microsoft's few allowed
-// connections, where a single send was measured at 15 to 52 seconds. The
-// function was being killed mid-send and the invite vanished with it, which
-// is exactly what "we sent twenty invites and they never arrived" looked
-// like. Sixty, plus the retry/backoff in sendEmail().
-export const maxDuration = 60
+// to fit inside it, and under a burst it does not fit in anything small.
+// Each email is its own invocation competing for Microsoft's few allowed
+// connections, so a single send stretches badly as the batch grows.
+//
+// Measured on this system, fifty at once: median 36.8s, p90 57.3s, slowest
+// 61.3s. Thirty seconds lost most of the batch. Sixty lost the tail — and
+// lost it silently, the function killed mid-send with the invite gone and
+// no error anywhere a person would look, which is exactly what "we sent
+// twenty invites and they never arrived" looked like.
+//
+// Three hundred is the platform ceiling and there is no reason to sit below
+// it: the route returns immediately and only the after() send runs on this
+// budget, so a larger number costs nothing when sends are fast and saves
+// the batch when they are not. It requires a plan above Hobby, where any
+// value here is capped to sixty regardless of what it says.
+export const maxDuration = 300
 
 interface HookUser {
   email: string
