@@ -1,11 +1,18 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Trash2, Plus, Loader2, CheckCircle2, Copy, X } from 'lucide-react'
+import { Trash2, Plus, Loader2, CheckCircle2, Copy, X, Search, ChevronRight, ChevronDown } from 'lucide-react'
 import { slugify, validateSubdomainFormat } from '@/lib/tenant'
 import { STATUS_LABELS, type WorkspaceStatus } from '@/lib/workspaceStatus'
 import { cn } from '@/lib/utils'
+
+export interface TenantMember {
+  id:    string
+  email: string
+  name:  string | null
+  role:  string
+}
 
 export interface TenantRow {
   id:         string
@@ -15,6 +22,7 @@ export interface TenantRow {
   status:     WorkspaceStatus
   createdAt:  string
   memberCount: number
+  members:    TenantMember[]
   isPlatform: boolean
   queryCount30d: number
   documentCount30d: number
@@ -24,6 +32,9 @@ export interface TenantRow {
 interface Props {
   tenants: TenantRow[]
 }
+
+/** How many members a workspace shows before asking to be expanded. */
+const MEMBER_PREVIEW = 5
 
 const PLANS = ['starter', 'professional', 'enterprise'] as const
 const STATUSES: WorkspaceStatus[] = ['active', 'payment_required', 'past_due', 'pending', 'suspended']
@@ -46,6 +57,41 @@ export default function TenantsClient({ tenants }: Props) {
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null)
+
+  /* -- finding a workspace, or a person -----------------------
+   * One box searches both, because the question is usually "which workspace
+   * is this person in?" and the answer is otherwise a manual scan of every
+   * tenant. A member match pulls its workspace into the results and shows
+   * only the people who matched; a workspace match shows the workspace with
+   * its member list collapsed as usual.
+   */
+  const [query, setQuery] = useState('')
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [showAll, setShowAll] = useState<Set<string>>(new Set())
+
+  const toggle = (set: Set<string>, id: string, apply: (s: Set<string>) => void) => {
+    const next = new Set(set)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    apply(next)
+  }
+
+  const q = query.trim().toLowerCase()
+  const visible = useMemo(() => {
+    if (!q) return list.map(t => ({ t, matched: null as TenantMember[] | null }))
+    const out: { t: TenantRow; matched: TenantMember[] | null }[] = []
+    for (const t of list) {
+      const hits = t.members.filter(m =>
+        m.email.toLowerCase().includes(q) || (m.name ?? '').toLowerCase().includes(q))
+      if (hits.length) { out.push({ t, matched: hits }); continue }
+      if (t.name.toLowerCase().includes(q) || t.subdomain.toLowerCase().includes(q)) {
+        out.push({ t, matched: null })
+      }
+    }
+    return out
+  }, [list, q])
+
+  const memberHits = visible.reduce((acc, v) => acc + (v.matched?.length ?? 0), 0)
 
   /* ── creating a workspace ─────────────────────────────────
    * The public signup route cannot do this: it refuses anyone who already
@@ -336,11 +382,47 @@ export default function TenantsClient({ tenants }: Props) {
       {/* ── the list ──────────────────────────────────────── */}
       <section className="overflow-hidden border border-gray-200 bg-white shadow-sm">
         <div className="border-b border-gray-100 bg-gray-50/60 px-6 py-4">
-          <h2 className="text-sm font-bold text-gray-800">Workspaces</h2>
-          <p className="mt-0.5 text-xs text-gray-500">{list.length} {list.length === 1 ? 'tenant' : 'tenants'} total.</p>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold text-gray-800">Workspaces</h2>
+              <p className="mt-0.5 text-xs text-gray-500">
+                {q
+                  ? `${visible.length} ${visible.length === 1 ? 'workspace' : 'workspaces'}`
+                    + (memberHits ? ` - ${memberHits} matching ${memberHits === 1 ? 'member' : 'members'}` : '')
+                  : `${list.length} ${list.length === 1 ? 'tenant' : 'tenants'} total.`}
+              </p>
+            </div>
+            <div className="relative w-full sm:w-72">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+              <input
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Search workspace or member..."
+                aria-label="Search workspaces and members"
+                className="w-full border border-gray-200 bg-white py-2 pl-9 pr-8 text-sm text-gray-800 placeholder:text-gray-400 focus:border-brand focus:outline-none"
+              />
+              {query && (
+                <button
+                  onClick={() => setQuery('')}
+                  aria-label="Clear search"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 transition hover:text-gray-600"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
         </div>
         <div className="divide-y divide-gray-100">
-          {list.map(t => (
+          {visible.map(({ t, matched }) => {
+            // A member match is its own reason to show the list, so a search
+            // does not also require a click to see what matched.
+            const isOpen = matched !== null || expanded.has(t.id)
+            const source = matched ?? t.members
+            const capped = !matched && !showAll.has(t.id)
+            const shown  = capped ? source.slice(0, MEMBER_PREVIEW) : source
+            const hidden = source.length - shown.length
+            return (
             <div key={t.id} className="px-6 py-4">
               <div className="flex flex-wrap items-center gap-4">
                 <div className="min-w-0 flex-1">
@@ -368,9 +450,18 @@ export default function TenantsClient({ tenants }: Props) {
                   {STATUSES.map(st => <option key={st} value={st}>{STATUS_LABELS[st]}</option>)}
                 </select>
 
-                <span className="w-20 shrink-0 text-right text-sm text-gray-500">
+                <button
+                  onClick={() => toggle(expanded, t.id, setExpanded)}
+                  aria-expanded={isOpen}
+                  title={t.memberCount ? 'Show members' : 'No members yet'}
+                  disabled={!t.memberCount}
+                  className="flex w-24 shrink-0 items-center justify-end gap-1 text-right text-sm text-gray-500 transition hover:text-gray-900 disabled:hover:text-gray-500"
+                >
+                  {t.memberCount
+                    ? (isOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />)
+                    : null}
                   {t.memberCount} {t.memberCount === 1 ? 'member' : 'members'}
-                </span>
+                </button>
                 <div className="w-32 shrink-0 text-right" title={`Estimated AI cost: ${t.queryCount30d} questions + ${t.documentCount30d} documents uploaded in the last 30 days. Modeled from average per-call cost, not measured billing.`}>
                   <p className="text-sm font-semibold text-gray-700">~${t.estimatedMonthlyCostUsd.toFixed(2)}<span className="text-[10px] font-normal text-gray-400">/mo</span></p>
                   <p className="text-[10px] text-gray-400">{t.queryCount30d} questions · {t.documentCount30d} docs</p>
@@ -391,8 +482,62 @@ export default function TenantsClient({ tenants }: Props) {
               {rowError?.id === t.id && (
                 <p className="mt-2 text-xs text-red-600">{rowError.message}</p>
               )}
+
+              {isOpen && (
+                <div className="mt-3 border-l-2 border-gray-100 pl-4">
+                  {source.length === 0 ? (
+                    <p className="py-1 text-xs text-gray-400">
+                      No member records to show.
+                      {t.memberCount > 0 && ' The count above comes from the database; these rows are missing a user record.'}
+                    </p>
+                  ) : (
+                    <>
+                      <ul className="divide-y divide-gray-50">
+                        {shown.map(m => (
+                          <li key={m.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5">
+                            <span className="min-w-0 flex-1 truncate text-sm text-gray-800">
+                              {m.name?.trim() || <span className="text-gray-400">(no name)</span>}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-xs text-gray-500">{m.email}</span>
+                            <span className={cn(
+                              'shrink-0 border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                              m.role === 'senior' ? 'border-brand/20 bg-brand/5 text-brand'
+                                : m.role === 'middle' ? 'border-gray-200 bg-gray-50 text-gray-600'
+                                  : 'border-gray-200 bg-white text-gray-500',
+                            )}>
+                              {m.role}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                      {hidden > 0 && (
+                        <button
+                          onClick={() => toggle(showAll, t.id, setShowAll)}
+                          className="mt-1.5 text-xs font-semibold text-brand transition hover:underline"
+                        >
+                          Show {hidden} more
+                        </button>
+                      )}
+                      {!capped && !matched && source.length > MEMBER_PREVIEW && (
+                        <button
+                          onClick={() => toggle(showAll, t.id, setShowAll)}
+                          className="mt-1.5 text-xs font-semibold text-gray-500 transition hover:underline"
+                        >
+                          Show fewer
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
-          ))}
+            )
+          })}
+          {q && visible.length === 0 && (
+            <p className="px-6 py-8 text-center text-sm text-gray-500">
+              Nothing matches that search.
+            </p>
+          )}
         </div>
       </section>
 
