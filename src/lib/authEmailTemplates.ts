@@ -51,7 +51,36 @@ function alertBody(text: string) {
           <p style="margin:0;font-size:13px;line-height:1.6;color:#c2410c;font-weight:600;">If you didn't make this change, contact your workspace admin immediately.</p>`
 }
 
-const EXPIRES_FOOTNOTE = 'This link will expire shortly and can only be used once.'
+/**
+ * How long an emailed link stays valid.
+ *
+ * This constant does NOT enforce anything — it only controls what the email
+ * tells people. The expiry is enforced by the Supabase project setting
+ * "Email OTP Expiration" (Authentication -> Sign In / Providers -> Email),
+ * and the two must be kept equal by hand. If you change one, change the
+ * other, or the email will promise a window that is not the real one.
+ *
+ * Supabase applies a single expiry to every emailed link — invite,
+ * confirmation, magic link, password reset — so there is one number here
+ * rather than one per template.
+ */
+const LINK_TTL_HOURS = 24
+
+/**
+ * The second sentence is not padding. Links are single-use, and asking for a
+ * new one silently invalidates the previous one, so somebody who requests an
+ * invite twice and then clicks the first email is told "expired" while
+ * holding a working link further down their inbox. Saying so in the email is
+ * cheaper than explaining it afterwards.
+ */
+const EXPIRES_FOOTNOTE =
+  `This link expires in ${LINK_TTL_HOURS} hours and can only be used once. ` +
+  'If you request another, it replaces this one — always use the newest email.'
+
+/** Plain-text body for a link email, carrying the same expiry note as the HTML. */
+function linkText(line: string, url: string) {
+  return [`${line}: ${url}`, '', EXPIRES_FOOTNOTE].join('\n')
+}
 const NOTIFICATION_FOOTNOTE = 'This is an automatic security notification.'
 
 export interface BuiltEmail { subject: string; html: string; text: string }
@@ -63,25 +92,25 @@ export function buildAuthEmail(actionType: string, vars: { confirmationURL?: str
       return {
         subject: 'Confirm your Nyansa AI account',
         html: shell('', '', '', 'Confirm your email', ctaBody('Welcome to Nyansa AI. Click below to confirm your email address and finish setting up your account.', url, 'Confirm email'), EXPIRES_FOOTNOTE),
-        text: `Confirm your email: ${url}`,
+        text: linkText('Confirm your email', url),
       }
     case 'invite':
       return {
         subject: "You've been invited to Nyansa AI",
         html: shell('', '', '', "You've been invited", ctaBody("You've been invited to join a workspace on Nyansa AI. Click below to accept the invitation and set up your account.", url, 'Accept invitation'), EXPIRES_FOOTNOTE),
-        text: `Accept your invitation: ${url}`,
+        text: linkText('Accept your invitation', url),
       }
     case 'magiclink':
       return {
         subject: 'Your Nyansa AI sign-in link',
         html: shell('', '', '', 'Sign in to Nyansa AI', ctaBody('Click below to securely sign in. No password needed.', url, 'Sign in'), EXPIRES_FOOTNOTE),
-        text: `Sign in: ${url}`,
+        text: linkText('Sign in', url),
       }
     case 'recovery':
       return {
         subject: 'Reset your Nyansa AI password',
         html: shell('', '', '', 'Reset your password', ctaBody('We received a request to reset your password. Click below to choose a new one.', url, 'Reset password'), EXPIRES_FOOTNOTE),
-        text: `Reset your password: ${url}`,
+        text: linkText('Reset your password', url),
       }
     case 'email_change':
     case 'email_change_current':
@@ -89,7 +118,7 @@ export function buildAuthEmail(actionType: string, vars: { confirmationURL?: str
       return {
         subject: 'Confirm your new email address',
         html: shell('', '', '', 'Confirm your new email', ctaBody('Click below to confirm this address as your new Nyansa AI account email.', url, 'Confirm new email'), EXPIRES_FOOTNOTE),
-        text: `Confirm your new email: ${url}`,
+        text: linkText('Confirm your new email', url),
       }
     case 'reauthentication':
       return {
