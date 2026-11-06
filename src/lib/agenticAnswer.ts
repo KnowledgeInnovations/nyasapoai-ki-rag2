@@ -23,6 +23,7 @@
 
 import { getAnthropicHeaders, CLAUDE_REASONING_MODEL, ADAPTIVE_THINKING } from './claude'
 import { recordUsage, anthropicTokens } from './usage'
+import { assertModelEnabled } from './modelSwitch'
 import { AGENT_TOOLS, executeAgentTool, type AgentToolContext } from './agentTools'
 
 const MAX_ITERATIONS = 5
@@ -83,6 +84,7 @@ async function callClaude(
   content: AnthropicContentBlock[]
   stop_reason: string
 }> {
+  await assertModelEnabled('chat')
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: getAnthropicHeaders(),

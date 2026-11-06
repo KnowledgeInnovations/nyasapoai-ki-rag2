@@ -3,6 +3,7 @@ import { withRequestUsage } from '@/lib/usageRequest'
 import { getMembership, getTenant } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { claudeComplete } from '@/lib/claude'
+import { isModelEnabled } from '@/lib/modelSwitch'
 import { DEFAULT_TENANT_DESCRIPTION } from '@/lib/tenant'
 
 // A function, not a module-level constant — see getAnthropicHeaders() in
@@ -50,6 +51,12 @@ async function handlePost(request: NextRequest) {
   // the explicit embeddings-failure/no-chunks cases just below.
   const unavailableFallback = () =>
     NextResponse.json({ insight: 'Insight temporarily unavailable.', sentiment: 'neutral' as const, sources: [], noData: true, label })
+
+  // A dashboard tile already has a graceful "unavailable" state for when
+  // the models cannot be reached. An administrator switching them off is
+  // the same situation from the tile's point of view, so it takes the
+  // same path rather than erroring.
+  if (!(await isModelEnabled('chat'))) return unavailableFallback()
 
   try {
     // Embed the question

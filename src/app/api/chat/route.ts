@@ -21,6 +21,7 @@ import { canAccessTraining } from '@/lib/roles'
 import { getConfirmedHeuristicsText } from '@/lib/answerHeuristics'
 import { isAggregateQuestion, buildFactAggregateBlock } from '@/lib/factAggregates'
 import { withUsage, recordUsage, anthropicTokens } from '@/lib/usage'
+import { modelDisabledMessage } from '@/lib/modelSwitch'
 import type { ChartData, RAGResponse } from '@/types'
 
 // The agentic path (default for all real chat traffic — see the `agentic`
@@ -501,6 +502,17 @@ async function handleChat(request: NextRequest) {
     query?: unknown; newSession?: boolean; history?: unknown; convId?: string | null; agentic?: boolean; extraSystemInstruction?: unknown
   }
   if (typeof rawQuery !== 'string' || !rawQuery.trim()) return new Response('Query required', { status: 400 })
+
+  // Checked here so the user gets a sentence rather than a failed stream.
+  // The binding check is next to the provider call (src/lib/modelSwitch.ts);
+  // this one exists purely to say something readable. 503 and Retry-After,
+  // because the condition is temporary and deliberate — a client that
+  // treats it as a permanent error is reading it wrong.
+  const chatOff = await modelDisabledMessage('chat')
+  if (chatOff) {
+    return new Response(chatOff, { status: 503, headers: { 'Retry-After': '300', 'Content-Type': 'text/plain; charset=utf-8' } })
+  }
+
   const query: string = rawQuery
   // Internal-only: lets runAutoPromptFix test a candidate system-prompt
   // instruction against the live answering pipeline before it's ever

@@ -6,6 +6,7 @@
 import path from 'path'
 import { claudeComplete, isNetworkError, withRetry } from './claude'
 import { recordUsage, openaiTokens } from './usage'
+import { assertModelEnabled } from './modelSwitch'
 
 // The DOMMatrix/ImageData/Path2D polyfills pdf-parse needs are installed in
 // src/instrumentation.ts, which Next.js guarantees runs to completion before
@@ -1106,6 +1107,10 @@ const EMBED_NETWORK_RETRY_BACKOFF_MS = [2000, 5000, 10000, 20000, 30000]
 const EMBED_DEADLINE_SAFETY_MARGIN_MS = 5000
 
 export async function embedBatch(texts: string[], deadline?: number): Promise<number[][]> {
+  // Embedding document text is document processing, so it stops with the
+  // training switch. Checked before the retry loop: an off switch is not a
+  // transient failure and must not be retried five times with backoff.
+  await assertModelEnabled('training')
   for (let attempt = 1; ; attempt++) {
     try {
       const res = await fetch('https://api.openai.com/v1/embeddings', {

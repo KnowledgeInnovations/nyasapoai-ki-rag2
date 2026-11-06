@@ -16,6 +16,7 @@
 // claude.ts for why: Next.js dev-server env reloads can bake a stale/undefined
 // key into a constant captured at import time.
 import { recordUsage, openaiTokens } from './usage'
+import { assertModelEnabled } from './modelSwitch'
 function getOpenAIHeaders() {
   return {
     'Content-Type': 'application/json',
@@ -281,6 +282,7 @@ function isUnsupportedSubjectiveCritique(issue: string): boolean {
 export async function verifyAnswerWithAI(
   { query, answer, factsBlock, context, signal }: VerifyAnswerWithAIArgs,
 ): Promise<AnswerVerificationResult> {
+  await assertModelEnabled('chat')
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',

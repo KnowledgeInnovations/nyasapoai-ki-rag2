@@ -15,6 +15,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { recordUsage, openaiTokens } from './usage'
+import { assertModelEnabled } from './modelSwitch'
 import {
   canonicalizeEntity, dedupeFacts, cumulativeByEntity, topNGrowth, proportionOfTotal,
   summarizeTrend, forecastNextYear, type FactRow,
@@ -317,6 +318,9 @@ export async function executeComputeAggregate(ctx: AgentToolContext, input: {
 }
 
 export async function executeSearchDocuments(ctx: AgentToolContext, input: { query: string }) {
+  // Embedding the user's question is part of answering it, not part of
+  // processing a document — so it follows the chat switch.
+  await assertModelEnabled('chat')
   const embRes = await fetch('https://api.openai.com/v1/embeddings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },

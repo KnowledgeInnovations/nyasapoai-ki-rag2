@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { FileText, Clock, CheckCircle2, XCircle, Lock, Pencil, Plus, Trash2, X, CheckSquare, AlertTriangle, RefreshCw } from 'lucide-react'
+import { FileText, Clock, CheckCircle2, XCircle, Lock, Pencil, Plus, Trash2, X, CheckSquare, AlertTriangle, RefreshCw, Loader2 } from 'lucide-react'
 import type { Document } from '@/types'
 import { formatDate } from '@/lib/utils'
 import { CATEGORIES, buildCategory } from '@/lib/documentCategories'
+import { documentStatusKind, statusReason, hasRealWarnings } from '@/lib/documentStatus'
 import type { Category, CategoryInit } from '@/lib/documentCategories'
 import { cn } from '@/lib/utils'
 import dynamic from 'next/dynamic'
@@ -22,18 +23,21 @@ interface Props {
 }
 
 const statusConfig = {
-  ready:      { icon: CheckCircle2, label: 'Ready',      cls: 'text-green-600 bg-green-50 border-green-200' },
-  degraded:   { icon: AlertTriangle, label: 'Ready (warnings)', cls: 'text-amber-600 bg-amber-50 border-amber-200' },
-  processing: { icon: Clock,        label: 'Processing', cls: 'text-amber-600 bg-amber-50 border-amber-200' },
-  failed:     { icon: XCircle,      label: 'Failed',     cls: 'text-red-600   bg-red-50   border-red-200'   },
+  ready:      { icon: CheckCircle2,  label: 'Ready',       cls: 'text-green-600 bg-green-50  border-green-200' },
+  // Not a warning: the document is usable and the rest of its content is
+  // being read by the nightly job. Blue, because nothing is wrong and
+  // nobody needs to act.
+  finishing:  { icon: Loader2,       label: 'Still reading', cls: 'text-blue-600  bg-blue-50   border-blue-200'  },
+  degraded:   { icon: AlertTriangle, label: 'Needs attention', cls: 'text-amber-600 bg-amber-50 border-amber-200' },
+  processing: { icon: Clock,         label: 'Processing',  cls: 'text-amber-600 bg-amber-50  border-amber-200' },
+  failed:     { icon: XCircle,       label: 'Failed',      cls: 'text-red-600   bg-red-50    border-red-200'   },
 }
 
-// A document marked "ready" can still have had AI-enhancement steps fail
-// internally and continue with partial data (intentional graceful
-// degradation) — surface that instead of showing an identical green badge.
+// One definition, shared with the training page — see lib/documentStatus.
+// Notes record steps that SUCCEEDED and are not warnings; queued work that
+// finishes by itself is not a warning either.
 function statusFor(doc: Document) {
-  if (doc.status === 'ready' && (doc.processing_warnings?.length ?? 0) > 0) return statusConfig.degraded
-  return statusConfig[doc.status]
+  return statusConfig[documentStatusKind(doc)]
 }
 
 function factCount(doc: Document) {
@@ -428,7 +432,7 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
             {filtered.map(doc => {
               const s   = statusFor(doc)
               const cat = getCat(doc.department)
-              const canRetry = doc.status === 'failed' || (doc.status === 'ready' && (doc.processing_warnings?.length ?? 0) > 0)
+              const canRetry = doc.status === 'failed' || (doc.status === 'ready' && hasRealWarnings(doc))
               const retrying = retryingIds.has(doc.id)
               return (
                 <div
@@ -470,9 +474,9 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {/* Status chip */}
                       <span
-                        title={doc.status_detail ?? undefined}
+                        title={statusReason(doc) ?? undefined}
                         className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold', s.cls)}>
-                        <s.icon className="h-2.5 w-2.5" />{s.label}
+                        <s.icon className={cn('h-2.5 w-2.5', s === statusConfig.finishing && 'animate-spin')} />{s.label}
                       </span>
                       {/* Category chip */}
                       {cat && (
@@ -536,7 +540,7 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
                 {filtered.map(doc => {
                   const s   = statusFor(doc)
                   const cat = getCat(doc.department)
-                  const canRetry = doc.status === 'failed' || (doc.status === 'ready' && (doc.processing_warnings?.length ?? 0) > 0)
+                  const canRetry = doc.status === 'failed' || (doc.status === 'ready' && hasRealWarnings(doc))
                   const retrying = retryingIds.has(doc.id)
                   return (
                     <tr key={doc.id}
@@ -587,10 +591,13 @@ export default function DocumentsClient({ initialDocuments, canUpload, canDelete
                       </td>
                       <td className="px-5 py-3.5">
                         <span
-                          title={doc.status_detail ?? undefined}
+                          title={statusReason(doc) ?? undefined}
                           className={cn('inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold', s.cls)}>
-                          <s.icon className="h-3 w-3" />{s.label}
+                          <s.icon className={cn('h-3 w-3', s === statusConfig.finishing && 'animate-spin')} />{s.label}
                         </span>
+                        {statusReason(doc) && (
+                          <p className="mt-1 max-w-[18rem] text-[11px] leading-snug text-gray-500">{statusReason(doc)}</p>
+                        )}
                       </td>
                       <td className="hidden px-5 py-3.5 text-xs text-gray-400 lg:table-cell">
                         {formatDate(doc.created_at)}

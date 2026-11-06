@@ -5,6 +5,7 @@ import { getMembership, getUser } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH, insertChunkBatch, insertFactsResilient, sniffImageType, isImageFile, tableChunkFloor } from '@/lib/documentProcess'
 import { canAccessTraining, type Role } from '@/lib/roles'
+import { modelDisabledMessage } from '@/lib/modelSwitch'
 import { extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks, runCrossDocumentCorroboration, supersedeForwardProjections, applyLearnedHeuristics, looksLikeBudgetDocument, type FinancialFact } from '@/lib/factExtraction'
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
 import { extractGenericFacts } from '@/lib/genericFactExtraction'
@@ -102,6 +103,14 @@ async function handlePost(
     if (!membership || !canAccessTraining(membership.role)) {
       return new Response('Unauthorized', { status: 401 })
     }
+  }
+
+  // Refused before the stream opens: a stream that starts and then dies on
+  // the first model call reads to the user as a crash, not as a deliberate
+  // pause. 503 with Retry-After, because this is temporary by design.
+  const trainingOff = await modelDisabledMessage('training')
+  if (trainingOff) {
+    return new Response(trainingOff, { status: 503, headers: { 'Retry-After': '900', 'Content-Type': 'text/plain; charset=utf-8' } })
   }
 
   const service = svc()

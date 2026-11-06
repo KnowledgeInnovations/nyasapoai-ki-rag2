@@ -6,6 +6,8 @@ import TenantsClient from '@/components/app/TenantsClient'
 import { normalizeStatus } from '@/lib/workspaceStatus'
 import PlanPricesClient from '@/components/app/PlanPricesClient'
 import { getPlanPrices, PLAN_ORDER } from '@/lib/planPrices'
+import AiSwitchClient, { type AiSwitchState } from '@/components/app/AiSwitchClient'
+import { getModelSwitches } from '@/lib/modelSwitch'
 
 export const metadata: Metadata = { title: 'Tenants — Nyansa AI' }
 
@@ -149,6 +151,42 @@ export default async function TenantsPage() {
 
   const prices = await getPlanPrices()
 
+  // The AI switches, with whatever reason was recorded when they last
+  // changed. Read fresh (force) rather than from the five-second cache: on
+  // the page whose job is to show the switch position, a stale reading is
+  // the one thing that cannot be allowed.
+  const switches = await getModelSwitches(true)
+  const { data: switchRows } = await service
+    .from('platform_settings')
+    .select('key, note, updated_at, updated_by')
+    .in('key', ['ai_training_enabled', 'ai_chat_enabled'])
+
+  const settingRows = switchRows ?? []
+  const rowFor = (k: string) => settingRows.find(r => r.key === k)
+  const latest = settingRows
+    .map(r => r.updated_at as string | null)
+    .filter(Boolean)
+    .sort()
+    .at(-1) ?? null
+
+  // Name rather than uuid: "changed by 7f3a…" tells nobody anything.
+  const changerId = settingRows.find(r => r.updated_at === latest)?.updated_by ?? null
+  let changedBy: string | null = null
+  if (changerId) {
+    const { data: who } = await service.from('users').select('name, email').eq('id', changerId).maybeSingle()
+    changedBy = who?.name ?? who?.email ?? null
+  }
+
+  const aiSwitch: AiSwitchState = {
+    training:     switches.training,
+    chat:         switches.chat,
+    trainingNote: rowFor('ai_training_enabled')?.note ?? null,
+    chatNote:     rowFor('ai_chat_enabled')?.note ?? null,
+    changedAt:    latest,
+    changedBy,
+    known:        switches.known,
+  }
+
   return (
     <div className="max-w-5xl space-y-6">
       <div>
@@ -159,6 +197,8 @@ export default async function TenantsPage() {
           you are setting it up for them.
         </p>
       </div>
+
+      <AiSwitchClient initial={aiSwitch} />
 
       <PlanPricesClient initial={PLAN_ORDER.map(p => prices[p])} />
 

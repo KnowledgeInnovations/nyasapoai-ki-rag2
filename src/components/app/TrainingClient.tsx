@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
+import { hasRealWarnings, isFinishing } from '@/lib/documentStatus'
 import GoldenSetCard from './GoldenSetCard'
 import type { TrainingDoc, Performance, SelfAssessmentRun, RegressionResultRow } from '@/app/(app)/settings/training/page'
 import type { RecurringGap } from '@/lib/extractionGaps'
@@ -115,12 +116,9 @@ const WARNING_STEP_LABELS: Record<string, string> = {
 // train/route.ts) — surfaced here instead of looking identical to a fully
 // clean run.
 function isDegraded(doc: TrainingDoc, status: TrainStatus): boolean {
-  // A note records something that went right and is worth saying — reading
-  // a document's image-only pages, for instance. Counting those as
-  // degradation showed a document whose recovery worked perfectly as
-  // "Trained with warnings", which teaches people to ignore the badge.
-  // Warnings without a level predate the distinction and stay degradations.
-  return status !== 'running' && (doc.processing_warnings ?? []).some(w => w.level !== 'note')
+  // Shared with the documents page — see lib/documentStatus for why a note
+  // is not a degradation and why queued work is not either.
+  return status !== 'running' && hasRealWarnings(doc) && !isFinishing(doc)
 }
 
 export default function TrainingClient({ docs, trainedCount, untrainedCount, performance, lastRun, gaps }: {

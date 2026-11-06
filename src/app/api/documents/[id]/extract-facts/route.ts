@@ -3,6 +3,7 @@ import { withRequestUsage } from '@/lib/usageRequest'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { getMembership } from '@/lib/supabase/server'
 import { canAccessTraining } from '@/lib/roles'
+import { modelDisabledMessage } from '@/lib/modelSwitch'
 import { extractGenericFacts } from '@/lib/genericFactExtraction'
 import { insertFactsResilient } from '@/lib/documentProcess'
 import { alertIncompleteTraining } from '@/lib/trainingAlerts'
@@ -72,6 +73,13 @@ async function handlePost(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params
+
+  // Also covers the nightly resume, which calls this route: with the switch
+  // off the queued excerpts simply stay queued, which is the state they are
+  // already in and costs nothing to stay in.
+  const off = await modelDisabledMessage('training')
+  if (off) return NextResponse.json({ error: off, modelsDisabled: true }, { status: 503 })
+
   const service = svc()
 
   // Either a Senior user of the owning workspace, or the cron.

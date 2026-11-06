@@ -41,6 +41,10 @@ export const AUDIT_ACTIONS = {
   // Platform-level, not workspace-level: the rate card is Nyansa AI's own
   // cost base, and changing it changes every cost figure reported after it.
   MODEL_PRICES:       'model_prices.updated',
+  // Who switched the AI models off or on, and when. The one change on
+  // the platform that affects every workspace at once, so it is the one
+  // that most needs a name attached to it.
+  AI_SWITCH:          'ai_switch.changed',
 } as const
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS]

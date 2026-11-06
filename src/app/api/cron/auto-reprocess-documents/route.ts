@@ -19,6 +19,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { knownCount } from '@/lib/dbResult'
+import { isModelEnabled } from '@/lib/modelSwitch'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 
 export const maxDuration = 300 // mirrors /train — this drains each retrain's SSE stream to completion in turn
@@ -46,6 +47,16 @@ export async function GET(request: NextRequest) {
   // tenant, so it must never be reachable by an arbitrary outside request.
   if (!process.env.CRON_SECRET || request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
     return new Response('Unauthorized', { status: 401 })
+  }
+
+  // The nightly retry is the one caller nobody is watching, which makes it
+  // the one most likely to quietly run up a bill against a switch someone
+  // believed was off. Checked before any candidate is selected, and it
+  // reports a clean no-op rather than an error — a cron that "fails" every
+  // night while the platform is deliberately paused is noise.
+  if (!(await isModelEnabled('training'))) {
+    console.log('[auto-reprocess-documents] skipped — AI document processing is switched off')
+    return NextResponse.json({ skipped: true, reason: 'AI document processing is switched off', processed: 0 })
   }
 
   const service = svc()

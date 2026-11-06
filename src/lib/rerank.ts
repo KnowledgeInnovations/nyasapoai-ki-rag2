@@ -15,6 +15,7 @@
 // claude.ts for why: Next.js dev-server env reloads can bake a stale/undefined
 // key into a constant captured at import time.
 import { recordUsage, openaiTokens } from './usage'
+import { isModelEnabled } from './modelSwitch'
 function getOpenAIHeaders() {
   return {
     'Content-Type': 'application/json',
@@ -58,6 +59,13 @@ export async function rerankChunks<T extends RankableChunk>(
   const list = chunks
     .map((c, i) => `[${i + 1}] ${buildPreview(c.chunk_text)}`)
     .join('\n\n')
+
+  // Reranking improves an answer; it is not the answer. With the models
+  // switched off, fall back to the similarity order search already
+  // produced rather than failing the question outright.
+  if (!(await isModelEnabled('chat'))) {
+    return chunks.map(c => ({ ...c, rerank_score: c.similarity ?? c.rrf_score ?? 0 }))
+  }
 
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {

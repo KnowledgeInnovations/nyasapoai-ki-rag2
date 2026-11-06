@@ -3,6 +3,7 @@ import { withRequestUsage } from '@/lib/usageRequest'
 import { getMembership, getTenant } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { claudeComplete } from '@/lib/claude'
+import { isModelEnabled } from '@/lib/modelSwitch'
 import { DEFAULT_TENANT_DESCRIPTION } from '@/lib/tenant'
 
 export const maxDuration = 30
@@ -63,6 +64,12 @@ async function handlePost(request: NextRequest) {
   const unavailableFallback = () => NextResponse.json({
     insights: questions.map(q => ({ label: q.label, insight: 'Insight temporarily unavailable.', sentiment: 'neutral' as Sentiment, sources: [], noData: true })),
   })
+
+  // A dashboard tile already has a graceful "unavailable" state for when
+  // the models cannot be reached. An administrator switching them off is
+  // the same situation from the tile's point of view, so it takes the
+  // same path rather than erroring.
+  if (!(await isModelEnabled('chat'))) return unavailableFallback()
 
   try {
     // ── 1. Embed ALL questions in one batch call ───────────────

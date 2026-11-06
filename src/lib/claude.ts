@@ -51,10 +51,34 @@ export interface ClaudeMessage {
 }
 
 import { recordUsage, anthropicTokens, type Operation } from './usage'
+import { assertModelEnabled, type ModelArea } from './modelSwitch'
+
+/**
+ * Which switch on /admin/tenants governs a call, derived from what it is
+ * for. Answering a question and processing a document are stopped
+ * separately — see src/lib/modelSwitch.ts.
+ *
+ * Unlisted operations count as training: a new pipeline stage is far more
+ * likely to be background processing than a user waiting on an answer, and
+ * the safe default for an off switch is to be governed by it rather than to
+ * escape it.
+ */
+const AREA_BY_OPERATION: Record<string, ModelArea> = {
+  chat: 'chat', agentic: 'chat', rerank: 'chat', verify: 'chat',
+  search: 'chat', insight: 'chat',
+  extract: 'training', embed: 'training', vision: 'training',
+  profile: 'training', heuristics: 'training', assessment: 'training',
+}
 
 interface ClaudeCompleteOptions {
   /** What this call is for, for usage accounting. See src/lib/usage.ts. */
   operation?: Operation | string
+  /**
+   * Which off switch governs this call. Defaults from `operation`; pass it
+   * where the operation name alone is ambiguous — 'embed' is document
+   * processing during an upload and question answering at query time.
+   */
+  area?: ModelArea
   system?: string
   messages: ClaudeMessage[]
   maxTokens?: number
@@ -176,7 +200,12 @@ export async function withRetry<T>(
   }
 }
 
-export async function claudeComplete({ system, messages, maxTokens = 1024, temperature = 0, signal, deadline, operation = 'other' }: ClaudeCompleteOptions): Promise<string> {
+export async function claudeComplete({ system, messages, maxTokens = 1024, temperature = 0, signal, deadline, operation = 'other', area }: ClaudeCompleteOptions): Promise<string> {
+  // The guarantee that nothing reaches Anthropic while the switch is off.
+  // Routes check earlier so they can say something readable, but this is
+  // the check that cannot be bypassed by a call site nobody updated.
+  await assertModelEnabled(area ?? AREA_BY_OPERATION[String(operation)] ?? 'training')
+
   // Scale with the requested output size, floor at the old flat default
   // (small calls keep behaving exactly as before), and never exceed what's
   // actually left of the caller's deadline (minus safety margin) or the

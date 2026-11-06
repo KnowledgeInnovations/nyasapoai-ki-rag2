@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withRequestUsage } from '@/lib/usageRequest'
 import { recordUsage, openaiTokens } from '@/lib/usage'
+import { isModelEnabled } from '@/lib/modelSwitch'
 import { getMembership, getUser } from '@/lib/supabase/server'
 import { canAccessTraining } from '@/lib/roles'
 import { getServiceClient, OPENAI_HEADERS } from '@/app/api/chat/route'
@@ -214,6 +215,12 @@ async function reviewSearchResult(
         ).join('\n'),
       ).join('\n')
     : '(none)'
+
+  // The AI review is an extra opinion on a result the search already
+  // produced. Returning null is the existing "no review available" value,
+  // so switching the models off reuses that path instead of inventing a
+  // failure.
+  if (!(await isModelEnabled('chat'))) return null
 
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {

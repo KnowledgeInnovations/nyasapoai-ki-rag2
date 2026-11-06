@@ -5,6 +5,7 @@ import { createClient, getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH, insertChunkBatch, insertFactsResilient, sniffImageType, isImageFile, tableChunkFloor } from '@/lib/documentProcess'
 import { normalizeRole, canUploadDocuments } from '@/lib/roles'
+import { modelDisabledMessage } from '@/lib/modelSwitch'
 import { recordAudit, AUDIT_ACTIONS } from '@/lib/audit'
 import {
   extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks,
@@ -106,6 +107,19 @@ async function handlePost(request: NextRequest) {
   const sensitivity = body.sensitivity || 'internal'
   const docTitle    = body.title?.trim() || originalFilename.replace(/\.[^.]+$/, '')
   const mimeType    = body.mimeType || 'application/octet-stream'
+
+  // Before the row is created, deliberately. A document row inserted here
+  // and never processed sits on "Processing" forever — nothing picks those
+  // up — so the honest outcome is to decline the upload and say why. The
+  // uploaded file is left to reap-orphaned-files, which exists for exactly
+  // this case.
+  const uploadsOff = await modelDisabledMessage('training')
+  if (uploadsOff) {
+    return NextResponse.json(
+      { error: `${uploadsOff} Please upload it again once processing is back on.`, modelsDisabled: true },
+      { status: 503, headers: { 'Retry-After': '900' } },
+    )
+  }
 
   const { data: document, error: docError } = await serviceClient
     .from('documents')
