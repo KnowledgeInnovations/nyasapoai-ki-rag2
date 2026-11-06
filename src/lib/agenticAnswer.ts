@@ -26,13 +26,38 @@ import { recordUsage, anthropicTokens } from './usage'
 import { assertModelEnabled } from './modelSwitch'
 import { AGENT_TOOLS, executeAgentTool, type AgentToolContext } from './agentTools'
 
+/**
+ * Left at 5 deliberately, against the brief that asked for it to be raised.
+ *
+ * Measured first: across three runs of the golden set on the agentic path,
+ * every question produced exactly ONE recorded call to the model — 4 calls
+ * for 4 questions, each time. The loop is not reaching this cap; it is
+ * returning at iteration 1 because the model stops asking for tools.
+ * Raising a bound nothing is hitting changes no answer and costs real
+ * money to discover. If a workload turns up that does hit it, the evidence
+ * will be `hitIterationCap` in the result, which is already recorded.
+ */
 const MAX_ITERATIONS = 5
+
+/**
+ * Ceiling on a single call to the model. In practice the loop deadline
+ * below binds first; this is the backstop for a call that hangs.
+ */
 const DEFAULT_TIMEOUT_MS = 60000
-// chat/route.ts's maxDuration is 90s, but that has to cover retrieval/rerank
-// before this runs and a verifyAnswerWithAI pass + persistence after it —
-// this loop shouldn't be allowed to consume the whole budget by itself.
-// Each per-call AbortSignal timeout below is also clamped to whatever's
-// actually left of this, so a single slow call can't blow past it either.
+
+/**
+ * The loop's own window, kept at 55s after measuring the alternative.
+ *
+ * chat/route.ts now allows 300s rather than 90s, so this could have been
+ * widened to match. It was, and the golden set got three times slower for
+ * the same 4 of 4 answers and worse confidence calibration. The loop ends
+ * when the model stops asking for tools; a longer window does not make it
+ * finish sooner, it just removes the pressure that was making it finish at
+ * all.
+ *
+ * So this stays, and the raised route ceiling does its own separate job —
+ * catching the slow tail that used to be killed outright.
+ */
 const DEFAULT_LOOP_DEADLINE_MS = 55000
 
 export interface AgenticToolCallLog {

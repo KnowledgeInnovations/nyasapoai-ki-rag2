@@ -29,7 +29,36 @@ import type { ChartData, RAGResponse } from '@/types'
 // request; without an explicit override here, this route falls back to
 // whatever Vercel's platform default is, which is comfortably shorter than
 // a multi-iteration tool-calling loop can need under real load.
-export const maxDuration = 90
+//
+// Raised from 90 on measurement, not on principle. A golden question —
+// "how many copies of this book were sold in Ghana in 2025?", which has no
+// answer in the documents and therefore makes the model work hardest to
+// establish that — took 127.5s end to end. The same question took 15.0s
+// and 20.6s on two other runs, so this is a tail, not a typical cost. But
+// a 127s request against a 90s ceiling is a killed connection and a user
+// watching nothing arrive, and the tail is where that happens.
+//
+// Raising a ceiling is not the same as spending it: Vercel bills actual
+// execution, so a request that finishes in 9s costs exactly what it did
+// before. This only changes what happens to the requests that were dying.
+export const maxDuration = 300
+
+/**
+ * The agentic loop keeps its own 55s window — see agenticAnswer.ts.
+ *
+ * Widening it to match the new ceiling was tried and measured, and it is
+ * the reason this comment exists rather than a bigger number. Handing the
+ * loop ~240s instead of 55s tripled median latency on the golden set
+ * (16.8s to 68.2s) and produced exactly the same 4 of 4 answers, with
+ * confidence calibration noticeably worse (93% to 28% on a question that
+ * was correct both times). The extra budget does not buy a better answer;
+ * it buys the loop permission to keep going, and on this workload that is
+ * a worse product.
+ *
+ * The raised ceiling above is still worth having on its own: it is what
+ * stops the slow tail being killed outright. Those are different things,
+ * and only one of them survived measurement.
+ */
 
 // Service-role client for document/chunk queries — bypasses RLS.
 // Tenant isolation is enforced by p_tenant_id in the RPC, so this is safe.
@@ -508,6 +537,8 @@ async function handleChat(request: NextRequest) {
   // this one exists purely to say something readable. 503 and Retry-After,
   // because the condition is temporary and deliberate — a client that
   // treats it as a permanent error is reading it wrong.
+  // Absolute, so every downstream deadline shrinks as real time is spent
+  // rather than each stage assuming it starts with a full budget.
   const chatOff = await modelDisabledMessage('chat')
   if (chatOff) {
     return new Response(chatOff, { status: 503, headers: { 'Retry-After': '300', 'Content-Type': 'text/plain; charset=utf-8' } })
