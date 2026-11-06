@@ -13,7 +13,11 @@
  *   npx tsx scripts/golden_run.mts <tenant-subdomain> [--repeat 2]
  *
  * Running needs a session cookie in test-session-cookie.txt for a user of
- * that tenant (get-test-session.js) and a server on localhost:3000.
+ * that tenant (get-test-session.js) and a running server. The server
+ * defaults to localhost:3000 and is overridable with --base or
+ * GOLDEN_BASE_URL, because `next dev` quietly moves to 3001/3002 when the
+ * port is taken and a harness that cannot be pointed at the server you
+ * actually started is a harness you end up not running.
  */
 
 import fs from 'node:fs'
@@ -39,6 +43,7 @@ const seedFor = flag('seed')
 const listFor = flag('list')
 const subdomain = seedFor ?? listFor ?? args.find(a => !a.startsWith('--') && args[args.indexOf(a) - 1] !== '--repeat')
 const repeat = Number(flag('repeat') ?? 1)
+const baseUrl = (flag('base') ?? process.env.GOLDEN_BASE_URL ?? 'http://localhost:3000').replace(/\/$/, '')
 
 if (!subdomain) {
   console.error('usage: tsx scripts/golden_run.mts <tenant-subdomain> [--repeat n] | --seed <sub> | --list <sub>')
@@ -139,7 +144,7 @@ if (listFor) {
 const cookie = fs.readFileSync('test-session-cookie.txt', 'utf8').trim()
 
 async function ask(query: string): Promise<{ answer: string; confidence: number; citations: number }> {
-  const res = await fetch('http://localhost:3000/api/chat', {
+  const res = await fetch(`${baseUrl}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Cookie: cookie },
     body: JSON.stringify({ query, newSession: true }),

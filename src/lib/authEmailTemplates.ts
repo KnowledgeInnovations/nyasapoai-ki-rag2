@@ -67,15 +67,25 @@ function alertBody(text: string) {
 const LINK_TTL_HOURS = 24
 
 /**
- * The second sentence is not padding. Links are single-use, and asking for a
- * new one silently invalidates the previous one, so somebody who requests an
- * invite twice and then clicks the first email is told "expired" while
- * holding a working link further down their inbox. Saying so in the email is
- * cheaper than explaining it afterwards.
+ * The second sentence is not padding, and it used to be too narrow.
+ *
+ * It said "if you request another, it replaces this one", which reads as
+ * resends of the SAME kind of email. Measured, the real rule is broader and
+ * worse: Supabase keeps one valid email token per user across every type.
+ * A password reset invalidates a pending invitation. An invitation
+ * invalidates a magic link. Proven symmetrically in both directions — three
+ * links, each valid on its own at 70+ minutes, each dead the moment another
+ * was issued for the same person.
+ *
+ * That is the actual cause of most "the link says expired" reports, and no
+ * setting changes it. The only thing that helps is telling people the truth
+ * in the email they are holding: it is not about which button you pressed,
+ * it is about which email arrived last.
  */
 const EXPIRES_FOOTNOTE =
   `This link expires in ${LINK_TTL_HOURS} hours and can only be used once. ` +
-  'If you request another, it replaces this one — always use the newest email.'
+  'Any newer email we send you — an invitation, a sign-in link, a password ' +
+  'reset — replaces this one, so always use the most recent email in your inbox.'
 
 /**
  * Footnote for the emailed verification code.
@@ -84,8 +94,13 @@ const EXPIRES_FOOTNOTE =
  * this is the same window as the links rather than a shorter one of its own.
  * The code issued by our own step-up check (src/lib/emailMfa.ts) is a
  * separate thing entirely, lives for ten minutes, and says so itself.
+ *
+ * The replacement rule applies to codes too — a code is a token like any
+ * other, and a later email of any type retires it.
  */
-const CODE_EXPIRES_FOOTNOTE = `This code expires in ${LINK_TTL_HOURS} hours and can only be used once.`
+const CODE_EXPIRES_FOOTNOTE =
+  `This code expires in ${LINK_TTL_HOURS} hours and can only be used once. ` +
+  'Any newer email we send you replaces it, so always use the most recent one.'
 
 /** Plain-text body for a link email, carrying the same expiry note as the HTML. */
 function linkText(line: string, url: string) {
