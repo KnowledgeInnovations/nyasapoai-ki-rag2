@@ -24,12 +24,43 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 
 export const maxDuration = 300 // mirrors /train — this drains each retrain's SSE stream to completion in turn
 
-const MAX_AUTO_REPROCESS_ATTEMPTS = 3
+/**
+ * Consecutive attempts that achieved NOTHING before a document is left
+ * alone.
+ *
+ * It counts no-progress attempts, not attempts. A large document needs
+ * many passes and each one is progress, so charging them against a retry
+ * budget strands exactly the documents that most need finishing — which it
+ * did: five documents sat part-read for two and a half days.
+ */
+const MAX_NO_PROGRESS_ATTEMPTS = 3
 const COOLDOWN_HOURS = 6
 // Caps how many documents get retried per cron invocation, to bound total
 // time/cost per run — each retrain can itself take minutes, and this
 // handler shares the same maxDuration ceiling as /train.
 const BATCH_SIZE = 5
+
+/**
+ * How long this invocation gives itself, under the 300s ceiling.
+ *
+ * The loop below used to start a document whenever one was left, with no
+ * regard for the time remaining. A resumable pass takes up to 240s, so the
+ * first document could consume the whole invocation and the rest were
+ * simply never reached — measured: four documents with `last=never` after
+ * two and a half days of nightly runs. Now a document is only started when
+ * there is enough time to be worth starting, and the others are reported
+ * as deferred rather than silently skipped.
+ */
+const CRON_BUDGET_MS = 280_000
+
+/**
+ * Don't start a document with less than this left.
+ *
+ * A pass given thirty seconds spends them, records that it achieved
+ * nothing, and counts against the document's no-progress budget — worse
+ * than not starting at all.
+ */
+const MIN_SLICE_MS = 90_000
 
 function svc() {
   return createServiceClient(
@@ -40,6 +71,9 @@ function svc() {
 }
 
 export async function GET(request: NextRequest) {
+  const startedAt = Date.now()
+  const msLeft = () => CRON_BUDGET_MS - (Date.now() - startedAt)
+
   // Vercel adds this header automatically for cron-triggered invocations
   // when CRON_SECRET is set (vercel.com/docs/cron-jobs/manage-cron-jobs
   // #securing-cron-jobs). Without a configured secret, refuse rather than
@@ -67,7 +101,7 @@ export async function GET(request: NextRequest) {
     .select('id, title, tenant_id, auto_reprocess_count, last_auto_reprocess_at, processing_warnings')
     .eq('status', 'ready')
     .neq('processing_warnings', '[]')
-    .lt('auto_reprocess_count', MAX_AUTO_REPROCESS_ATTEMPTS)
+    .lt('auto_reprocess_count', MAX_NO_PROGRESS_ATTEMPTS)
     .or(`last_auto_reprocess_at.is.null,last_auto_reprocess_at.lt.${cooldownCutoff}`)
     .limit(BATCH_SIZE)
 
@@ -94,38 +128,54 @@ export async function GET(request: NextRequest) {
   const results: { id: string; title: string; outcome: string }[] = []
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? `https://${request.headers.get('host')}`
 
-  // Clear abandoned uploads and files left behind by failed deletions
-  // first: it is a listing and a comparison, so it costs little, and
-  // leaving it to a cron slot of its own would make it depend on the
-  // hosting tier's cron allowance. Its own failures are its own business —
-  // it reports them and deletes nothing when unsure — so this never
-  // interferes with the retraining below.
+  // Housekeeping runs AFTER the documents, on whatever time is left.
+  //
+  // It used to run first, on the reasoning that it is cheap. Cheap is not
+  // free, and it was spending the opening seconds of the only slot the
+  // documents had. Both jobs are idempotent and skipping one for an hour
+  // costs nothing, whereas a document not reached is a customer's document
+  // not finished.
   let reaped: unknown = null
-  try {
-    const r = await fetch(`${baseUrl}/api/cron/reap-orphaned-files`, {
-      headers: { 'x-cron-secret': process.env.CRON_SECRET! },
-    })
-    reaped = await r.json().catch(() => ({ error: `status ${r.status}` }))
-  } catch (e) {
-    reaped = { error: (e as Error).message }
-  }
-  console.log('[auto-reprocess] orphaned-file sweep:', JSON.stringify(reaped))
-
-  // Billing, for the same reason: one scheduled slot, several jobs. It
-  // reports its own failures and changes nothing when it cannot read the
-  // workspace list, so it cannot interfere with the retraining below.
   let billing: unknown = null
-  try {
-    const r = await fetch(`${baseUrl}/api/cron/billing`, {
-      headers: { 'x-cron-secret': process.env.CRON_SECRET! },
-    })
-    billing = await r.json().catch(() => ({ error: `status ${r.status}` }))
-  } catch (e) {
-    billing = { error: (e as Error).message }
+
+  async function housekeeping() {
+    for (const [name, path] of [
+      ['orphaned-file sweep', '/api/cron/reap-orphaned-files'],
+      ['billing sweep', '/api/cron/billing'],
+    ] as const) {
+      if (msLeft() < 20_000) {
+        console.log(`[auto-reprocess] ${name} skipped — no time left this run`)
+        if (path.includes('reap')) reaped = { skipped: 'no time left this run' }
+        else billing = { skipped: 'no time left this run' }
+        continue
+      }
+      try {
+        const r = await fetch(`${baseUrl}${path}`, {
+          headers: { 'x-cron-secret': process.env.CRON_SECRET! },
+        })
+        const body = await r.json().catch(() => ({ error: `status ${r.status}` }))
+        if (path.includes('reap')) reaped = body
+        else billing = body
+        console.log(`[auto-reprocess] ${name}:`, JSON.stringify(body))
+      } catch (e) {
+        const err = { error: (e as Error).message }
+        if (path.includes('reap')) reaped = err
+        else billing = err
+      }
+    }
   }
-  console.log('[auto-reprocess] billing sweep:', JSON.stringify(billing))
+
+  const deferred: string[] = []
 
   for (const doc of candidates) {
+    // Only start a document there is time to make progress on. Starting one
+    // with seconds left burns them, records nothing done, and charges the
+    // document a no-progress attempt for the privilege.
+    if (msLeft() < MIN_SLICE_MS) {
+      deferred.push(doc.title)
+      continue
+    }
+
     // Record the attempt BEFORE calling out — if the retrain itself hangs
     // or this handler gets killed mid-call, the document still shows as
     // having been attempted (and past its cooldown) rather than being
@@ -188,9 +238,15 @@ export async function GET(request: NextRequest) {
         // permanently part-done. So give the attempt back whenever the pass
         // moved forward. The increment above still stands if this handler
         // dies mid-call, which is the case the counter is really protecting.
+        // Reset to zero, not back to what it was. The counter means
+        // "consecutive attempts that achieved nothing", so any pass that
+        // moved the document forward clears the history — otherwise a
+        // document needing ten passes accumulates its way to the cap and
+        // is abandoned part-read, which is the failure this whole route
+        // exists to prevent.
         if (r.ok && (body.processed ?? 0) > 0) {
           await service.from('documents')
-            .update({ auto_reprocess_count: doc.auto_reprocess_count ?? 0 })
+            .update({ auto_reprocess_count: 0 })
             .eq('id', doc.id)
         }
 
@@ -213,7 +269,6 @@ export async function GET(request: NextRequest) {
       // itself, when they'd really be splitting the underlying rate limits).
       const reader = res.body?.getReader()
       if (reader) {
-        // eslint-disable-next-line no-constant-condition
         while (true) {
           const { done } = await reader.read()
           if (done) break
@@ -226,5 +281,18 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ checked: candidates?.length ?? 0, results, orphanedFiles: reaped, billing })
+  await housekeeping()
+
+  if (deferred.length) {
+    console.log(`[auto-reprocess] ${deferred.length} document(s) deferred to the next run: ${deferred.join(', ')}`)
+  }
+
+  return NextResponse.json({
+    checked: candidates?.length ?? 0,
+    results,
+    deferred,
+    msUsed: Date.now() - startedAt,
+    orphanedFiles: reaped,
+    billing,
+  })
 }
