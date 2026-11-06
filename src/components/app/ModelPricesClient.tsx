@@ -8,35 +8,49 @@ import { cn } from '@/lib/utils'
 export interface ModelPriceRow {
   model: string
   provider: string
+  /** A deliberate override, or null when the published rate is in use. */
   input: number | null
   output: number | null
   cacheWrite: number | null
   cacheRead: number | null
   confirmedAt: string | null
+  /** The provider's published rate, shown as the placeholder. */
+  builtinInput: number | null
+  builtinOutput: number | null
+  builtinCacheWrite: number | null
+  builtinCacheRead: number | null
+  source: 'builtin' | 'override'
 }
 
 type Draft = Record<string, { input: string; output: string; cacheWrite: string; cacheRead: string }>
 
 const str = (n: number | null) => (n === null ? '' : String(n))
 
-const FIELDS: { key: keyof Draft[string]; label: string; hint: string }[] = [
-  { key: 'input',      label: 'Input',       hint: 'per 1M input tokens' },
-  { key: 'output',     label: 'Output',      hint: 'per 1M output tokens' },
-  { key: 'cacheWrite', label: 'Cache write', hint: 'Anthropic prompt-cache writes' },
-  { key: 'cacheRead',  label: 'Cache read',  hint: 'cached input, charged less' },
+const FIELDS: { key: keyof Draft[string]; label: string; hint: string; builtin: keyof ModelPriceRow }[] = [
+  { key: 'input',      label: 'Input',       hint: 'per 1M input tokens',             builtin: 'builtinInput' },
+  { key: 'output',     label: 'Output',      hint: 'per 1M output tokens',            builtin: 'builtinOutput' },
+  { key: 'cacheWrite', label: 'Cache write', hint: 'Anthropic prompt-cache writes',   builtin: 'builtinCacheWrite' },
+  { key: 'cacheRead',  label: 'Cache read',  hint: 'cached input, charged less',      builtin: 'builtinCacheRead' },
 ]
 
 /**
- * The rate card.
+ * The rate card, which nobody has to fill in.
  *
- * Deliberately starts empty rather than pre-filled with published list
- * prices. A confident wrong number in front of someone reconciling an
- * invoice is worse than a blank: the blank is visible everywhere the cost
- * appears, and the figure it produces is honest about being incomplete.
+ * The providers' published rates ship in src/lib/modelRates.ts and are used
+ * automatically, so every field here starts blank and blank means "use the
+ * published rate". A value is only ever an override, for the case where the
+ * account is charged something other than list price.
+ *
+ * The published rate is the placeholder rather than the value, so the
+ * difference between "this is what we use" and "someone decided this" stays
+ * visible — and clearing a field returns that model to the published rate
+ * instead of making it unpriced.
  */
 export default function ModelPricesClient({ initial }: { initial: ModelPriceRow[] }) {
   const router = useRouter()
-  const [open, setOpen] = useState(initial.every(p => p.input === null))
+  // Collapsed by default: with published rates applied automatically there is
+  // nothing here that needs attention on arrival.
+  const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<Draft>(() =>
     Object.fromEntries(initial.map(p => [p.model, {
       input: str(p.input), output: str(p.output), cacheWrite: str(p.cacheWrite), cacheRead: str(p.cacheRead),
@@ -86,7 +100,10 @@ export default function ModelPricesClient({ initial }: { initial: ModelPriceRow[
 
   const byProvider = new Map<string, ModelPriceRow[]>()
   for (const p of initial) byProvider.set(p.provider, [...(byProvider.get(p.provider) ?? []), p])
-  const unpriced = initial.filter(p => p.input === null || p.output === null).length
+  // Unpriced now means the rate card cannot price it at all — no published
+  // rate in code and no override here.
+  const unpriced = initial.filter(p => p.input === null && p.builtinInput === null).length
+  const overridden = initial.filter(p => p.source === 'override').length
 
   return (
     <section className="overflow-hidden border border-gray-200 bg-white shadow-sm">
@@ -101,9 +118,12 @@ export default function ModelPricesClient({ initial }: { initial: ModelPriceRow[
             Rate card
           </h2>
           <p className="mt-0.5 pl-6 text-xs text-gray-500">
-            US dollars per million tokens. {unpriced > 0
-              ? `${unpriced} of ${initial.length} models have no rate, so their usage is counted but not costed.`
-              : 'Every model has a rate.'}
+            US dollars per million tokens, applied automatically from the providers&apos;
+            published prices. {unpriced > 0
+              ? `${unpriced} of ${initial.length} models have no published rate and no override.`
+              : overridden > 0
+                ? `${overridden} overridden; the rest use published rates.`
+                : 'All models are using published rates — nothing to enter.'}
           </p>
         </div>
         {unpriced > 0 && (
@@ -116,12 +136,13 @@ export default function ModelPricesClient({ initial }: { initial: ModelPriceRow[
       {open && (
         <div className="px-6 py-5">
           <p className="mb-4 max-w-2xl text-xs leading-relaxed text-gray-500">
-            These are left blank on purpose. Published list prices change and may not be
-            what you are charged, so entering them is the point at which the cost figures
-            on this page become yours rather than a guess. Take the rates from your most
-            recent Anthropic and OpenAI invoices. Saving a rate affects future calls only —
-            each recorded call keeps the cost it was priced at, so past figures never move
-            under you.
+            You do not need to fill any of this in. The greyed figure in each box is the
+            provider&apos;s published rate, which is what the page already uses. Type a
+            number only to override one — if your account is billed at a negotiated rate,
+            or a provider changed its prices before this was updated. Clearing a box
+            returns that model to the published rate. Either way an override applies to
+            future calls only: every recorded call keeps the cost it was priced at, so
+            figures you have already read never move.
           </p>
 
           <div className="space-y-6">
@@ -138,7 +159,7 @@ export default function ModelPricesClient({ initial }: { initial: ModelPriceRow[
                             {f.label}
                           </th>
                         ))}
-                        <th className="px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Set</th>
+                        <th className="px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Rate</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
@@ -153,7 +174,7 @@ export default function ModelPricesClient({ initial }: { initial: ModelPriceRow[
                                   type="number" min="0" step="0.0001" inputMode="decimal"
                                   value={draft[p.model]?.[f.key] ?? ''}
                                   onChange={e => set(p.model, f.key, e.target.value)}
-                                  placeholder="—"
+                                  placeholder={p[f.builtin] === null ? '—' : String(p[f.builtin])}
                                   aria-label={`${p.model} ${f.label} rate, US dollars per million tokens`}
                                   className="w-24 border border-gray-200 bg-white py-1.5 pl-5 pr-2 text-sm tabular-nums text-gray-800 placeholder:text-gray-300 focus:border-brand focus:outline-none"
                                 />
@@ -161,9 +182,11 @@ export default function ModelPricesClient({ initial }: { initial: ModelPriceRow[
                             </td>
                           ))}
                           <td className="px-2 py-2">
-                            {p.confirmedAt
-                              ? <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">yes</span>
-                              : <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-300">no</span>}
+                            {p.source === 'override'
+                              ? <span className="border border-brand/20 bg-brand/5 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">yours</span>
+                              : p.builtinInput === null
+                                ? <span className="border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">none</span>
+                                : <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">published</span>}
                           </td>
                         </tr>
                       ))}
@@ -192,7 +215,7 @@ export default function ModelPricesClient({ initial }: { initial: ModelPriceRow[
                 <CheckCircle2 className="h-4 w-4" /> Saved. New calls are priced at these rates.
               </span>
             )}
-            {!dirty && !saved && <span className="text-xs text-gray-400">No changes to save.</span>}
+            {!dirty && !saved && <span className="text-xs text-gray-400">Nothing to save — published rates are in use.</span>}
           </div>
         </div>
       )}

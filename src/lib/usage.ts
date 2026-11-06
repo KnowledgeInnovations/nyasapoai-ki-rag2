@@ -29,6 +29,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { builtinRate, BUILTIN_RATES } from './modelRates'
 
 export type Provider = 'anthropic' | 'openai'
 
@@ -89,6 +90,13 @@ export interface ModelPrice {
   cacheReadUsdPerMTok: number | null
   confirmedAt: string | null
   updatedAt: string | null
+  /**
+   * Where the rate came from. 'builtin' is the provider's published list
+   * price shipped in src/lib/modelRates.ts, which is what makes this work
+   * with nothing entered; 'override' is a rate someone set deliberately
+   * because theirs differs.
+   */
+  source: 'builtin' | 'override'
 }
 
 const PRICE_TTL_MS = 5 * 60 * 1000
@@ -109,26 +117,59 @@ export async function getModelPrices(force = false): Promise<Map<string, ModelPr
   if (error) {
     if (!warnedMissingPrices) {
       warnedMissingPrices = true
-      console.warn(`[usage] rate card unavailable (${error.message}) — tokens will be recorded unpriced. Has migration 049 run?`)
+      console.warn(`[usage] stored rate overrides unavailable (${error.message}) — falling back to published rates. Has migration 049 run?`)
     }
-    const empty = new Map<string, ModelPrice>()
-    priceCache = { at: Date.now(), byModel: empty }
-    return empty
+    // Still priced: the published rates live in code, not in the database.
+    const builtinOnly = new Map<string, ModelPrice>()
+    for (const [model, r] of Object.entries(BUILTIN_RATES)) {
+      builtinOnly.set(model, {
+        model, provider: r.provider,
+        inputUsdPerMTok: r.input, outputUsdPerMTok: r.output,
+        cacheWriteUsdPerMTok: r.cacheWrite, cacheReadUsdPerMTok: r.cacheRead,
+        confirmedAt: null, updatedAt: null, source: 'builtin',
+      })
+    }
+    priceCache = { at: Date.now(), byModel: builtinOnly }
+    return builtinOnly
   }
 
   const byModel = new Map<string, ModelPrice>()
+
+  // Published rates first, so every known model is priced with nothing
+  // entered anywhere.
+  for (const [model, r] of Object.entries(BUILTIN_RATES)) {
+    byModel.set(model, {
+      model,
+      provider: r.provider,
+      inputUsdPerMTok: r.input,
+      outputUsdPerMTok: r.output,
+      cacheWriteUsdPerMTok: r.cacheWrite,
+      cacheReadUsdPerMTok: r.cacheRead,
+      confirmedAt: null,
+      updatedAt: null,
+      source: 'builtin',
+    })
+  }
+
+  // A stored rate replaces the published one. Only a row with an input rate
+  // counts as an override: the seeded rows are deliberately empty, and an
+  // empty row must not blank out a working published rate.
   for (const r of data ?? []) {
+    if (r.input_usd_per_mtok === null) continue
+    const fallback = builtinRate(r.model)
     byModel.set(r.model, {
       model: r.model,
       provider: r.provider as Provider,
-      inputUsdPerMTok: r.input_usd_per_mtok === null ? null : Number(r.input_usd_per_mtok),
-      outputUsdPerMTok: r.output_usd_per_mtok === null ? null : Number(r.output_usd_per_mtok),
-      cacheWriteUsdPerMTok: r.cache_write_usd_per_mtok === null ? null : Number(r.cache_write_usd_per_mtok),
-      cacheReadUsdPerMTok: r.cache_read_usd_per_mtok === null ? null : Number(r.cache_read_usd_per_mtok),
+      inputUsdPerMTok: Number(r.input_usd_per_mtok),
+      outputUsdPerMTok: r.output_usd_per_mtok === null ? (fallback?.output ?? null) : Number(r.output_usd_per_mtok),
+      cacheWriteUsdPerMTok: r.cache_write_usd_per_mtok === null ? (fallback?.cacheWrite ?? null) : Number(r.cache_write_usd_per_mtok),
+      cacheReadUsdPerMTok: r.cache_read_usd_per_mtok === null ? (fallback?.cacheRead ?? null) : Number(r.cache_read_usd_per_mtok),
       confirmedAt: r.confirmed_at ?? null,
       updatedAt: r.updated_at ?? null,
+      source: 'override',
     })
   }
+
   priceCache = { at: Date.now(), byModel }
   return byModel
 }

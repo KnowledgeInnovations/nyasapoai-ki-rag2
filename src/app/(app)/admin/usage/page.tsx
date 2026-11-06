@@ -5,6 +5,8 @@ import { getMembership, getTenant } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import ModelPricesClient from '@/components/app/ModelPricesClient'
 import UsageTables, { type TenantUsageRow, type ModelUsageRow } from '@/components/app/UsageTables'
+import { getModelPrices } from '@/lib/usage'
+import { builtinRate, RATES_AS_OF } from '@/lib/modelRates'
 
 export const metadata: Metadata = { title: 'Model usage — Nyansa AI' }
 export const dynamic = 'force-dynamic'
@@ -155,20 +157,42 @@ export default async function UsagePage({
     .map(([operation, v]) => ({ operation, ...v }))
     .sort((a, b) => b.cost - a.cost || b.calls - a.calls)
 
-  const prices = (priceRows ?? []).map(p => ({
-    model: p.model as string,
-    provider: p.provider as string,
-    input:      p.input_usd_per_mtok === null ? null : Number(p.input_usd_per_mtok),
-    output:     p.output_usd_per_mtok === null ? null : Number(p.output_usd_per_mtok),
-    cacheWrite: p.cache_write_usd_per_mtok === null ? null : Number(p.cache_write_usd_per_mtok),
-    cacheRead:  p.cache_read_usd_per_mtok === null ? null : Number(p.cache_read_usd_per_mtok),
-    confirmedAt: (p.confirmed_at as string | null) ?? null,
-  }))
+  // The effective rate card: published rates from code, overridden by any
+  // stored rate. This is what actually priced the calls above.
+  const effective = await getModelPrices(true)
 
-  // Which models were actually used in this window but have no rate. This is
-  // the number that decides whether the cost figures mean anything.
-  const pricedModels = new Set(prices.filter(p => p.input !== null && p.output !== null).map(p => p.model))
-  const unpricedUsedModels = models.filter(m => !pricedModels.has(m.model)).map(m => m.model)
+  const prices = (priceRows ?? []).map(p => {
+    const model = p.model as string
+    const b = builtinRate(model)
+    const eff = effective.get(model)
+    return {
+      model,
+      provider: p.provider as string,
+      // Only a deliberate override is pre-filled; the published rate shows
+      // as a placeholder, so a blank field means "use the published rate".
+      input:      p.input_usd_per_mtok === null ? null : Number(p.input_usd_per_mtok),
+      output:     p.output_usd_per_mtok === null ? null : Number(p.output_usd_per_mtok),
+      cacheWrite: p.cache_write_usd_per_mtok === null ? null : Number(p.cache_write_usd_per_mtok),
+      cacheRead:  p.cache_read_usd_per_mtok === null ? null : Number(p.cache_read_usd_per_mtok),
+      confirmedAt: (p.confirmed_at as string | null) ?? null,
+      builtinInput:      b?.input ?? null,
+      builtinOutput:     b?.output ?? null,
+      builtinCacheWrite: b?.cacheWrite ?? null,
+      builtinCacheRead:  b?.cacheRead ?? null,
+      source: (eff?.source ?? 'builtin') as 'builtin' | 'override',
+    }
+  })
+
+  // Models used in this window that the effective rate card cannot price at
+  // all — neither a published rate in code nor a stored override. With
+  // published rates shipped this should normally be empty, and when it is not
+  // it means a new model reached production before its rate did.
+  const unpricedUsedModels = models
+    .filter(m => {
+      const e = effective.get(m.model)
+      return !e || e.inputUsdPerMTok === null
+    })
+    .map(m => m.model)
   const capped = usage.length >= ROW_CAP
 
   const fmtUsd = (n: number) => `$${n.toFixed(n < 1 ? 4 : 2)}`
@@ -184,9 +208,11 @@ export default async function UsagePage({
           <h1 className="font-editorial text-2xl font-normal text-gray-900">Model usage</h1>
           <p className="mt-1 max-w-2xl text-sm text-gray-500">
             Token counts as reported by Anthropic and OpenAI on every call, grouped by
-            workspace. Cost is each call&apos;s tokens priced at the rate card below and
-            stored at the time of the call, so editing a rate changes future spend only
-            — it does not rewrite last month&apos;s figures.
+            workspace, priced automatically at the providers&apos; published rates
+            (checked {RATES_AS_OF}). Each call keeps the cost it was priced at, so a
+            later rate change affects future spend only and never rewrites a figure you
+            have already read. Override a rate below only if you are charged something
+            other than list price.
           </p>
         </div>
         <nav className="flex shrink-0 border border-gray-200">
@@ -219,9 +245,9 @@ export default async function UsagePage({
             </p>
             <p className="mt-1 leading-relaxed">
               {unpricedUsedModels.join(', ')} — their tokens are counted below but
-              contribute nothing to the totals. Set their rates in the rate card and
-              the figures become complete. Rates are left blank deliberately rather
-              than guessed: only you can see what you are actually charged.
+              contribute nothing to the totals. This means a model reached production
+              before its published rate was added to src/lib/modelRates.ts. Add it
+              there, or set a rate in the rate card below.
             </p>
           </div>
         </div>
