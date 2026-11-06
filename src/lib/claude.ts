@@ -79,6 +79,22 @@ interface ClaudeCompleteOptions {
    * processing during an upload and question answering at query time.
    */
   area?: ModelArea
+  /**
+   * Raise the per-call ceiling above MAX_CLAUDE_TIMEOUT_MS.
+   *
+   * The ceiling exists so a hung call cannot sit forever. It became a
+   * defect when a caller asked for 16,384 output tokens: this file's own
+   * sizing says that needs ~425s at the assumed floor rate, the ceiling
+   * allowed 120s, and every call large enough to matter was killed before
+   * it could answer. Measured on a real document: two batches, both dead
+   * at exactly 120s, zero excerpts processed.
+   *
+   * A caller that knows its own budget may raise it. The deadline clamp
+   * still applies, so this can never exceed the time the caller actually
+   * has — it only stops a constant chosen for short calls from governing
+   * long ones.
+   */
+  maxTimeoutMs?: number
   system?: string
   messages: ClaudeMessage[]
   maxTokens?: number
@@ -200,7 +216,7 @@ export async function withRetry<T>(
   }
 }
 
-export async function claudeComplete({ system, messages, maxTokens = 1024, temperature = 0, signal, deadline, operation = 'other', area }: ClaudeCompleteOptions): Promise<string> {
+export async function claudeComplete({ system, messages, maxTokens = 1024, temperature = 0, signal, deadline, operation = 'other', area, maxTimeoutMs }: ClaudeCompleteOptions): Promise<string> {
   // The guarantee that nothing reaches Anthropic while the switch is off.
   // Routes check earlier so they can say something readable, but this is
   // the check that cannot be bypassed by a call site nobody updated.
@@ -212,8 +228,9 @@ export async function claudeComplete({ system, messages, maxTokens = 1024, tempe
   // hard ceiling. Recomputed per attempt so it naturally shrinks as the
   // deadline approaches on a retry.
   function timeoutMs(): number {
+    const ceiling = Math.max(MAX_CLAUDE_TIMEOUT_MS, maxTimeoutMs ?? 0)
     const scaled = Math.max(DEFAULT_CLAUDE_TIMEOUT_MS, Math.ceil(maxTokens / CLAUDE_TOKENS_PER_SEC_FLOOR) * 1000 + 15000)
-    if (deadline == null) return Math.min(scaled, MAX_CLAUDE_TIMEOUT_MS)
+    if (deadline == null) return Math.min(scaled, ceiling)
     // No floor here — an earlier version of this clamped to at least
     // DEFAULT_CLAUDE_TIMEOUT_MS even when the deadline had almost no
     // budget left, so a call starting right before the deadline could
@@ -228,7 +245,7 @@ export async function claudeComplete({ system, messages, maxTokens = 1024, tempe
     // few seconds near the deadline fails fast and gets dropped by the
     // caller's own per-batch handling, which is the correct degrade path.
     const remaining = deadline - Date.now() - DEADLINE_SAFETY_MARGIN_MS
-    return Math.max(1000, Math.min(scaled, remaining, MAX_CLAUDE_TIMEOUT_MS))
+    return Math.max(1000, Math.min(scaled, remaining, ceiling))
   }
 
   // An abort with no caller signal involved is ours: AbortSignal.timeout()

@@ -150,6 +150,41 @@ async function handlePost(
     : undefined
 
   const rows = pending as ChunkRow[]
+
+  // How much this document actually produces per excerpt, taken from what
+  // it has already produced — a measurement replacing a guess.
+  //
+  // The guess is a digit-share heuristic, and it misreads any document
+  // that is fact-dense without being number-dense. This document is the
+  // example: a station register at 4% digits, well inside the "prose"
+  // band, yielding around forty facts per excerpt. Batched as prose it
+  // asked one call for two hundred facts, was killed for taking too long,
+  // and made the identical call on the next pass, because nothing
+  // remembered what the last one had learned.
+  //
+  // Only applied once the document has been through a pass: before that
+  // there is nothing to measure and the guess is all there is.
+  const { count: priorFactCount } = await service
+    .from('document_facts')
+    .select('*', { count: 'exact', head: true })
+    .eq('document_id', id)
+  const doneChunks = (totalChunks ?? 0) - rows.length
+
+  let batchCharsHint: number | undefined
+  if (doneChunks > 0 && (priorFactCount ?? 0) > 0) {
+    const factsPerChunk = (priorFactCount ?? 0) / doneChunks
+    const avgChars = Math.max(1, Math.round(rows.reduce((a, r) => a + r.chunk_text.length, 0) / rows.length))
+    // Aim for a reply of about this many facts — comfortably inside the
+    // call's output allowance, with room for one dense excerpt to
+    // overshoot without being killed for it.
+    const TARGET_FACTS_PER_CALL = 40
+    const chunksPerCall = Math.max(1, Math.floor(TARGET_FACTS_PER_CALL / Math.max(1, factsPerChunk)))
+    batchCharsHint = chunksPerCall * avgChars
+    console.log(
+      `[extract-facts] ${id}: ${factsPerChunk.toFixed(1)} facts per excerpt so far, ` +
+      `so ${chunksPerCall} excerpt(s) per call (${batchCharsHint} chars)`,
+    )
+  }
   const byText = new Map<string, string[]>()
   for (const r of rows) {
     const key = r.chunk_text
@@ -191,6 +226,7 @@ async function handlePost(
     // under one name for the excerpts done on Monday and another for
     // Tuesday's — which is the inconsistency the vocabulary exists to stop.
     profileColumns,
+    batchCharsHint,
   )
 
   // Drop anything this document already holds before inserting.

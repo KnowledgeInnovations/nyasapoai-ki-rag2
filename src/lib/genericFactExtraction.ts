@@ -12,7 +12,7 @@
  */
 
 import type { ProcessedChunk } from './documentProcess'
-import { claudeComplete, extractJSON, isNetworkError } from './claude'
+import { claudeComplete, extractJSON, isNetworkError, isDeadlineError } from './claude'
 
 export interface DocumentFact {
   tenant_id: string
@@ -89,6 +89,21 @@ const DENSE_DIGIT_RATIO = 0.08
 // one account's rate limit with chat; claudeComplete already backs off on
 // 429.
 const GENERIC_FACT_CONCURRENCY = 6
+
+/**
+ * How long one extraction call may take.
+ *
+ * claude.ts caps calls at 120s, which is right for the short calls it was
+ * chosen for and wrong here: these are long structured extractions over
+ * several thousand characters. The two constants contradicted each other
+ * and the contradiction was invisible, because a killed call is reported
+ * as a dropped batch and a dropped batch is reported as a time budget
+ * being reached — three layers of true statements describing a request
+ * that was never given enough time to succeed.
+ *
+ * Inside the 240s pass budget, with room for the pass to record progress.
+ */
+const GENERIC_FACT_CALL_CEILING_MS = 200_000
 
 // This runs LAST in the training pipeline, after PDF extraction, chunking
 // (including its own "AI-clean table blocks" Claude call) and embedding —
@@ -280,6 +295,25 @@ export async function extractGenericFacts(
   // guessing which names meant the same thing. Given the headings, every
   // call uses the same ones and a count is exact.
   vocabulary?: string[],
+  /**
+   * How many characters to put in one call, measured rather than guessed.
+   *
+   * batchCharsFor() below decides this from the excerpt's digit share,
+   * which is a proxy for "how many facts will this produce" and is wrong
+   * whenever a document is fact-dense without being number-dense. Measured
+   * case: a TV station register, 4% digits — comfortably "prose" by that
+   * rule, so five excerpts went into one 6,000-character call — produced
+   * 233 facts from those five excerpts. The reply could not be generated
+   * inside any allowance, the call was killed, and because every pass
+   * recomputed the same guess from the same digit share, every pass made
+   * the same doomed call. The document sat at the same five excerpts for
+   * days.
+   *
+   * A caller that can see how many facts this document has already yielded
+   * per excerpt knows the answer and should say so. The guess remains the
+   * default for a document that has never been processed.
+   */
+  batchCharsHint?: number,
 ): Promise<DocumentFact[]> {
   const usableChunks = interleaveForCoverage(chunks.filter(c => c.text.trim().length > 30))
   if (!usableChunks.length) return []
@@ -317,7 +351,7 @@ export async function extractGenericFacts(
 
   // Starts from what this document's own text implies, and shrinks further
   // if a reply still comes back truncated — see the parse failure path.
-  let batchCharCap = batchCharsFor(usableChunks)
+  let batchCharCap = batchCharsHint ?? batchCharsFor(usableChunks)
 
   // Returns whether the batch was genuinely examined. A batch dropped
   // because the allowance expired returns false, and that distinction is
@@ -338,7 +372,19 @@ export async function extractGenericFacts(
         // such content truncates mid-JSON, which costs a full 46s call and
         // returns nothing — so the ceiling has to leave room for the batch
         // the sizing logic below is willing to send.
-        maxTokens: 16384,
+        // Sized to fit the allowance below rather than to the largest
+        // reply imaginable. claude.ts budgets ceil(maxTokens / 40) + 15s
+        // for a call, so 16,384 tokens implied ~425s against a ceiling of
+        // 120s — a request that could not be served in the time it was
+        // given, and measurably was not: two batches, both killed at
+        // exactly 120s, zero excerpts processed out of ten.
+        //
+        // 7,000 implies ~190s, inside the ceiling raised below, which is
+        // itself inside this pass's 240s budget. A reply that still does
+        // not fit is handled by the splitting path, which exists for
+        // precisely that and is cheaper than a call that cannot finish.
+        maxTokens: 7000,
+        maxTimeoutMs: GENERIC_FACT_CALL_CEILING_MS,
         deadline: effectiveDeadline,
         messages: [{
           role: 'user',
@@ -374,6 +420,48 @@ ${combined}`,
       // connectivity problem that never existed, when the real cause is this
       // run running out of its own time budget.
       const outOfBudget = Date.now() > effectiveDeadline
+
+      // A call killed by its own allowance, with budget still left and more
+      // than one excerpt in hand, is the same problem the parse path
+      // already solves: too much work asked of one call. Solve it the same
+      // way — halve and retry — instead of dropping the excerpts.
+      //
+      // Before this, a timed-out batch was abandoned for the whole pass.
+      // Measured: ten excerpts, two batches, both timed out, zero
+      // processed, and the pass returned having spent 121s of its 240s
+      // because the queue was empty while none of the work had been done.
+      // Every excerpt in the document stayed queued, every night, for as
+      // long as the document existed.
+      if (!outOfBudget && isDeadlineError(e) && Date.now() < effectiveDeadline) {
+        if (batch.length > 1) {
+          batchCharCap = Math.max(MIN_GENERIC_FACT_BATCH_CHARS, Math.floor(batchCharCap / 2))
+          const mid = Math.ceil(batch.length / 2)
+          const firstHalf = await processBatch(batch.slice(0, mid), depth)
+          const secondHalf = await processBatch(batch.slice(mid), depth)
+          return firstHalf && secondHalf
+        }
+
+        // One excerpt, on its own, that still cannot be answered in time.
+        // Measured on a station register: five excerpts of ~1.2k characters
+        // each yielded 233 facts between them, so a single dense row block
+        // can ask for more output than any allowance will cover. Splitting
+        // the TEXT is the only remaining lever, and it is the same one the
+        // parse path pulls for the same underlying cause — too much output
+        // for one call.
+        const lines = batch[0].text.split('\n')
+        if (depth < MAX_TEXT_SPLIT_DEPTH && lines.length >= 6) {
+          const mid = Math.ceil(lines.length / 2)
+          const halves = [lines.slice(0, mid).join('\n'), lines.slice(mid).join('\n')]
+          let bothHalves = true
+          for (const halfText of halves) {
+            if (halfText.trim()) {
+              bothHalves = await processBatch([{ ...batch[0], text: halfText }], depth + 1) && bothHalves
+            }
+          }
+          return bothHalves
+        }
+      }
+
       onBatchDropped?.({
         reason: outOfBudget
           ? 'Time budget reached while checking this excerpt for facts.'
