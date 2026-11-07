@@ -4,7 +4,7 @@ import { AlertTriangle, Database } from 'lucide-react'
 import { getMembership, getTenant } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import ModelPricesClient from '@/components/app/ModelPricesClient'
-import UsageTables, { type TenantUsageRow, type ModelUsageRow } from '@/components/app/UsageTables'
+import UsageTables, { type TenantUsageRow, type ModelUsageRow, type PersonUsageRow } from '@/components/app/UsageTables'
 import { getModelPrices } from '@/lib/usage'
 import { builtinRate, RATES_AS_OF } from '@/lib/modelRates'
 
@@ -52,7 +52,7 @@ export default async function UsagePage({
   const [{ data: rows, error: usageError }, { data: priceRows }, { data: tenantRows }] = await Promise.all([
     service
       .from('model_usage')
-      .select('tenant_id, tenant_label, provider, model, operation, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, cost_usd')
+      .select('tenant_id, tenant_label, user_id, provider, model, operation, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, cost_usd')
       .gte('created_at', cutoff)
       .order('created_at', { ascending: false })
       .limit(ROW_CAP),
@@ -91,6 +91,7 @@ export default async function UsagePage({
   type Row = {
     tenant_id: string | null
     tenant_label: string | null
+    user_id: string | null
     provider: string
     model: string
     operation: string
@@ -103,6 +104,19 @@ export default async function UsagePage({
   const usage = (rows ?? []) as Row[]
   const nameById = new Map((tenantRows ?? []).map(t => [t.id, t.name as string]))
 
+  // Who spent it. A uuid in a cost report is useless to the person reading
+  // it, so the ids present in this window are resolved to names in one
+  // query rather than one per row.
+  const userIds = [...new Set(usage.map(r => r.user_id).filter((v): v is string => !!v))]
+  const personById = new Map<string, string>()
+  if (userIds.length) {
+    const { data: userRows } = await service
+      .from('users')
+      .select('id, name, email')
+      .in('id', userIds)
+    for (const u of userRows ?? []) personById.set(u.id, (u.name as string) || (u.email as string) || 'Unknown user')
+  }
+
   /* ── aggregate ─────────────────────────────────────────── */
   let totalCost = 0
   let totalTokens = 0
@@ -110,6 +124,7 @@ export default async function UsagePage({
   const byTenant = new Map<string, TenantUsageRow>()
   const byModel = new Map<string, ModelUsageRow>()
   const byOperation = new Map<string, { calls: number; cost: number; priced: boolean }>()
+  const byPerson = new Map<string, PersonUsageRow>()
 
   for (const r of usage) {
     const tokens = r.input_tokens + r.output_tokens + r.cache_write_tokens + r.cache_read_tokens
@@ -145,6 +160,25 @@ export default async function UsagePage({
     if (cost === null) m.unpriced++; else m.costUsd += cost
     byModel.set(r.model, m)
 
+    // Work with no user attached is not anonymous — it is work nobody
+    // asked for: the nightly retry, a resumed extraction pass, a scheduled
+    // job. Grouping it under one honest heading per workspace is more
+    // useful than hiding it, because it is the spend no one is watching.
+    const personKey = r.user_id ?? `auto:${r.tenant_id ?? 'none'}`
+    const p = byPerson.get(personKey) ?? {
+      key: personKey,
+      label: r.user_id ? (personById.get(r.user_id) ?? 'Unknown user') : 'Background jobs',
+      workspace: label,
+      automated: !r.user_id,
+      calls: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0, unpriced: 0,
+    }
+    p.calls++
+    p.inputTokens  += r.input_tokens
+    p.outputTokens += r.output_tokens
+    p.cachedTokens += r.cache_write_tokens + r.cache_read_tokens
+    if (cost === null) p.unpriced++; else p.costUsd += cost
+    byPerson.set(personKey, p)
+
     const o = byOperation.get(r.operation) ?? { calls: 0, cost: 0, priced: true }
     o.calls++
     if (cost === null) o.priced = false; else o.cost += cost
@@ -153,6 +187,7 @@ export default async function UsagePage({
 
   const tenants = [...byTenant.values()].sort((a, b) => b.costUsd - a.costUsd || b.calls - a.calls)
   const models  = [...byModel.values()].sort((a, b) => b.costUsd - a.costUsd || b.calls - a.calls)
+  const people  = [...byPerson.values()].sort((a, b) => b.costUsd - a.costUsd || b.calls - a.calls)
   const operations = [...byOperation.entries()]
     .map(([operation, v]) => ({ operation, ...v }))
     .sort((a, b) => b.cost - a.cost || b.calls - a.calls)
@@ -278,6 +313,7 @@ export default async function UsagePage({
 
       <UsageTables
         tenants={tenants}
+        people={people}
         models={models}
         operations={operations}
         totalCost={totalCost}

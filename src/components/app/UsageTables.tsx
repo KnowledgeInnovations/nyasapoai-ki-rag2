@@ -26,6 +26,22 @@ export interface ModelUsageRow {
   unpriced: number
 }
 
+export interface PersonUsageRow {
+  key: string
+  /** Name, or email, or "Background job" — never a bare uuid. */
+  label: string
+  /** Which workspace they were acting in. */
+  workspace: string
+  /** True for work no person asked for: crons, retries, scheduled passes. */
+  automated: boolean
+  calls: number
+  inputTokens: number
+  outputTokens: number
+  cachedTokens: number
+  costUsd: number
+  unpriced: number
+}
+
 export interface OperationRow {
   operation: string
   calls: number
@@ -36,15 +52,17 @@ export interface OperationRow {
 interface Props {
   tenants: TenantUsageRow[]
   models: ModelUsageRow[]
+  people: PersonUsageRow[]
   operations: OperationRow[]
   totalCost: number
   days: number
 }
 
-type Tab = 'workspaces' | 'models' | 'work'
+type Tab = 'workspaces' | 'people' | 'models' | 'work'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'workspaces', label: 'By workspace' },
+  { id: 'people',     label: 'By person' },
   { id: 'models',     label: 'By model' },
   { id: 'work',       label: 'By work type' },
 ]
@@ -101,9 +119,10 @@ function Td({ children, right, mono }: { children: React.ReactNode; right?: bool
   )
 }
 
-export default function UsageTables({ tenants, models, operations, totalCost, days }: Props) {
+export default function UsageTables({ tenants, models, people, operations, totalCost, days }: Props) {
   const [tab, setTab] = useState<Tab>('workspaces')
 
+  const maxPersonCost = Math.max(0, ...people.map(p => p.costUsd))
   const maxTenantCost = Math.max(0, ...tenants.map(t => t.costUsd))
   const maxModelCost  = Math.max(0, ...models.map(m => m.costUsd))
   const maxWorkCost   = Math.max(0, ...operations.map(o => o.cost))
@@ -172,6 +191,49 @@ export default function UsageTables({ tenants, models, operations, totalCost, da
                     <Td right>{compact(t.cachedTokens)}</Td>
                     <Td right><span className="font-semibold text-gray-900">{fmtUsd(t.costUsd)}</span></Td>
                     <td className="w-28 px-4 py-2.5"><ShareBar value={t.costUsd} max={maxTenantCost} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {tab === 'people' && (
+            <table className="w-full min-w-[48rem]">
+              <thead className="border-b border-gray-100">
+                <tr>
+                  <Th>Person</Th>
+                  <Th>Workspace</Th>
+                  <Th right>Calls</Th>
+                  <Th right>Input</Th>
+                  <Th right>Output</Th>
+                  <Th right>Cost</Th>
+                  <Th>Share</Th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {people.map(p => (
+                  <tr key={p.key} className="hover:bg-gray-50/60">
+                    <Td>
+                      <span className={cn('font-medium', p.automated ? 'text-gray-500 italic' : 'text-gray-900')}>
+                        {p.label}
+                      </span>
+                      {p.automated && (
+                        <span className="ml-2 border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                          automated
+                        </span>
+                      )}
+                      {p.unpriced > 0 && (
+                        <span className="ml-2 border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                          {fmtInt(p.unpriced)} unpriced
+                        </span>
+                      )}
+                    </Td>
+                    <Td>{p.workspace}</Td>
+                    <Td right>{fmtInt(p.calls)}</Td>
+                    <Td right>{compact(p.inputTokens)}</Td>
+                    <Td right>{compact(p.outputTokens)}</Td>
+                    <Td right><span className="font-semibold text-gray-900">{fmtUsd(p.costUsd)}</span></Td>
+                    <td className="w-28 px-4 py-2.5"><ShareBar value={p.costUsd} max={maxPersonCost} /></td>
                   </tr>
                 ))}
               </tbody>

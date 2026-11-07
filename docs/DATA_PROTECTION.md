@@ -1,6 +1,6 @@
 # Nyansa AI — Data Protection & Confidentiality
 
-As of 26 September 2026.
+As of 7 November 2026.
 
 Nyansa AI is a multi-tenant document intelligence platform. Each client organisation's
 documents, extracted data and conversations are isolated at the database level,
@@ -88,12 +88,119 @@ Two points a reviewer will reasonably ask about:
 - **Document content does leave the platform** when a question is asked and when a
   document is first indexed. It goes only to the providers above, over TLS, for those
   purposes only.
-- **Training.** Client data is not sent to these providers for model training. Clients
-  requiring contractual assurance that content is excluded from provider-side training
-  should raise it during contracting so the appropriate provider terms are in place.
+- **Training.** Neither AI provider trains its models on content sent through their
+  paid APIs. This is a contractual commitment from each provider, quoted verbatim in
+  the next section rather than asserted here.
 
 Hosting and storage are currently in provider regions outside Ghana. Data-residency
 requirements should be raised before deployment.
+
+## Model training: what the providers commit to, in their own words
+
+The commonest question a client asks is whether their documents end up training
+somebody's AI. They do not. Because that assurance is worth no more than its source,
+the commitments are quoted exactly as published, with where to check them.
+
+Both were read from the providers' own pages on **7 November 2026**. Provider terms
+change; the dates below are when each page was last confirmed, and they should be
+re-checked before being relied on in a signed agreement.
+
+### Anthropic (Claude) — used to generate answers
+
+Commercial Terms of Service, Section B (Customer Content), effective 17 June 2025 —
+<https://www.anthropic.com/legal/commercial-terms>
+
+> Anthropic may not train models on Customer Content from Services.
+
+"Customer Content" is defined in the same section as both the Inputs submitted to the
+service and the Outputs it generates — so the commitment covers the document passages
+we send and the answers that come back. Section E.1 of the same terms adds:
+
+> Customer Content is Customer's Confidential Information.
+
+Anthropic's support documentation states the same thing in plainer words, with the one
+exception that exists —
+<https://privacy.claude.com/en/articles/7996875>
+
+> We do not use API data for training (unless you have an agreement with us that states
+> otherwise).
+
+No such agreement exists for this platform, and none should be entered into.
+
+**Retention.** From Anthropic's retention page, last updated 1 July 2026 —
+<https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data>
+
+> For Anthropic API users, we automatically delete inputs and outputs on our backend
+> within 30 days of receipt or generation
+
+with exceptions for services with longer retention under the customer's control, an
+agreed zero-retention arrangement, enforcement of the Usage Policy, and compliance with
+law. Content flagged by their automated safety systems is kept longer:
+
+> We retain inputs and outputs for up to 2 years and trust and safety classification
+> scores for up to 7 years if your chat is flagged by our automated trust and safety
+> systems as violating our Usage Policy.
+
+### OpenAI — used for search embeddings and reranking
+
+Data controls documentation —
+<https://developers.openai.com/api/docs/guides/your-data>
+
+> As of March 1, 2023, data sent to the OpenAI API is not used to train or improve
+> OpenAI models
+
+> (unless you explicitly opt in to share data with us)
+
+This is the default for API traffic: nothing has to be switched off to obtain it, and
+this platform has not opted in. The endpoint table on the same page lists
+"Data used for training: No" for every endpoint we use.
+
+**Retention.** From the same page:
+
+> By default, abuse monitoring logs are generated for all API feature usage and retained
+> for up to 30 days
+
+continuing "unless longer retention is required by law, or is reasonably necessary to
+protect our services or any third party from harm."
+
+### What is NOT yet in place
+
+Stated plainly, because a reviewer will find it anyway.
+
+Both providers offer **Zero Data Retention** — an arrangement where inputs and outputs
+are not stored at all, rather than stored for thirty days. **Nyansa AI does not have one
+with either provider.** Today, a client's document passages sit in provider logs for up
+to thirty days, and longer if automated safety systems flag them.
+
+Neither is self-serve. Anthropic:
+
+> Some Claude Platform (Claude API) and Claude Code for Enterprise customers, subject to
+> Anthropic's approval, may have arrangements under which Anthropic does not store their
+> inputs or outputs except where needed to comply with law or combat misuse or harm.
+
+obtained by contacting their sales team, reviewed per organisation. OpenAI's equivalent
+is "subject to prior approval by OpenAI and acceptance of additional requirements",
+likewise through sales, and covers the endpoints this platform uses.
+
+**Recommendation.** Apply for zero data retention with both providers. It costs nothing
+to request, it is the single strongest answer to the question clients actually ask, and
+without it the honest answer is "your content is not trained on, and it is retained for
+thirty days".
+
+### What this document can and cannot prove
+
+- **Verified directly:** the Anthropic Commercial Terms clause, Anthropic's retention
+  and zero-retention pages, and OpenAI's data-controls documentation. Quotes above are
+  verbatim from those pages on the date given.
+- **Not verified directly:** OpenAI's enterprise privacy page and business terms both
+  refused automated access (HTTP 403) when checked. The no-training commitment is quoted
+  from OpenAI's technical documentation instead, which is a weaker instrument than
+  signed terms. Before this goes into a contract, obtain OpenAI's business terms through
+  an account manager and quote those.
+- **A commitment is not an audit.** These are contractual and documented statements by
+  the providers about their own conduct. Neither this platform nor its clients can
+  observe provider-side training. What can be shown is which terms apply, that nothing
+  has been opted into, and that no agreement exists displacing the default.
 
 ## Retention and deletion
 

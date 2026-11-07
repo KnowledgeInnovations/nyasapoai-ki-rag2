@@ -3,11 +3,48 @@ import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getPlanPrices, formatPrice, periodLabel } from '@/lib/planPrices'
-import type { Plan } from '@/lib/plans'
+import { PLANS, type Plan } from '@/lib/plans'
 
 export const metadata: Metadata = {
   title: 'Pricing — Nyansa AI',
   description: 'Plans that grow with your organization — from small teams to enterprise-wide deployments.',
+}
+
+/**
+ * What a plan actually includes, read from the limits that are enforced.
+ *
+ * These lines used to be hand-written next to the hand-written benefits, and
+ * said things like "Higher document & storage limits" — which answers none of
+ * the questions a buyer is asking, while the real figures sat in
+ * src/lib/plans.ts being enforced against their account. A page that cannot
+ * tell you how much storage you are buying is not a pricing page.
+ *
+ * Generated rather than retyped, so the number a customer is quoted and the
+ * number their workspace is held to cannot drift apart. Changing a limit in
+ * plans.ts changes this page in the same commit.
+ */
+function capacityOf(plan: Plan): string[] {
+  const p = PLANS[plan]
+  const gb = (bytes: number) => {
+    const g = bytes / (1024 * 1024 * 1024)
+    return g >= 1 ? `${Math.round(g)} GB` : `${Math.round(bytes / (1024 * 1024))} MB`
+  }
+  const mb = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`
+  const count = (v: number | null, one: string, many: string) =>
+    v === null ? `Unlimited ${many}` : `${v.toLocaleString()} ${v === 1 ? one : many}`
+
+  return [
+    count(p.maxUsers, 'team member', 'team members'),
+    p.maxSeniorUsers === null
+      ? 'Unlimited senior administrators'
+      : `${p.maxSeniorUsers} senior administrator${p.maxSeniorUsers === 1 ? '' : 's'}`,
+    count(p.maxDocuments, 'document', 'documents'),
+    p.maxStorageBytes === null ? 'Storage agreed in contract' : `${gb(p.maxStorageBytes)} of document storage`,
+    p.maxFileBytes === null ? 'File size agreed in contract' : `${mb(p.maxFileBytes)} maximum file size`,
+    p.includedQueriesPerMonth === null
+      ? 'Unlimited questions'
+      : `${p.includedQueriesPerMonth.toLocaleString()} AI questions a month`,
+  ]
 }
 
 const tiers = [
@@ -33,7 +70,7 @@ const tiers = [
     features: [
       'Everything in Starter',
       'Department dashboards & insights',
-      'Higher document & storage limits',
+      'Senior permissions granted individually',
       'Priority support',
     ],
     cta: { label: 'Start free', href: '/auth/signup' },
@@ -46,6 +83,7 @@ const tiers = [
     tagline: 'For large organizations with custom security and deployment needs.',
     features: [
       'Everything in Professional',
+      'Departments, custom roles and per-knowledge-base access',
       'Custom data processing agreements',
       'Dedicated onboarding & training',
       'On-premise / custom deployment options',
@@ -123,7 +161,21 @@ export default async function PricingPage() {
               )}
             </div>
 
-            <ul className="mt-6 flex-1 space-y-3">
+            <div className="mt-6">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                What you get
+              </p>
+              <ul className="mt-2.5 space-y-2">
+                {capacityOf(tier.plan).map(c => (
+                  <li key={c} className="flex items-baseline gap-2.5 text-sm font-medium text-gray-800">
+                    <span className="font-editorial italic text-brand">—</span>
+                    {c}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <ul className="mt-5 flex-1 space-y-3 border-t border-gray-100 pt-5">
               {tier.features.map(f => (
                 <li key={f} className="flex items-baseline gap-2.5 text-sm text-gray-600">
                   <span className="font-editorial italic text-brand">—</span>
