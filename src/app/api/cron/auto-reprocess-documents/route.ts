@@ -40,6 +40,24 @@ const COOLDOWN_HOURS = 6
 // handler shares the same maxDuration ceiling as /train.
 const BATCH_SIZE = 5
 
+/*
+ * A note on how often this runs, because it has now been got wrong twice.
+ *
+ * vercel.json schedules this ONCE A DAY, and it must stay that way until
+ * somebody confirms the Vercel plan for THIS project is Pro. Hobby permits
+ * a cron only once per day and rejects anything finer at deployment
+ * validation — the deployment fails in about twenty seconds, before the
+ * build runs, so it does not look like a code error and is easy to
+ * misread. Commit eebda05 fixed this once by moving a six-hourly schedule
+ * to daily; it was reintroduced on 2026-11-07 as hourly and broke
+ * deployment again.
+ *
+ * Everything below is written to work at any frequency. If the plan is
+ * confirmed as Pro, change the schedule in vercel.json to "0 * * * *" and
+ * nothing here needs to change — the backlog then clears in hours instead
+ * of days.
+ */
+
 /**
  * How long this invocation gives itself, under the 300s ceiling.
  *
