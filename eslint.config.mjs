@@ -82,6 +82,15 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Ad-hoc CommonJS dev helpers at the repository root (ask-test.js,
+    // get-test-session.js, watch-uploads.js and friends). They predate the
+    // flat config, use require(), and are run by hand rather than shipped.
+    //
+    // Linting them failed `npm run lint` with seven errors nobody intended
+    // to fix, which meant the command was never run and the real rules
+    // below went unenforced. A lint that always fails is a lint that is
+    // always ignored. Application code is src/ and scripts/, both linted.
+    "*.js",
   ]),
 
   {
