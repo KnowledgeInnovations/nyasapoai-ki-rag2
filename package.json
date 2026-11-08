@@ -9,7 +9,7 @@
     "lint": "eslint",
     "ingest-tables": "tsx scripts/ingest_table_facts.mts",
     "check:imports": "tsx scripts/check_imports.mts",
-    "check": "tsc --noEmit && eslint && tsx scripts/check_imports.mts && tsx scripts/check_deploy_config.mts",
+    "check": "tsc --noEmit -p tsconfig.check.json && eslint && tsx scripts/check_imports.mts && tsx scripts/check_deploy_config.mts",
     "queue-health": "tsx scripts/queue_health.mts",
     "check:deploy": "tsx scripts/check_deploy_config.mts"
   },

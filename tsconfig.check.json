@@ -1,0 +1,32 @@
+{
+  // Type-checking for `npm run check`, without the generated files.
+  //
+  // tsconfig.json deliberately includes `.next/types` and `.next/dev/types`
+  // so editors and `next build` see Next's generated route types. Those
+  // files are also rewritten continuously by a running dev server, and a
+  // half-written one makes tsc fail with a parse error in a file nobody
+  // wrote:
+  //
+  //   .next/dev/types/validator.ts(892,1): error TS1128
+  //
+  // That is not a defect in the codebase, it is a race with another
+  // process — and it has already defeated one local build and one run of
+  // this check. A pre-push check that fails for reasons the author cannot
+  // act on is a check that stops being run, which is how the lint rules
+  // went unenforced.
+  //
+  // So this profile checks the source and leaves the generated types to
+  // `next build`, which generates them itself and is the authority on
+  // whether they are right.
+  "extends": "./tsconfig.json",
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.mts"
+  ],
+  "exclude": [
+    "node_modules",
+    ".next"
+  ]
+}
