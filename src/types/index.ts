@@ -43,6 +43,13 @@ export interface ProcessingWarning {
   // warnings · 1 of 5 steps degraded". A warning that fires on success
   // teaches people to ignore warnings.
   level?: 'note' | 'degraded'
+  // How many times this same cause fired in the run. Absent means once.
+  //
+  // One timed-out extraction pass used to write a row per failed call —
+  // 120 of them, all saying the same thing with a different number of
+  // seconds in it. They are collapsed at the point of writing now (see
+  // src/lib/processingWarnings.ts) and the repeat count lives here.
+  count?: number
 }
 
 export interface Document {

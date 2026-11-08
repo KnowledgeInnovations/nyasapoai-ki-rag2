@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "ingest-tables": "tsx scripts/ingest_table_facts.mts"
+    "ingest-tables": "tsx scripts/ingest_table_facts.mts",
+    "check:imports": "tsx scripts/check_imports.mts",
+    "check": "tsc --noEmit && eslint && tsx scripts/check_imports.mts",
+    "queue-health": "tsx scripts/queue_health.mts"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.80",

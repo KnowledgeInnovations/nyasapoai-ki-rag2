@@ -94,8 +94,13 @@ export function statusReason(doc: Document | WarningBearing): string | null {
     const warnings = realWarnings(doc)
     const network = warnings.some(w => w.network)
     if (network) return 'A network interruption stopped part of the processing. Retry is likely to fix it.'
-    const first = warnings[0]?.message
-    return doc.status_detail ?? (first ? String(first) : 'Part of the processing did not complete.')
+    const worst = [...warnings].sort((a, b) => (b.count ?? 1) - (a.count ?? 1))[0]
+    const base = doc.status_detail ?? (worst?.message ? String(worst.message) : 'Part of the processing did not complete.')
+    // A cause that fired forty times is a different situation from one
+    // that fired once, and the reader should not have to open the record
+    // to find that out.
+    const repeats = worst?.count ?? 1
+    return repeats > 1 ? `${base} (happened ${repeats} times)` : base
   }
 
   if (kind === 'failed') return doc.status_detail ?? 'Processing failed.'

@@ -8,6 +8,7 @@ import { extractGenericFacts } from '@/lib/genericFactExtraction'
 import { insertFactsResilient } from '@/lib/documentProcess'
 import { alertIncompleteTraining } from '@/lib/trainingAlerts'
 import type { ProcessingWarning } from '@/types'
+import { addWarning } from '@/lib/processingWarnings'
 
 /**
  * Resumable, facts-only pass over a document's existing chunks.
@@ -209,7 +210,7 @@ async function handlePost(
     id,
     Date.now() + PASS_BUDGET_MS,
     info => {
-      warnings.push({
+      addWarning(warnings, {
         at: new Date().toISOString(),
         step: 'generic_facts_resume',
         message: info.reason,
@@ -273,7 +274,7 @@ async function handlePost(
     await insertFactsResilient(
       () => service.from('document_facts').insert(newFacts),
       'document_facts_insert',
-      (step, message, network) => warnings.push({
+      (step, message, network) => addWarning(warnings, {
         at: new Date().toISOString(), step, message,
         ...(network ? { network: true } : {}),
       } as ProcessingWarning),

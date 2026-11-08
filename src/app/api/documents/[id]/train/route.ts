@@ -6,6 +6,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { extractStructuredText, chunkPages, aiCleanTableChunks, embedBatch, EMBED_BATCH, insertChunkBatch, insertFactsResilient, sniffImageType, isImageFile, tableChunkFloor } from '@/lib/documentProcess'
 import { canAccessTraining, type Role } from '@/lib/roles'
 import { modelDisabledMessage } from '@/lib/modelSwitch'
+import { addWarning } from '@/lib/processingWarnings'
 import { extractFactsFromChunk, tableRecordToFact, aiEnhanceTableFacts, runSanityChecks, runCrossDocumentCorroboration, supersedeForwardProjections, applyLearnedHeuristics, looksLikeBudgetDocument, type FinancialFact } from '@/lib/factExtraction'
 import { extractTableRecordsFromPdf } from '@/lib/tableExtraction'
 import { extractGenericFacts } from '@/lib/genericFactExtraction'
@@ -135,11 +136,11 @@ async function handlePost(
 
       const warnings: ProcessingWarning[] = []
       const warn = (step: string, message: string, network?: boolean) =>
-        warnings.push({ step, message, at: new Date().toISOString(), ...(network ? { network: true } : {}), level: 'degraded' })
+        addWarning(warnings, { step, message, at: new Date().toISOString(), ...(network ? { network: true } : {}), level: 'degraded' })
       // For something that went right but is worth saying. Kept out of the
       // degraded count, so a step that succeeded never reads as a problem.
       const note = (step: string, message: string) =>
-        warnings.push({ step, message, at: new Date().toISOString(), level: 'note' })
+        addWarning(warnings, { step, message, at: new Date().toISOString(), level: 'note' })
 
       try {
         // ── 0. Resume instead of rebuilding, where that is all that's left ──
