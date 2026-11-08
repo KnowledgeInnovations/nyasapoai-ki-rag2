@@ -96,3 +96,24 @@ export function rowsOrEmpty<T>(result: SupabaseDataResult<T[]>, label: string): 
   }
   return result.data ?? []
 }
+
+/**
+ * A value safe to place inside a PostgREST `.or()` / `ilike` pattern.
+ *
+ * Inside `.or('a.ilike.%x%,b.ilike.%y%')` a comma separates conditions and
+ * parentheses group them, so a value carrying either one splits the filter:
+ * "Ministry of Lands, Forestry and Mines" — which the ministry matcher
+ * accepts — turned the facts query into a syntax error, and a comparison
+ * question got no validated figures at all, silently. `%` and `_` are LIKE
+ * wildcards and are escaped so a value means itself; the separators become
+ * a wildcard so the pattern still matches the punctuated original.
+ */
+export function likeTerm(value: string): string {
+  // Escape first, then turn separators into a wildcard: "Lands, Forestry"
+  // still matches the stored row, and the comma can no longer split the filter.
+  return value
+    .replace(/[\\%_]/g, c => '\\' + c)
+    .replace(/\s*[,()]+\s*/g, '%')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
