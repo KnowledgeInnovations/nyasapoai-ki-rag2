@@ -15,6 +15,36 @@ export function cookieDomainForHost(host: string | null | undefined): string | u
   return undefined
 }
 
+/**
+ * The origin a handler may call itself back on, or null.
+ *
+ * Several routes call this app's own API from the server and forward
+ * credentials — the caller's session cookie, or CRON_SECRET. They took the
+ * origin from request.nextUrl, which Next builds from the Host and
+ * X-Forwarded-Host headers: request-controlled. Any proxy that passed a
+ * forged host through would have had the server deliver those credentials to
+ * a host of the requester's choosing.
+ *
+ * The origin is kept (it carries the tenant subdomain, which selects the
+ * workspace) but only when its host is one this application serves.
+ */
+export function trustedSelfOrigin(origin: string | null | undefined): string | null {
+  if (!origin) return null
+  let url: URL
+  try { url = new URL(origin) } catch { return null }
+  const h = url.hostname
+  const appHost = (() => {
+    try { return process.env.NEXT_PUBLIC_APP_URL ? new URL(process.env.NEXT_PUBLIC_APP_URL).hostname : null }
+    catch { return null }
+  })()
+  const ok =
+    h === ROOT_DOMAIN || h.endsWith(`.${ROOT_DOMAIN}`) ||
+    h === 'localhost' || h.endsWith('.localhost') || h === '127.0.0.1' ||
+    (appHost !== null && h === appHost) ||
+    (!!process.env.VERCEL_URL && h === process.env.VERCEL_URL)
+  return ok ? url.origin : null
+}
+
 /** Build the URL for a tenant's subdomain, given a host (e.g. from a `Host` header). */
 export function tenantUrlForHost(subdomain: string, path: string, host: string | null | undefined): string {
   const hostname = (host ?? '').split(':')[0]

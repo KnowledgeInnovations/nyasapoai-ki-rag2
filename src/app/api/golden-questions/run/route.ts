@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { trustedSelfOrigin } from '@/lib/domain'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { getUser, getMembership } from '@/lib/supabase/server'
 import { canAccessTraining } from '@/lib/roles'
@@ -49,7 +50,9 @@ export async function POST(request: NextRequest) {
   // their own session travels with each request — the answers must be the
   // ones they would actually get.
   const cookie = request.headers.get('cookie') ?? ''
-  const origin = request.nextUrl.origin
+  // The session cookie is forwarded, so only to a host this app serves.
+  const origin = trustedSelfOrigin(request.nextUrl.origin)
+  if (!origin) return NextResponse.json({ error: 'Unrecognised host.' }, { status: 400 })
 
   let questions: GoldenQuestion[]
   try {

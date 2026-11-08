@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Target, CheckCircle2, AlertCircle, Loader2, ChevronDown, Plus, Trash2, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -78,7 +78,14 @@ export default function GoldenSetCard({ documents }: { documents: { id: string; 
     }
   }, [])
 
-  useEffect(() => { if (open) load() }, [open, load])
+  // Loaded when the card is opened, from the click itself rather than an
+  // effect watching `open` — same behaviour, without a render that exists
+  // only to start the fetch.
+  function toggle() {
+    const next = !open
+    setOpen(next)
+    if (next) void load()
+  }
 
   async function confirmDraft(id: string) {
     setBusy(id); setError(null)
@@ -166,7 +173,7 @@ export default function GoldenSetCard({ documents }: { documents: { id: string; 
   return (
     <div className="mb-5 border border-gray-200 bg-white">
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={toggle}
         className="flex w-full items-center justify-between px-5 py-4 text-left">
         <div className="flex items-start gap-3">
           <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center border border-brand/20 bg-brand-light">

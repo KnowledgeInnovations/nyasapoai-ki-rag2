@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { randomInt } from 'node:crypto'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { getMembership, getTenant, getUser } from '@/lib/supabase/server'
 import { validateSubdomainFormat } from '@/lib/tenant'
@@ -31,13 +32,27 @@ function svc() {
   )
 }
 
-/** Readable, and strong enough to not be the weak link before it is changed. */
+/**
+ * Readable, and strong enough to not be the weak link before it is changed.
+ *
+ * This was one of 8 words, a 4-digit number and one of 7 symbols from
+ * Math.random — about 504,000 possibilities in all, for the first Senior
+ * account of a new workspace. Small enough to enumerate, and Math.random is
+ * not a secret source. Now three words from a list of 32, a 4-digit number
+ * and a symbol, all from the CSPRNG — 32³ × 9,000 × 7 ≈ 2 × 10⁹ — and still
+ * readable aloud to pass on.
+ */
 function temporaryPassword(): string {
-  const words = ['Harbour', 'Lantern', 'Compass', 'Meridian', 'Thicket', 'Bastion', 'Quarry', 'Almanac']
-  const w = words[Math.floor(Math.random() * words.length)]
-  const n = String(Math.floor(Math.random() * 9000) + 1000)
-  const sym = '!@#$%&*'[Math.floor(Math.random() * 7)]
-  return `${w}-${n}${sym}`
+  const words = [
+    'Harbour', 'Lantern', 'Compass', 'Meridian', 'Thicket', 'Bastion', 'Quarry', 'Almanac',
+    'Beacon', 'Canopy', 'Delta', 'Ember', 'Falcon', 'Granite', 'Horizon', 'Island',
+    'Juniper', 'Kestrel', 'Lagoon', 'Mosaic', 'Nebula', 'Orchard', 'Pinnacle', 'Quartz',
+    'Rampart', 'Summit', 'Timber', 'Upland', 'Vessel', 'Willow', 'Yonder', 'Zephyr',
+  ]
+  const pick = () => words[randomInt(words.length)]
+  const n = String(randomInt(1000, 10000))
+  const sym = '!@#$%&*'[randomInt(7)]
+  return `${pick()}-${pick()}-${pick()}-${n}${sym}`
 }
 
 export async function POST(request: NextRequest) {

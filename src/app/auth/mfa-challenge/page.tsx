@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Loader2 } from 'lucide-react'
 import TotpChallengeForm from '@/components/auth/TotpChallengeForm'
 import EmailOtpChallengeForm from '@/components/auth/EmailOtpChallengeForm'
+import { isEmailMfaEnabled } from '@/lib/emailMfaFlag'
 
 // Reached only as a server-side fallback (see (app)/layout.tsx) when a
 // session hasn't completed its required step-up (TOTP or email, whichever
@@ -20,7 +21,7 @@ export default function MfaChallengePage() {
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
-      setMethod(data.user?.user_metadata?.email_mfa_enabled ? 'email' : 'totp')
+      setMethod(isEmailMfaEnabled(data.user) ? 'email' : 'totp')
       setEmail(data.user?.email ?? '')
     })
   }, [supabase])

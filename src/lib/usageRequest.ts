@@ -9,13 +9,13 @@
  * Wrap a handler in this and every model call beneath it is attributed to the
  * caller's workspace without a single signature change.
  */
-import { getUser, getMembership, getTenant } from './supabase/server'
+import { getUser, getMembershipRecord, getTenant } from './supabase/server'
 import { withUsage } from './usage'
 
 export async function withRequestUsage<T>(fn: () => Promise<T>): Promise<T> {
   // All three are request-cached, so resolving them here costs essentially
   // nothing even when the handler resolves them again for its own use.
-  const [user, membership] = await Promise.all([getUser(), getMembership()])
+  const [user, membership] = await Promise.all([getUser(), getMembershipRecord()])
   const tenant = membership ? await getTenant(membership.tenant_id) : null
   return withUsage(
     {

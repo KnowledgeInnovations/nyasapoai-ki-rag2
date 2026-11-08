@@ -32,9 +32,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 
-  const { filename, fileSize } = await request.json() as { filename?: string; fileSize?: number }
+  const { filename, fileSize } = await request.json().catch(() => ({})) as { filename?: string; fileSize?: number }
   if (!filename) return NextResponse.json({ error: 'No filename provided' }, { status: 400 })
-  if (typeof fileSize === 'number' && fileSize > MAX_SIZE) {
+  // Every allowance below is conditional on a size being given, so leaving it
+  // out used to skip the per-file and storage checks altogether. The real
+  // size is recorded at finalize from the downloaded bytes.
+  if (typeof fileSize !== 'number' || !Number.isFinite(fileSize) || fileSize < 0) {
+    return NextResponse.json({ error: 'File size is required' }, { status: 400 })
+  }
+  if (fileSize > MAX_SIZE) {
     return NextResponse.json({ error: 'File exceeds 500 MB limit' }, { status: 400 })
   }
 

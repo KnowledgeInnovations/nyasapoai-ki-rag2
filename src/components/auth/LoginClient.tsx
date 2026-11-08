@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, ArrowRight, Loader2, Mail } from 'lucide-react'
 import TotpChallengeForm from './TotpChallengeForm'
 import EmailOtpChallengeForm from './EmailOtpChallengeForm'
+import { isEmailMfaEnabled } from '@/lib/emailMfaFlag'
 
 const HOME_URL = '/'
 
@@ -89,7 +90,7 @@ function LoginForm({ tenant }: FormProps) {
       // Mutually exclusive with TOTP, so only one of these two branches
       // should ever apply for a given account.
       const { data: { user } } = await supabase.auth.getUser()
-      if (user?.user_metadata?.email_mfa_enabled) {
+      if (isEmailMfaEnabled(user)) {
         setNeedsEmailMfa(true)
         return
       }

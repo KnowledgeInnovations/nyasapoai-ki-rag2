@@ -1,4 +1,5 @@
 import { NextRequest, after } from 'next/server'
+import { trustedSelfOrigin } from '@/lib/domain'
 import { withRequestUsage } from '@/lib/usageRequest'
 import path from 'node:path'
 import { getMembership, getUser } from '@/lib/supabase/server'
@@ -225,7 +226,20 @@ async function handlePost(
             progress: 10,
           })
 
-          const origin = _request.nextUrl.origin
+          // This request carries CRON_SECRET, so it may only go to a host
+          // this application serves — never to whatever the Host header
+          // claimed (see trustedSelfOrigin). extract-facts needs no tenant
+          // subdomain on the cron path, so the configured app URL is a safe
+          // fallback.
+          const origin = trustedSelfOrigin(_request.nextUrl.origin)
+            ?? trustedSelfOrigin(process.env.NEXT_PUBLIC_APP_URL)
+          if (!origin) {
+            // Not a document failure — its text is indexed and the nightly
+            // job resumes extraction — so report it without marking it failed.
+            send({ stage: 'error', message: 'Could not continue fact extraction from this host. It will resume automatically.', progress: 100 })
+            controller.close()
+            return
+          }
           const res = await fetch(`${origin}/api/documents/${id}/extract-facts`, {
             method: 'POST',
             headers: process.env.CRON_SECRET ? { 'x-cron-secret': process.env.CRON_SECRET } : {},

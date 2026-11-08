@@ -26,7 +26,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { domains } = await request.json() as { domains?: string[] }
+  const { domains } = await request.json().catch(() => ({})) as { domains?: string[] }
   if (!Array.isArray(domains)) {
     return NextResponse.json({ error: 'domains must be an array' }, { status: 400 })
   }

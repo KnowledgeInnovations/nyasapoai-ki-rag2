@@ -15,8 +15,8 @@ export async function POST(request: NextRequest) {
   const user = await getUser()
   if (!user) return NextResponse.json({ error: 'Not signed in' }, { status: 401 })
 
-  const { code } = await request.json() as { code?: string }
-  if (!code) return NextResponse.json({ error: 'Code is required' }, { status: 400 })
+  const { code } = await request.json().catch(() => ({})) as { code?: unknown }
+  if (typeof code !== 'string' || !code.trim()) return NextResponse.json({ error: 'Code is required' }, { status: 400 })
 
   // sessionId is derived server-side from the caller's own already-
   // authenticated cookie session — never accepted from the request body —

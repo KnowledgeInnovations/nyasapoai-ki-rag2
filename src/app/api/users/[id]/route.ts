@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { mustCount } from '@/lib/dbResult'
-import { getMembership, getUser, invalidateMembership } from '@/lib/supabase/server'
+import { getMembership, getTenant, getUser, invalidateMembership } from '@/lib/supabase/server'
+import { limitsFor, canAddSeniorUser } from '@/lib/plans'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { canManageUsers, normalizeRole, type Role } from '@/lib/roles'
 import { recordAudit, AUDIT_ACTIONS } from '@/lib/audit'
@@ -23,8 +24,9 @@ export async function PATCH(
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 
-  const { role } = await request.json() as { role?: Role }
+  const { role } = await request.json().catch(() => ({})) as { role?: Role }
   if (!role) return NextResponse.json({ error: 'Role is required' }, { status: 400 })
+  const nextRole = normalizeRole(role)
 
   const service = svc()
   // Read before the update: "changed from Junior to Senior" is the useful
@@ -32,6 +34,37 @@ export async function PATCH(
   const { data: previous } = await service
     .from('memberships').select('role')
     .eq('user_id', id).eq('tenant_id', membership.tenant_id).maybeSingle()
+  if (!previous) return NextResponse.json({ error: 'Not a member of this workspace' }, { status: 404 })
+  const previousRole = normalizeRole(previous.role)
+
+  if (previousRole !== nextRole && (previousRole === 'senior' || nextRole === 'senior')) {
+    const { data: seats, error: seatsError } = await service
+      .from('memberships').select('role').eq('tenant_id', membership.tenant_id)
+    if (seatsError) {
+      console.error('Seat count failed:', seatsError)
+      return NextResponse.json({ error: 'Could not verify plan limits' }, { status: 500 })
+    }
+    const seniors = (seats ?? []).filter(s => normalizeRole(s.role) === 'senior').length
+
+    // Demoting the last Senior leaves nobody who can manage users, billing
+    // or training — a workspace locked out of its own administration, with
+    // no way back short of a database edit.
+    if (previousRole === 'senior' && seniors <= 1) {
+      return NextResponse.json({
+        error: 'This is the only Senior user. Make someone else Senior first.',
+      }, { status: 400 })
+    }
+
+    // Inviting someone as Senior is held to the plan's Senior seats; promoting
+    // an existing member is the same seat, and used to skip the check.
+    if (nextRole === 'senior') {
+      const tenant = await getTenant(membership.tenant_id)
+      if (!tenant?.is_platform) {
+        const check = canAddSeniorUser(limitsFor(tenant?.plan), seniors)
+        if (!check.allowed) return NextResponse.json({ error: check.reason }, { status: 403 })
+      }
+    }
+  }
   const { data: subject } = await service
     .from('users').select('email').eq('id', id).maybeSingle()
   const { error } = await service

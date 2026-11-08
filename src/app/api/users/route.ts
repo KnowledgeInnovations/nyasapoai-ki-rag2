@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 
-  const { email, role } = await request.json() as { email?: string; role?: Role }
+  const { email, role } = await request.json().catch(() => ({})) as { email?: string; role?: Role }
   if (!email) return NextResponse.json({ error: 'Email is required' }, { status: 400 })
 
   // Tenant-scoped domain restriction (empty list = unrestricted, the

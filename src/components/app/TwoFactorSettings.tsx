@@ -4,6 +4,30 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { CheckCircle2, Loader2, ShieldCheck, ShieldOff, KeyRound, Mail } from 'lucide-react'
 import EmailOtpChallengeForm from '@/components/auth/EmailOtpChallengeForm'
+import { isEmailMfaEnabled } from '@/lib/emailMfaFlag'
+
+/**
+ * Email two-factor is switched server-side: the flag the server enforces is
+ * in app_metadata, which the browser cannot write (see emailMfaFlag.ts).
+ * Refreshing the session afterwards puts the new value into the access token
+ * now rather than at the next hourly refresh.
+ */
+async function setEmailMfa(
+  supabase: ReturnType<typeof createClient>,
+  enabled: boolean,
+): Promise<string | null> {
+  const res = await fetch('/api/auth/email-mfa/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string }
+    return data.error ?? 'Could not change two-factor settings.'
+  }
+  await supabase.auth.refreshSession()
+  return null
+}
 
 type Status = 'loading' | 'disabled' | 'choosing' | 'enrolling-totp' | 'enrolling-email' | 'enabled'
 type Method = 'totp' | 'email'
@@ -26,7 +50,7 @@ export default function TwoFactorSettings() {
     const { data: { user } } = await supabase.auth.getUser()
     setEmail(user?.email ?? '')
 
-    if (user?.user_metadata?.email_mfa_enabled) {
+    if (isEmailMfaEnabled(user)) {
       setActiveMethod('email')
       setStatus('enabled')
       return
@@ -104,7 +128,8 @@ export default function TwoFactorSettings() {
   }
 
   async function emailEnrollVerified() {
-    await supabase.auth.updateUser({ data: { email_mfa_enabled: true } })
+    const err = await setEmailMfa(supabase, true)
+    if (err) { setError(err); return }
     setActiveMethod('email')
     setStatus('enabled')
     setJustEnabled(true)
@@ -120,8 +145,8 @@ export default function TwoFactorSettings() {
         if (err) { setError(err.message); return }
         setFactorId(null)
       } else if (activeMethod === 'email') {
-        const { error: err } = await supabase.auth.updateUser({ data: { email_mfa_enabled: false } })
-        if (err) { setError(err.message); return }
+        const err = await setEmailMfa(supabase, false)
+        if (err) { setError(err); return }
       }
       setActiveMethod(null)
       setConfirmDisable(false)

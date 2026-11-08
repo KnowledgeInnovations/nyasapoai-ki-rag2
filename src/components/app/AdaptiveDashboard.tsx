@@ -183,7 +183,12 @@ export default function AdaptiveDashboard() {
   }
 
   useEffect(() => {
-    loadThemes(false)
+    // Initial load. Not loadThemes(): its synchronous resets are for the
+    // refresh button, and at mount they are already the initial state.
+    fetch('/api/dashboard/themes')
+      .then(r => r.json())
+      .then(d => setThemes(d.themes ?? []))
+      .catch(() => setThemesError(true))
     fetch('/api/dashboard/pinned').then(r => r.json()).then(d => setPinned(d.pinned ?? [])).catch(() => setPinned([]))
   }, [])
 

@@ -16,6 +16,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { recordUsage, openaiTokens } from './usage'
 import { assertModelEnabled } from './modelSwitch'
+import { likeTerm } from './dbResult'
 import {
   canonicalizeEntity, dedupeFacts, cumulativeByEntity, topNGrowth, proportionOfTotal,
   summarizeTrend, forecastNextYear, type FactRow,
@@ -146,7 +147,7 @@ async function fetchValidatedFacts(
   filters: { entity?: string; metric?: string; fiscal_year?: string; entityType?: string },
 ): Promise<FactRow[]> {
   let q = svc.from('financial_facts').select(FACTS_SELECT).eq('tenant_id', tenantId).gte('confidence', 70).limit(500)
-  if (filters.entity) q = q.ilike('entity', `%${filters.entity}%`)
+  if (filters.entity) q = q.ilike('entity', `%${likeTerm(filters.entity)}%`)
   if (filters.metric) q = q.eq('metric', filters.metric)
   if (filters.fiscal_year) q = q.eq('fiscal_year', filters.fiscal_year)
   if (filters.entityType) q = q.eq('entity_type', filters.entityType)
@@ -159,7 +160,7 @@ async function fetchAllFactsForEntity(
   filters: { entity?: string; metric?: string; fiscal_year?: string; entityType?: string },
 ): Promise<FactRow[]> {
   let q = svc.from('financial_facts').select(FACTS_SELECT).eq('tenant_id', tenantId).limit(500)
-  if (filters.entity) q = q.ilike('entity', `%${filters.entity}%`)
+  if (filters.entity) q = q.ilike('entity', `%${likeTerm(filters.entity)}%`)
   if (filters.metric) q = q.eq('metric', filters.metric)
   if (filters.fiscal_year) q = q.eq('fiscal_year', filters.fiscal_year)
   if (filters.entityType) q = q.eq('entity_type', filters.entityType)
@@ -184,7 +185,7 @@ async function fetchAllFactsForEntity(
 // are asked about a specific claim, not a specific document).
 async function fetchValidatedDocFacts(svc: SupabaseClient, tenantId: string, subject: string): Promise<DocFactRow[]> {
   const { data } = await svc.from('document_facts').select(DOC_FACTS_SELECT)
-    .eq('tenant_id', tenantId).gte('confidence', 70).ilike('subject', `%${subject}%`).limit(50)
+    .eq('tenant_id', tenantId).gte('confidence', 70).ilike('subject', `%${likeTerm(subject)}%`).limit(50)
   return (data ?? []) as DocFactRow[]
 }
 

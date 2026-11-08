@@ -92,7 +92,7 @@ async function handlePost(request: NextRequest) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 
-  const body = await request.json() as FinalizeBody
+  const body = await request.json().catch(() => ({})) as FinalizeBody
   const { path, originalFilename } = body
   if (!path || !originalFilename) {
     return NextResponse.json({ error: 'Missing upload path or filename' }, { status: 400 })
@@ -192,6 +192,15 @@ async function handlePost(request: NextRequest) {
           await new Promise(r => setTimeout(r, attempt * 1000))
         }
         const buffer = Buffer.from(await blob!.arrayBuffer())
+
+        // file_size was the number the browser reported, and storage quotas
+        // are summed from this column — so a client that under-reported got
+        // free storage, permanently. The bytes are here now; record those.
+        if (buffer.length !== (body.fileSize ?? 0)) {
+          const { error: sizeErr } = await serviceClient.from('documents')
+            .update({ file_size: buffer.length }).eq('id', document.id)
+          if (sizeErr) console.error('[finalize] could not record the real file size:', sizeErr.message)
+        }
 
         // Step 1: extract text (page-aware where the format supports it)
         emit({ stage: 'extracting' })

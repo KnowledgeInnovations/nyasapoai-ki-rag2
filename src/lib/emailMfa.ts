@@ -84,12 +84,28 @@ export async function verifyEmailOtp(
   if (new Date(row.expires_at).getTime() < Date.now()) return { ok: false, error: 'Code expired. Request a new one.' }
   if (row.attempts >= MAX_ATTEMPTS) return { ok: false, error: 'Too many attempts. Request a new one.' }
 
+  // Claim the attempt BEFORE comparing. Reading `attempts`, comparing, then
+  // writing attempts + 1 let concurrent guesses all read the same count, so
+  // a burst of parallel requests got far more than MAX_ATTEMPTS tries at a
+  // six-digit code. The update only succeeds while the count is still the
+  // one read here; a request that loses the race is refused, not counted
+  // as a free try.
+  const { data: claimed } = await svc.from('email_otp_codes')
+    .update({ attempts: row.attempts + 1 })
+    .eq('id', row.id).eq('attempts', row.attempts).is('consumed_at', null)
+    .select('id')
+  if (!claimed?.length) return { ok: false, error: 'Please try again.' }
+
   if (hashCode(code.trim()) !== row.code_hash) {
-    await svc.from('email_otp_codes').update({ attempts: row.attempts + 1 }).eq('id', row.id)
     return { ok: false, error: 'Incorrect code.' }
   }
 
-  await svc.from('email_otp_codes').update({ consumed_at: new Date().toISOString() }).eq('id', row.id)
+  // Conditional on not yet consumed, so one code cannot verify two sessions.
+  const { data: consumed } = await svc.from('email_otp_codes')
+    .update({ consumed_at: new Date().toISOString() })
+    .eq('id', row.id).is('consumed_at', null)
+    .select('id')
+  if (!consumed?.length) return { ok: false, error: 'Code already used. Request a new one.' }
 
   if (sessionId) {
     await svc.from('email_mfa_verified_sessions').upsert({

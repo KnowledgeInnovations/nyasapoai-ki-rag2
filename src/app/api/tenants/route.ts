@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'You already belong to a workspace' }, { status: 400 })
   }
 
-  const { name, subdomain: rawSubdomain, plan: requestedPlan } = await request.json() as {
+  const { name, subdomain: rawSubdomain, plan: requestedPlan } = await request.json().catch(() => ({})) as {
     name?: string; subdomain?: string; plan?: string
   }
 

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
-import { getMembership, getTenant, getWorkspaceStatus } from '@/lib/supabase/server'
+import { getMembershipRecord, getTenant, getWorkspaceStatus } from '@/lib/supabase/server'
 import { workspaceAccess, STATUS_LABELS } from '@/lib/workspaceStatus'
 import { ShieldCheck, Mail } from 'lucide-react'
 
@@ -15,7 +15,9 @@ export const metadata: Metadata = { title: 'Workspace unavailable — Nyansa AI'
  * will assume and the easiest to put right.
  */
 export default async function WorkspaceUnavailablePage() {
-  const membership = await getMembership()
+  // The raw record: this page exists for members whose workspace is closed,
+  // which is exactly the case getMembership() refuses.
+  const membership = await getMembershipRecord()
   if (!membership) redirect('/auth/login')
 
   const [tenant, raw] = await Promise.all([

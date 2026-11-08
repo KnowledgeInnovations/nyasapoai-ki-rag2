@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { cookies, headers } from 'next/headers'
 import { cache } from 'react'
+import { createHash } from 'node:crypto'
 
 /**
  * The signed-in user, as proven by the verified access token.
@@ -32,6 +33,9 @@ export function metaString(user: AuthenticatedUser | null | undefined, key: stri
 }
 import { normalizeRole, type Role } from '@/lib/roles'
 import { cookieDomainForHost, subdomainFromHost } from '@/lib/domain'
+import { workspaceAccess } from '@/lib/workspaceStatus'
+import { isSessionEmailMfaVerified } from '@/lib/emailMfa'
+import { isEmailMfaEnabled } from '@/lib/emailMfaFlag'
 
 // ── Module-level caches ────────────────────────────────────────
 // Survive across requests within the same server process.
@@ -49,14 +53,29 @@ const membershipCache = new Map<string, Entry<{ tenant_id: string; role: Role } 
 const tenantCache      = new Map<string, Entry<{ id: string; name: string; subdomain: string; plan: string | null; description: string | null; is_platform: boolean; email_domains: string[] } | null>>()
 const subdomainTenantCache = new Map<string, Entry<{ id: string; name: string; subdomain: string } | null>>()
 
-/** Derive a compact, unique cache key from the Supabase session cookies. */
+/**
+ * A cache key bound to the exact session cookies presented.
+ *
+ * This used to be the last 48 characters of the joined cookie values, on the
+ * belief that the JWT signature lived there. It does not: @supabase/ssr
+ * stores the whole session as base64 JSON with `user` as the final key, so
+ * the tail decodes to the end of the user object — `…:51.022573Z",
+ * "is_anonymous":false}}` — part of an updated_at timestamp and a constant.
+ * That is shared shape across users, not a secret, and a cookie of any
+ * content ending in someone else's tail was served their verified identity
+ * from this cache without its token ever being checked.
+ *
+ * A digest of every sb- cookie (name and value) binds the entry to the full
+ * session, access token included. A refreshed token is a new key, which is
+ * one cache miss and nothing worse.
+ */
 function authKey(cookieStore: Awaited<ReturnType<typeof cookies>>): string {
   const parts = cookieStore.getAll()
     .filter(c => c.name.startsWith('sb-'))
-    .map(c => c.value)
-    .join('')
-  // JWT signatures live in the tail — last 48 chars are unique per token
-  return parts.length > 48 ? parts.slice(-48) : parts
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(c => `${c.name}=${c.value}`)
+    .join(';')
+  return parts ? createHash('sha256').update(parts).digest('base64url') : ''
 }
 
 function evict<T>(map: Map<string, Entry<T>>, maxSize = 400) {
@@ -216,7 +235,13 @@ export const getSessionId = cache(async (): Promise<string | null> => {
 // visited selects the membership. Without one — on the root domain — the
 // oldest membership is used, deterministically, so the answer does not
 // change between requests.
-export const getMembership = cache(async () => {
+//
+// This is the RAW record: it says which workspace a person belongs to and
+// nothing about whether they may use it right now. Almost every caller wants
+// getMembership() below instead. Use this only where the caller decides
+// access itself — the app layout (which redirects to the right page), the
+// workspace-unavailable page, and paying for a closed workspace.
+export const getMembershipRecord = cache(async () => {
   const user = await getUser()
   if (!user) return null
 
@@ -266,6 +291,66 @@ export const getMembership = cache(async () => {
   evict(membershipCache)
   membershipCache.set(cacheKey, { v: val, exp: Date.now() + MEMBERSHIP_TTL })
   return val
+})
+
+// ── secondFactorSatisfied — has this session finished signing in? ──────
+// True when the account needs no second factor, or this session has passed
+// it (TOTP via Supabase's aal2, email via email_mfa_verified_sessions).
+//
+// Only a pass is cached across requests, keyed to the exact session (see
+// authKey), for the same 30 s as the user cache. A failure is never cached:
+// the very next request after the challenge is completed must see it.
+const secondFactorCache = new Map<string, Entry<true>>()
+
+export const secondFactorSatisfied = cache(async (): Promise<boolean> => {
+  const user = await getUser()
+  if (!user) return false
+
+  const key = authKey(await cookies())
+  const hit = key ? secondFactorCache.get(key) : undefined
+  if (hit && hit.exp > Date.now()) return true
+
+  let ok: boolean
+  if (isEmailMfaEnabled(user)) {
+    const sessionId = await getSessionId()
+    ok = !!sessionId && await isSessionEmailMfaVerified(
+      createServiceClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        { auth: { autoRefreshToken: false, persistSession: false } },
+      ),
+      sessionId,
+    )
+  } else {
+    ok = !(await needsMfaStepUp())
+  }
+
+  if (ok && key) {
+    evict(secondFactorCache)
+    secondFactorCache.set(key, { v: true, exp: Date.now() + USER_TTL })
+  }
+  return ok
+})
+
+// ── getMembership — the membership, only if it may be used right now ───
+//
+// Two gates used to live only in the (app) layout: the two-factor step-up and
+// the workspace lifecycle (suspended, unpaid, not yet provisioned). A layout
+// guards pages and nothing else, so every /api route — chat over the whole
+// corpus, signed download links, uploads, user management — answered a
+// session that had only a password, and a workspace closed for non-payment
+// kept full use of the API. This is the one function every protected route
+// already calls, so the gates live here and no route can forget them.
+//
+// Under the layout this costs nothing: the layout has asked the same
+// request-cached questions already.
+export const getMembership = cache(async () => {
+  const record = await getMembershipRecord()
+  if (!record) return null
+  if (!(await secondFactorSatisfied())) return null
+  const lifecycle = await getWorkspaceStatus(record.tenant_id)
+  if (!workspaceAccess(lifecycle.status, lifecycle.access_until).allowed) return null
+  return record
 })
 
 // ── getTenant — cached 5 min across requests ───────────────────

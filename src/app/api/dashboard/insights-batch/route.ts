@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withRequestUsage } from '@/lib/usageRequest'
 import { getMembership, getTenant } from '@/lib/supabase/server'
+import { canAccessDashboards } from '@/lib/roles'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { claudeComplete } from '@/lib/claude'
 import { isModelEnabled } from '@/lib/modelSwitch'
@@ -42,6 +43,9 @@ export async function POST(request: NextRequest) {
 async function handlePost(request: NextRequest) {
   const membership = await getMembership()
   if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // The dashboards page turns Junior users away; the API has to as well,
+  // or the page check is only a hidden link.
+  if (!canAccessDashboards(membership.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const tenant = await getTenant(membership.tenant_id)
   const orgName = tenant?.name ?? 'Nyansa AI'

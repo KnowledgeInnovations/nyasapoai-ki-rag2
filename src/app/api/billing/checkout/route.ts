@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { getMembership, getTenant, getUser } from '@/lib/supabase/server'
+import { getMembershipRecord, getTenant, getUser, secondFactorSatisfied } from '@/lib/supabase/server'
 import { normalizeRole } from '@/lib/roles'
 import { normalizePlan, PLANS } from '@/lib/plans'
 import { getPlanPrices } from '@/lib/planPrices'
@@ -26,8 +26,14 @@ function svc() {
 }
 
 export async function POST(request: NextRequest) {
-  const membership = await getMembership()
-  if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // A suspended or unpaid workspace must still be able to pay — that is how
+  // it reopens — so this takes the raw record rather than getMembership(),
+  // which refuses closed workspaces. Two-factor is still required: paying
+  // is not a reason to skip sign-in.
+  const membership = await getMembershipRecord()
+  if (!membership || !(await secondFactorSatisfied())) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   if (normalizeRole(membership.role) !== 'senior') {
     return NextResponse.json({ error: 'Paying for the workspace is available to Senior users.' }, { status: 403 })
   }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getUser, getMembership } from '@/lib/supabase/server'
+import { canAccessDashboards } from '@/lib/roles'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 
 function svc() {
@@ -15,6 +16,9 @@ function svc() {
 export async function GET() {
   const membership = await getMembership()
   if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // The dashboards page turns Junior users away; the API has to as well,
+  // or the page check is only a hidden link.
+  if (!canAccessDashboards(membership.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const service = svc()
   const { data, error } = await service
@@ -33,6 +37,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const [user, membership] = await Promise.all([getUser(), getMembership()])
   if (!user || !membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!canAccessDashboards(membership.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await request.json().catch(() => null) as {
     label?: string; question?: string; insight?: string; sentiment?: string; sources?: string[]

@@ -552,7 +552,10 @@ export default function SettingsPage() {
                   key={i}
                   className={cn(
                     "w-4 h-4",
-                    Math.random() > 0.5 ? "bg-[#0f172a]" : "bg-white"
+                    // Deterministic: Math.random() here drew a different
+                    // pattern on every render and differed between the
+                    // server and client HTML.
+                    ((i * 2654435761) >>> 0) % 7 < 3 ? "bg-[#0f172a]" : "bg-white"
                   )}
                 />
               ))}

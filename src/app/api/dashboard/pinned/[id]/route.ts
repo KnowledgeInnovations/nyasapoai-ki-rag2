@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getMembership } from '@/lib/supabase/server'
+import { canAccessDashboards } from '@/lib/roles'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 
 function svc() {
@@ -13,6 +14,9 @@ function svc() {
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const membership = await getMembership()
   if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // The dashboards page turns Junior users away; the API has to as well,
+  // or the page check is only a hidden link.
+  if (!canAccessDashboards(membership.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { id } = await params
   const service = svc()

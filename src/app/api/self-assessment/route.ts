@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { trustedSelfOrigin } from '@/lib/domain'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { getUser, getMembership, getTenant } from '@/lib/supabase/server'
 import { canAccessTraining } from '@/lib/roles'
@@ -45,7 +46,10 @@ export async function POST(request: NextRequest) {
   }
 
   const enc = new TextEncoder()
-  const origin = request.nextUrl.origin
+  // The session cookie is forwarded to this origin (here and through
+  // runAutoPromptFix / runAutoReprocess), so only to a host this app serves.
+  const origin = trustedSelfOrigin(request.nextUrl.origin)
+  if (!origin) return NextResponse.json({ error: 'Unrecognised host.' }, { status: 400 })
   const cookie = request.headers.get('cookie') ?? ''
   // maxDuration above is 300s for the WHOLE request, and the regression
   // suite (10 sequential /api/chat calls) runs before auto-reprocess even

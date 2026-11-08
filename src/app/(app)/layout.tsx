@@ -1,7 +1,8 @@
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { getUser, getMembership, getTenant, getTenantLogoPath, getWorkspaceStatus, getSessionId, touchLastActive, needsMfaStepUp } from '@/lib/supabase/server'
+import { getUser, getMembershipRecord, getTenant, getTenantLogoPath, getWorkspaceStatus, getSessionId, touchLastActive, needsMfaStepUp } from '@/lib/supabase/server'
+import { isEmailMfaEnabled } from '@/lib/emailMfaFlag'
 import { workspaceAccess } from '@/lib/workspaceStatus'
 import { subdomainFromHost, tenantUrlForHost, rootUrlForHost } from '@/lib/domain'
 import { isSessionEmailMfaVerified } from '@/lib/emailMfa'
@@ -18,7 +19,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // step was skipped (e.g. the tab closed right after signInWithPassword,
   // then was reopened straight to a protected route with the already-valid
   // cookie).
-  if (user.user_metadata?.email_mfa_enabled) {
+  if (isEmailMfaEnabled(user)) {
     // Email has no Supabase-native aal concept — checked against our own
     // verified-sessions table instead (see emailMfa.ts).
     const sessionId = await getSessionId()
@@ -31,7 +32,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     redirect('/auth/mfa-challenge')
   }
 
-  const membership = await getMembership()
+  // The raw record, not getMembership(): this layout makes the access
+  // decisions itself so it can send each case to its own page. The gated
+  // getMembership() would turn a suspended workspace into "no workspace" and
+  // send its members to set up a new one.
+  const membership = await getMembershipRecord()
   if (!membership) redirect('/auth/setup-workspace')
 
   // A workspace that is suspended, unpaid or not yet provisioned is closed to
