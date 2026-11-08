@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { rowsOrEmpty } from '@/lib/dbResult'
+import { rowsOrEmpty, likeTerm } from '@/lib/dbResult'
 import { createClient, getUser, getMembership, getTenant, metaString } from '@/lib/supabase/server'
 import { DEFAULT_TENANT_DESCRIPTION } from '@/lib/tenant'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
@@ -18,6 +18,7 @@ import { embedBatch } from '@/lib/documentProcess'
 import { runAgenticAnswer } from '@/lib/agenticAnswer'
 import { AGENTIC_SYSTEM_ADDENDUM } from '@/lib/agentTools'
 import { canAccessTraining } from '@/lib/roles'
+import { canViewSensitivity } from '@/lib/sensitivity'
 import { getConfirmedHeuristicsText } from '@/lib/answerHeuristics'
 import { isAggregateQuestion, buildFactAggregateBlock } from '@/lib/factAggregates'
 import { withUsage, recordUsage, anthropicTokens } from '@/lib/usage'
@@ -891,6 +892,45 @@ async function handleChat(request: NextRequest) {
     // treats as the authoritative source for those queries) — so trim
     // excerpts more aggressively for them specifically, rather than for
     // every query.
+    // SECURITY: drop any retrieved chunk whose parent document this asker's
+    // role may not read. Retrieval runs with the service role (bypasses RLS)
+    // and chunks carry no sensitivity of their own, so the parent documents'
+    // sensitivity is looked up here and enforced before anything reaches the
+    // model. This also constrains the downstream document_facts query, which
+    // derives its document ids from `chunks`.
+    {
+      const presentDocIds = [...new Set(chunks.map(c => c.document_id).filter(Boolean))]
+      if (presentDocIds.length) {
+        const { data: sensRows, error: sensError } = await svc
+          .from('documents')
+          .select('id, sensitivity')
+          .eq('tenant_id', tenantId)
+          .in('id', presentDocIds)
+        if (sensError) {
+          // Fail closed: if we cannot confirm sensitivity, do not serve
+          // document content. The inventory-only answer path below still runs.
+          console.error('[RAG] sensitivity check failed, dropping all excerpts:', JSON.stringify(sensError))
+          chunks.length = 0
+        } else {
+          const forbidden = new Set(
+            (sensRows ?? [])
+              .filter(d => !canViewSensitivity(membership.role, (d as { sensitivity: string | null }).sensitivity))
+              .map(d => d.id),
+          )
+          // A chunk whose parent document is not in sensRows at all (deleted
+          // mid-request, or truncated by a limit) is also dropped — unknown
+          // provenance fails closed.
+          const known = new Set((sensRows ?? []).map(d => d.id))
+          if (forbidden.size || known.size !== presentDocIds.length) {
+            for (let i = chunks.length - 1; i >= 0; i--) {
+              const docId = chunks[i].document_id
+              if (!known.has(docId) || forbidden.has(docId)) chunks.splice(i, 1)
+            }
+          }
+        }
+      }
+    }
+
     const MAX_CONTEXT_CHUNKS = isDeepSearch ? 10 : 15
     if (chunks.length > MAX_CONTEXT_CHUNKS) chunks.length = MAX_CONTEXT_CHUNKS
 
@@ -1193,9 +1233,11 @@ IMPORTANT: If the user asks whether a file or category of document exists, CHECK
       } else if (entityHint && secondEntityHint) {
         // Comparison query mentioning two entities (e.g. "infrastructure and education") —
         // fetch facts for both so the VALIDATED FACTS block covers both sides.
-        factsQuery = factsQuery.or(`entity.ilike.%${entityHint}%,entity.ilike.%${secondEntityHint}%`)
+        // likeTerm: a ministry name may carry a comma, which would split this
+        // .or() into an invalid filter and return no facts at all.
+        factsQuery = factsQuery.or(`entity.ilike.%${likeTerm(entityHint)}%,entity.ilike.%${likeTerm(secondEntityHint)}%`)
       } else if (entityHint) {
-        factsQuery = factsQuery.ilike('entity', `%${entityHint}%`)
+        factsQuery = factsQuery.ilike('entity', `%${likeTerm(entityHint)}%`)
       }
 
       // financial_facts is a tenant-wide, budget-specific store — gate the

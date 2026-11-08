@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getUser, getMembership } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { canViewSensitivity } from '@/lib/sensitivity'
 
 function svc() {
   return createServiceClient(
@@ -29,6 +30,15 @@ export async function GET(request: NextRequest) {
     .single()
 
   if (!doc) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // This route reads with the service role (bypasses RLS), so the document's
+  // sensitivity has to be enforced here. A member whose role is below the
+  // document's required rank gets the same 404 as a non-existent document —
+  // not a 403 — so the response never confirms that a confidential document
+  // by this id exists.
+  if (!canViewSensitivity(membership.role, doc.sensitivity)) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
 
   // Fetch indexed text chunks in order
   const { data: chunks } = await db
