@@ -80,9 +80,75 @@ for (const file of walk(SRC)) {
   }
 }
 
-console.log(`checked ${checked} local import(s) across ${walk(SRC).length} file(s)`)
+/* ── named exports actually exist ──────────────────────────────
+ * Resolving the file is not enough. On 2026-11-08 master was pushed with
+ * two files importing { likeTerm } from '@/lib/dbResult' while the commit
+ * that defined likeTerm was left uncommitted on someone's machine. Every
+ * import resolved — the module was right there — and the build failed on
+ * "Export likeTerm doesn't exist in target module".
+ *
+ * That is the same shape as a case mismatch: correct everywhere it is
+ * read locally, broken the moment it is built from what was actually
+ * committed. Deliberately textual rather than a full parse; it is looking
+ * for a missing export, not type-checking.
+ */
+function exportedNames(file: string): Set<string> {
+  const text = fs.readFileSync(file, 'utf8')
+  const names = new Set<string>()
+  for (const m of text.matchAll(/^export\s+(?:declare\s+)?(?:async\s+)?(?:function|const|let|var|class|type|interface|enum)\s+([A-Za-z0-9_$]+)/gm)) {
+    names.add(m[1])
+  }
+  // export { a, b as c }
+  for (const m of text.matchAll(/^export\s*\{([^}]*)\}/gm)) {
+    for (const piece of m[1].split(',')) {
+      const as = piece.split(/\sas\s/)
+      names.add((as[as.length - 1] ?? '').trim())
+    }
+  }
+  if (/^export\s+\*/m.test(text)) names.add('*')
+  return names
+}
+
+let exportsChecked = 0
+for (const file of walk(SRC)) {
+  const text = fs.readFileSync(file, 'utf8')
+  for (const m of text.matchAll(/import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g)) {
+    const spec = m[2]
+    let base: string
+    if (spec.startsWith('@/')) base = path.join(SRC, spec.slice(2))
+    else if (spec.startsWith('.')) base = path.resolve(path.dirname(file), spec)
+    else continue
+
+    let target: string | null = null
+    for (const ext of EXTS) {
+      const candidate = base + ext
+      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) { target = path.resolve(candidate); break }
+    }
+    if (!target) continue
+
+    const available = exportedNames(target)
+    if (available.has('*')) continue
+
+    for (const raw of m[1].split(',')) {
+      const name = raw.replace(/^\s*type\s+/, '').split(/\sas\s/)[0].trim()
+      if (!name) continue
+      exportsChecked++
+      if (!available.has(name)) {
+        problems.push(
+          `NO EXPORT   ${path.relative(ROOT, file)}  imports { ${name} }
+` +
+          `            from ${spec}, which does not export it.
+` +
+          `            If it exists on your machine, the file defining it is probably uncommitted.`,
+        )
+      }
+    }
+  }
+}
+
+console.log(`checked ${checked} local import(s) and ${exportsChecked} named import(s) across ${walk(SRC).length} file(s)`)
 if (!problems.length) {
-  console.log('every local import matches the filename on disk, case included')
+  console.log('every local import resolves, with the right case, to a module that exports it')
   process.exit(0)
 }
 for (const p of problems) console.log(p)
