@@ -88,7 +88,7 @@ const tiers = [
       'Dedicated onboarding & training',
       'On-premise / custom deployment options',
     ],
-    cta: { label: 'Talk to us', href: '/contact?plan=enterprise' },
+    cta: { label: 'Start free', href: '/auth/signup' },
     highlighted: false,
   },
 ]
@@ -120,7 +120,6 @@ export default async function PricingPage() {
         <h1 className="font-editorial mt-3.5 text-4xl font-normal text-gray-900">Plans for every organization</h1>
         <p className="mt-4 text-gray-500">
           Every plan includes a private, secure workspace with cited AI answers across your documents.
-          Contact us if you need help choosing.
         </p>
       </div>
 
