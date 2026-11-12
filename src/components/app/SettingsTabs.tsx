@@ -2,13 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { User, ShieldCheck, Building2, Users, Brain, ScrollText } from 'lucide-react'
+import { User, ShieldCheck, Building2, Users, Brain, ScrollText, Link2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export interface SettingsTab {
   href:  string
   label: string
-  icon:  'profile' | 'security' | 'workspace' | 'users' | 'training' | 'audit'
+  icon:  'profile' | 'security' | 'workspace' | 'users' | 'training' | 'connections' | 'audit'
 }
 
 // Named rather than passed as components, because the tab list is built in a
@@ -20,6 +20,7 @@ const ICONS = {
   workspace: Building2,
   users:     Users,
   training:  Brain,
+  connections: Link2,
   audit:     ScrollText,
 } as const
 

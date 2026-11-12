@@ -45,6 +45,13 @@ export const AUDIT_ACTIONS = {
   // the platform that affects every workspace at once, so it is the one
   // that most needs a name attached to it.
   AI_SWITCH:          'ai_switch.changed',
+  // Connecting an outside document library is a standing grant: every file
+  // in it, and every file added to it later, becomes answerable here. The
+  // entry records which library and at what sensitivity, because that pair
+  // is what a security review will ask about.
+  CONNECTION_ADDED:   'connection.added',
+  CONNECTION_CHANGED: 'connection.changed',
+  CONNECTION_REMOVED: 'connection.removed',
 } as const
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS]
@@ -148,6 +155,17 @@ export function describeAudit(row: AuditRow): string {
       return `Changed the plan from ${m.from ?? '?'} to ${m.to ?? '?'}`
     case AUDIT_ACTIONS.WORKSPACE_STATUS:
       return `Changed the workspace status from ${m.from ?? '?'} to ${m.to ?? '?'}`
+    case AUDIT_ACTIONS.CONNECTION_ADDED:
+      return `Connected the SharePoint library ${m.library ?? '?'} as ${m.sensitivity ?? 'internal'}`
+    case AUDIT_ACTIONS.CONNECTION_CHANGED: {
+      const changes = (m.changes ?? {}) as Record<string, unknown>
+      const described = Object.entries(changes).map(([k, v]) => `${k} to ${String(v)}`).join(', ')
+      return `Changed the SharePoint library ${m.library ?? '?'} — ${described || 'no change recorded'}`
+    }
+    case AUDIT_ACTIONS.CONNECTION_REMOVED:
+      return `Disconnected the SharePoint library ${m.library ?? '?'}${
+        m.documentsRemoved ? ` and removed ${m.documentsRemoved} document(s) it had imported` : ', keeping the documents it had imported'
+      }`
     default:
       return row.action
   }

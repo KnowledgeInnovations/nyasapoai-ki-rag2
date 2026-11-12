@@ -55,7 +55,31 @@ if (!crons.length) {
 /** A field that names exactly one value: "3" yes, "*" / "*\/6" / "1,5" / "1-5" no. */
 const single = (field: string) => /^\d+$/.test(field.trim())
 
+/**
+ * How many cron jobs the plan permits.
+ *
+ * The restrictive plan allows two, and this project now uses both:
+ * auto-reprocess-documents at 03:00 and sharepoint-sync at 04:00. A third
+ * fails the same way a sub-daily schedule does — at deployment
+ * validation, before the build, with nothing in the log — so it is worth
+ * catching here rather than rediscovering it.
+ */
+const MAX_CRON_JOBS_ON_RESTRICTIVE_PLAN = 2
+
 const problems: string[] = []
+
+if (!PLAN_ALLOWS_SUB_DAILY_CRON && crons.length > MAX_CRON_JOBS_ON_RESTRICTIVE_PLAN) {
+  problems.push(
+    `${crons.length} cron jobs, but the plan this project deploys on permits
+` +
+    `    ${MAX_CRON_JOBS_ON_RESTRICTIVE_PLAN}. Fold the extra work into an existing job, or confirm the plan
+` +
+    `    on this project's Vercel scope and set PLAN_ALLOWS_SUB_DAILY_CRON = true.`,
+  )
+}
+
+/** Two jobs on the same minute contend for the same ceiling. Stagger them. */
+const byMinute = new Map<string, string[]>()
 
 for (const c of crons) {
   const schedule = (c.schedule ?? '').trim()
@@ -67,6 +91,9 @@ for (const c of crons) {
   const [minute, hour] = parts
   const runsMoreThanDaily = !single(minute) || !single(hour)
 
+  const slot = `${hour}:${minute}`
+  byMinute.set(slot, [...(byMinute.get(slot) ?? []), c.path ?? '?'])
+
   if (runsMoreThanDaily && !PLAN_ALLOWS_SUB_DAILY_CRON) {
     problems.push(
       `${c.path}: "${schedule}" runs more than once a day.\n` +
@@ -76,6 +103,18 @@ for (const c of crons) {
       `    Either use a once-daily schedule such as "0 3 * * *", or, if the plan\n` +
       `    on this project's Vercel scope is confirmed to allow more, set\n` +
       `    PLAN_ALLOWS_SUB_DAILY_CRON = true at the top of this file.`,
+    )
+  }
+}
+
+for (const [slot, paths] of byMinute) {
+  if (paths.length > 1) {
+    problems.push(
+      `${paths.join(' and ')} both run at ${slot}.
+` +
+      `    Each may use the full function ceiling, so they would compete for it.
+` +
+      `    Give them different hours.`,
     )
   }
 }

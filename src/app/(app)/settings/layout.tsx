@@ -22,6 +22,11 @@ export default async function SettingsLayout({ children }: { children: React.Rea
     { href: '/settings/workspace', label: 'Workspace', icon: 'workspace' },
     ...(canManageUsers(role)    && !platform ? [{ href: '/settings/users',    label: 'Users',    icon: 'users'    } as const] : []),
     ...(canAccessTraining(role) && !platform ? [{ href: '/settings/training', label: 'Training', icon: 'training' } as const] : []),
+    // Senior only, and not on the platform workspace: connecting a library
+    // is a standing grant over everything in it, now and later, at one
+    // sensitivity chosen at connection time. Same weight as deciding who
+    // may read a Confidential document.
+    ...(role === 'senior' && !platform ? [{ href: '/settings/connections', label: 'Connections', icon: 'connections' } as const] : []),
     // Senior only, including on the platform workspace — that is the one
     // place the whole platform's activity can be read from.
     ...(role === 'senior' ? [{ href: '/settings/audit', label: 'Audit log', icon: 'audit' } as const] : []),
@@ -32,8 +37,8 @@ export default async function SettingsLayout({ children }: { children: React.Rea
       <div>
         <h1 className="font-editorial text-2xl font-normal text-gray-900">Settings</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Manage your profile, security, workspace, people, AI training and
-          the record of what has been done here.
+          Manage your profile, security, workspace, people, AI training,
+          connected document libraries and the record of what has been done here.
         </p>
       </div>
 

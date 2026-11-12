@@ -160,15 +160,31 @@ curl -X POST localhost:4000/_control/expire-cursors   # next sync's cursor is re
 curl -X POST localhost:4000/_control/state            # what the sandbox is serving
 ```
 
-The full end-to-end check — import, skip unchanged, update an edit, remove
-a deletion, survive throttling, recover an expired cursor — runs as:
+Three checks run against it, in increasing scope:
 
 ```bash
-npx tsx scripts/sharepoint_sync_test.mts
+npx tsx scripts/sharepoint_graph_test.mts     # the Graph conversation alone
+npx tsx scripts/sharepoint_sync_test.mts      # the sync engine, through the database
+npx tsx scripts/sharepoint_connect_test.mts   # the screen's API, over real HTTP
 ```
 
-It creates a scratch workspace, exercises everything, and deletes what it
-made on the way out, including when it fails.
+The first needs nothing but the sandbox. The second adds the database:
+import, skip unchanged, update an edit, remove a deletion, survive
+throttling, recover an expired cursor. The third needs the dev server
+running with the sandbox's variables, and covers what the first two
+cannot reach — that an anonymous caller and a Junior are both refused,
+that a Senior can discover and connect, that the same library cannot be
+connected twice, that raising a connection's level relabels the documents
+already imported, and that both disconnect paths do what they say.
+
+Each creates its own scratch workspace and deletes everything it made on
+the way out, including when it fails.
+
+Two of the third script's cases need the platform's AI document
+processing switch on, since importing is what that switch governs. With
+it off they are reported as SKIPPED rather than quietly passing, and the
+script seeds the rows an import would have written so that the paths
+which *delete* things are still exercised.
 
 ## When something goes wrong
 
@@ -181,11 +197,37 @@ made on the way out, including when it fails.
 | Nothing imports, no error | Check the AI switch on `/admin/tenants` — with document processing off, the sync skips rather than importing documents nothing can read |
 | Files declined by plan limits | The workspace is at its document, storage or file-size allowance. The sync reports which files and why |
 
+## Connecting one, in the product
+
+Settings then **Connections**, which only a Senior member sees. The flow
+follows the shape of Microsoft 365 rather than hiding it, because every
+shortcut around it ends with someone connecting the wrong thing:
+
+1. the Microsoft 365 **directory (tenant) ID**
+2. a **site**, from the ones the application has been granted
+3. a **document library** inside that site
+4. a **name** for it here
+5. the **sensitivity level** every document from it will carry
+
+Nothing is saved until the site has been confirmed readable, so a
+connection that appears on the screen is one that works. An empty site
+list at step 2 means step 4 of the Azure setup has not been done, and the
+screen says so rather than claiming there are no sites.
+
+Each connection can then be **synced now** (a shorter budget than the
+nightly run, since someone is waiting), **paused**, have its **level
+changed** — which relabels the documents already imported, not just the
+next ones — or be **disconnected**. Disconnecting asks which question is
+being answered: stop syncing and keep the documents, or remove them too.
+Keeping them is the default, because "stop syncing this" and "delete the
+work already done" are different requests.
+
+Connecting, changing and disconnecting are all written to the audit log,
+with the library and its level, since that pair is what a security review
+asks about.
+
 ## What is not built yet
 
-- **A screen for connecting a library.** Connections are rows in
-  `sharepoint_connections`; the picker that would let an administrator
-  choose a site and library from the browser is not written.
 - **Near-real-time sync.** Microsoft can push a notification when a library
   changes, which would cut the delay from a day to about a minute. The
   connector polls instead. Worth adding, not worth blocking on.
