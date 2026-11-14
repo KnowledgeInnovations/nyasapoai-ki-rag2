@@ -3,6 +3,11 @@
 For whoever sets this up, and for anyone who has to explain it to a
 customer. It assumes no prior knowledge of SharePoint or Microsoft Graph.
 
+There is a Word version of this for sending to someone who has to do the
+Azure half — `docs/Connecting SharePoint to Nyansa AI.docx`, built by
+`scripts/make_sharepoint_word_doc.js`. Change the steps here and in that
+script together, or the two will drift.
+
 ## What SharePoint and OneDrive actually are
 
 Microsoft 365 stores files in two places that are, underneath, the same
