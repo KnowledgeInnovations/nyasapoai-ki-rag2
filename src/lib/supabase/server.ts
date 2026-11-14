@@ -290,6 +290,57 @@ export const getMembershipRecord = cache(async () => {
   const val = chosen ? { tenant_id: chosen.tenant_id, role: normalizeRole(chosen.role) } : null
   evict(membershipCache)
   membershipCache.set(cacheKey, { v: val, exp: Date.now() + MEMBERSHIP_TTL })
+
+  // The oldest membership, whatever host this is. Cached under a key the
+  // host cannot collide with, so one query answers both questions.
+  const home = rows[0] ? { tenant_id: rows[0].tenant_id, role: normalizeRole(rows[0].role) } : null
+  homeMembershipCache.set(user.id, { v: home, exp: Date.now() + MEMBERSHIP_TTL })
+
+  return val
+})
+
+const homeMembershipCache = new Map<string, Entry<{ tenant_id: string; role: Role } | null>>()
+
+/**
+ * A workspace this person belongs to, ignoring which host they are on.
+ *
+ * getMembershipRecord() answers "is this person a member of the workspace
+ * whose subdomain they just opened", and returns null when they are not.
+ * That null means two very different things — "not a member of THIS one"
+ * and "not a member of ANY" — and treating them alike is what sent a
+ * signed-in person who opened someone else's subdomain to a page offering
+ * to create an organisation, which is not what they were trying to do.
+ *
+ * Call this only after getMembershipRecord() has come back null: it is the
+ * second question, and the answer is already cached by the first call.
+ */
+export const getHomeMembership = cache(async () => {
+  const user = await getUser()
+  if (!user) return null
+
+  const hit = homeMembershipCache.get(user.id)
+  if (hit && hit.exp > Date.now()) return hit.v
+
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('memberships')
+    .select('tenant_id, role')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: true })
+    .limit(1)
+
+  // Same reasoning as getMembershipRecord: a query failure is not the same
+  // as "belongs to nothing", and caching it as such would strip a real
+  // person's workspace for the whole TTL.
+  if (error) {
+    console.error('getHomeMembership query failed', { userId: user.id, error })
+    return null
+  }
+
+  const row = (data ?? [])[0] as { tenant_id: string; role: string } | undefined
+  const val = row ? { tenant_id: row.tenant_id, role: normalizeRole(row.role) } : null
+  evict(homeMembershipCache)
+  homeMembershipCache.set(user.id, { v: val, exp: Date.now() + MEMBERSHIP_TTL })
   return val
 })
 

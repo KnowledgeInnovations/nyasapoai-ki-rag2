@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { getUser, getMembershipRecord, getTenant, getTenantLogoPath, getWorkspaceStatus, getSessionId, touchLastActive, needsMfaStepUp } from '@/lib/supabase/server'
+import { getUser, getMembershipRecord, getHomeMembership, getTenant, getTenantLogoPath, getWorkspaceStatus, getSessionId, touchLastActive, needsMfaStepUp } from '@/lib/supabase/server'
 import { isEmailMfaEnabled } from '@/lib/emailMfaFlag'
 import { workspaceAccess } from '@/lib/workspaceStatus'
 import { subdomainFromHost, tenantUrlForHost, rootUrlForHost } from '@/lib/domain'
@@ -37,7 +37,38 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // getMembership() would turn a suspended workspace into "no workspace" and
   // send its members to set up a new one.
   const membership = await getMembershipRecord()
-  if (!membership) redirect('/auth/setup-workspace')
+  if (!membership) {
+    // Not a member of the workspace whose subdomain this is. That is not
+    // the same as having no workspace, and the two used to share an
+    // answer: both were sent to /auth/setup-workspace, which offers to
+    // create an organisation and pick a subdomain. Someone who had just
+    // opened a colleague's subdomain, or a demo one, was being asked to
+    // build a second workspace they did not want — and the code lower in
+    // this file that exists to send them to their own could never run,
+    // because this redirect fired first.
+    const host = (await headers()).get('host')
+    const landedOn = subdomainFromHost(host)
+    const home = await getHomeMembership()
+
+    if (home) {
+      const homeTenant = await getTenant(home.tenant_id)
+      if (homeTenant) {
+        // The platform workspace has no public subdomain of its own, so
+        // its members go to the root domain.
+        redirect(homeTenant.is_platform
+          ? rootUrlForHost('/admin/tenants', host)
+          : tenantUrlForHost(homeTenant.subdomain, '/ask', host))
+      }
+    }
+
+    // Signed in and a member of nothing. Creating a workspace is the right
+    // offer — but if they arrived at a particular workspace's subdomain,
+    // say so first, because the likeliest truth is that they are signed in
+    // as the wrong person rather than that they need a new organisation.
+    redirect(landedOn
+      ? `/auth/setup-workspace?workspace=${encodeURIComponent(landedOn)}`
+      : '/auth/setup-workspace')
+  }
 
   // A workspace that is suspended, unpaid or not yet provisioned is closed to
   // its members. Nothing is deleted — see workspaceAccess() — and access
@@ -54,16 +85,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const tenantName = tenant?.name ?? 'Nyansa AI'
   const isPlatformAdmin = role === 'senior' && tenant?.is_platform === true
 
-  // A session is shared across all *.nyansaai.com subdomains (see
-  // src/lib/domain.ts). If a signed-in user lands on a different tenant's
-  // subdomain, send them to their own workspace's subdomain instead. The
-  // platform tenant has no public subdomain of its own, so its members are
-  // sent to the root domain.
-  const host = (await headers()).get('host')
-  const currentSubdomain = subdomainFromHost(host)
-  if (tenant && currentSubdomain && currentSubdomain !== tenant.subdomain) {
-    redirect(tenant.is_platform ? rootUrlForHost('/admin/tenants', host) : tenantUrlForHost(tenant.subdomain, '/ask', host))
-  }
+  // Landing on another workspace's subdomain is handled above, where the
+  // membership lookup comes back empty.
+  //
+  // It used to be handled here, and could not be: getMembershipRecord()
+  // resolves membership BY the subdomain being visited, so by the time
+  // execution reached this point tenant.subdomain always equalled the
+  // host's — the condition was never true, and the real case had already
+  // been redirected to "create a workspace" twenty lines earlier.
 
   // The same workspace icon the browser tab uses, shown on the sidebar badge
   // in place of the tenant's initials. Tolerates the column being absent —
