@@ -66,3 +66,7 @@ invoice.html
 invoice*.html
 receipt*.html
 receipt*.pdf
+
+# The local SharePoint sandbox library (npm run sharepoint:demo).
+# Scratch files for testing the connector, not part of the project.
+/sandbox/

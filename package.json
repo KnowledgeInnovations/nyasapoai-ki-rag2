@@ -11,7 +11,8 @@
     "check:imports": "tsx scripts/check_imports.mts",
     "check": "tsc --noEmit -p tsconfig.check.json && eslint && tsx scripts/check_imports.mts && tsx scripts/check_deploy_config.mts",
     "queue-health": "tsx scripts/queue_health.mts",
-    "check:deploy": "tsx scripts/check_deploy_config.mts"
+    "check:deploy": "tsx scripts/check_deploy_config.mts",
+    "sharepoint:demo": "tsx scripts/sharepoint_demo.mts"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.80",

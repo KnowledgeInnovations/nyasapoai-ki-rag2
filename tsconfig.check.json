@@ -18,15 +18,39 @@
   // So this profile checks the source and leaves the generated types to
   // `next build`, which generates them itself and is the authority on
   // whether they are right.
+  //
+  // `exclude` alone was NOT enough, and this is the subtle part.
+  // next-env.d.ts ends with:
+  //
+  //   import "./.next/dev/types/routes.d.ts";
+  //
+  // and an import pulls a file in regardless of `exclude`, which only
+  // filters the initial file list. So listing next-env.d.ts here quietly
+  // re-admitted the very file this profile exists to keep out, and
+  // `npm run check` still failed with a parse error in routes.d.ts
+  // whenever a dev server happened to be writing it. Observed again on
+  // 2026-11-14, with the file truncated mid-declaration on disk.
+  //
+  // next-env.d.ts contributes nothing else that matters: its other two
+  // lines are `reference types` directives, which `types` below supplies
+  // directly.
+  //
+  // It has to be named in `exclude`, not merely left out of `include`:
+  // it is a .ts file in the project root, so `**/*.ts` matches it either
+  // way. Dropping it from `include` alone changes nothing, which is how
+  // the first attempt at this fix still failed.
   "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["next", "next/image-types/global", "node"]
+  },
   "include": [
-    "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
     "**/*.mts"
   ],
   "exclude": [
     "node_modules",
-    ".next"
+    ".next",
+    "next-env.d.ts"
   ]
 }
